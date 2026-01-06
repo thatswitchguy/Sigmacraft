@@ -53,6 +53,24 @@ export function initGame(THREE){
       opt.textContent = name;
       sel.appendChild(opt);
     }
+    
+    // GENERATE WORLD
+    const noise = new SimplexNoise();
+    const size = 20;
+    for(let x = -size; x < size; x++){
+      for(let z = -size; z < size; z++){
+        const h = Math.floor(noise.noise2D(x/15, z/15) * 4) + 5;
+        for(let y = 0; y < h; y++){
+          const type = (y === h-1) ? "grass" : "dirt";
+          const mat = blockMaterials[type];
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+          mesh.position.set(x, y, z);
+          scene.add(mesh);
+          blocks3D.push({mesh, type, pos:{x,y,z}});
+        }
+      }
+    }
+    player.group.position.y = 15;
   }
 
   // DEV MODE
