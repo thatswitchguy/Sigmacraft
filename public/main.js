@@ -323,6 +323,7 @@ export function initGame(THREE){
         if (player.cameraMode === 0) {
             // First Person: Camera follows head pitch
             camera.rotation.x = player.pitch;
+            camera.rotation.y = 0; // Reset camera local Y rotation to follow group
             // Update camera position to follow player group position plus eye level offset
             camera.position.copy(player.group.position);
             camera.position.y += 1.6;
