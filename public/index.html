@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mini Minecraft Node</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="devOverlay" style="display:none;">
+  <h2>Dev Mode</h2>
+  <label>Select Block: <select id="blockSelect"></select></label><br>
+  <label>Side: 
+    <select id="sideSelect">
+      <option value="top">Top</option>
+      <option value="bottom">Bottom</option>
+      <option value="left">Left</option>
+      <option value="right">Right</option>
+      <option value="front">Front</option>
+      <option value="back">Back</option>
+    </select>
+  </label><br>
+  <label>Color: <input type="color" id="colorPicker"></label><br>
+  <button id="applyColor">Apply</button>
+  <button id="closeDev">Close</button>
+</div>
+
+<script type="module">
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.153.0/build/three.module.js';
+  import { initGame } from './main.js';
+  initGame(THREE);
+</script>
+
+</body>
+</html>

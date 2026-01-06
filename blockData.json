@@ -1,0 +1,24 @@
+{
+  "dirt": {
+    "name": "Dirt",
+    "textures": {
+      "top": "#8B4513",
+      "bottom": "#8B4513",
+      "left": "#8B4513",
+      "right": "#8B4513",
+      "front": "#8B4513",
+      "back": "#8B4513"
+    }
+  },
+  "grass": {
+    "name": "Grass",
+    "textures": {
+      "top": "#00FF00",
+      "bottom": "#8B4513",
+      "left": "#228B22",
+      "right": "#228B22",
+      "front": "#228B22",
+      "back": "#228B22"
+    }
+  }
+}

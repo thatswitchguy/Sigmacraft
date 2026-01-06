@@ -1,0 +1,7 @@
+body { margin:0; overflow:hidden; }
+canvas { display:block; }
+#devOverlay {
+  position:absolute; top:10px; left:10px;
+  background:rgba(0,0,0,0.8); color:white; padding:15px; z-index:100;
+}
+input, select, button { margin:5px; }
