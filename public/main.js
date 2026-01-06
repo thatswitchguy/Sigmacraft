@@ -166,68 +166,84 @@ export function initGame(THREE){
     alert("Saved! Reload to see changes.");
   };
 
-  // PHYSICS
-  const GRAVITY=-0.03, SPEED=0.12, JUMP=0.6;
-  function collide(pos){
-    for(const b of blocks3D){
-      if(Math.abs(pos.x-b.mesh.position.x)<0.6 &&
-         Math.abs(pos.y-b.mesh.position.y)<1.7 &&
-         Math.abs(pos.z-b.mesh.position.z)<0.6) return true;
-    }
-    return false;
-  }
+    // PHYSICS
+    const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
+    const playerWidth = 0.3; // Half-width
+    const playerHeight = 1.8;
 
-  // RAYCAST
-  const raycaster = new THREE.Raycaster();
-  window.addEventListener("mousedown", e=>{
-    raycaster.setFromCamera({x:0,y:0},camera);
-    const intersects = raycaster.intersectObjects(blocks3D.map(b=>b.mesh));
-    if(intersects.length>0){
-      const hit = intersects[0];
-      if(e.button===0){
-        const type = document.getElementById("blockSelect").value || "dirt";
-        const mat = blockMaterials[type];
-        const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
-        const p = hit.point.clone().add(hit.face.normal);
-        newBlock.position.set(Math.floor(p.x+0.5),Math.floor(p.y+0.5),Math.floor(p.z+0.5));
-        scene.add(newBlock);
-        blocks3D.push({mesh:newBlock,type,pos:{...newBlock.position}});
-      } else if(e.button===2){
-        const obj = hit.object;
-        scene.remove(obj);
-        const idx = blocks3D.findIndex(b=>b.mesh===obj);
-        if(idx!==-1) blocks3D.splice(idx,1);
-      }
-    }
-  });
-
-  // ANIMATE
-  function animate(){
-    requestAnimationFrame(animate);
-
-    player.group.rotation.y = player.yaw;
-    camera.rotation.x = player.pitch;
-
-    const dir = new THREE.Vector3();
-    if(keys["KeyW"]) dir.z-=1;
-    if(keys["KeyS"]) dir.z+=1;
-    if(keys["KeyA"]) dir.x-=1;
-    if(keys["KeyD"]) dir.x+=1;
-    
-    if (dir.lengthSq() > 0) {
-      dir.normalize().applyAxisAngle(new THREE.Vector3(0,1,0),player.yaw);
-      player.group.position.addScaledVector(dir,SPEED);
+    function getPlayerAABB(pos) {
+        return {
+            minX: pos.x - playerWidth,
+            maxX: pos.x + playerWidth,
+            minY: pos.y,
+            maxY: pos.y + playerHeight,
+            minZ: pos.z - playerWidth,
+            maxZ: pos.z + playerWidth
+        };
     }
 
-    player.velocity.y+=GRAVITY;
-    const next=player.group.position.clone();
-    next.y+=player.velocity.y;
-    if(!collide(next)){player.group.position.y=next.y;player.onGround=false;}
-    else{player.velocity.y=0;player.onGround=true;}
-    if(keys["Space"] && player.onGround) player.velocity.y=JUMP;
+    function checkCollision(pos) {
+        const aabb = getPlayerAABB(pos);
+        // Optimize: only check nearby blocks
+        for (const b of blocks3D) {
+            const bx = b.mesh.position.x;
+            const by = b.mesh.position.y;
+            const bz = b.mesh.position.z;
 
-    renderer.render(scene,camera);
-  }
+            // Block AABB (1x1x1 centered)
+            if (aabb.maxX > bx - 0.5 && aabb.minX < bx + 0.5 &&
+                aabb.maxY > by - 0.5 && aabb.minY < by + 0.5 &&
+                aabb.maxZ > bz - 0.5 && aabb.minZ < bz + 0.5) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ANIMATE
+    function animate() {
+        requestAnimationFrame(animate);
+
+        player.group.rotation.y = player.yaw;
+        camera.rotation.x = player.pitch;
+
+        const moveDir = new THREE.Vector3();
+        if (keys["KeyW"]) moveDir.z -= 1;
+        if (keys["KeyS"]) moveDir.z += 1;
+        if (keys["KeyA"]) moveDir.x -= 1;
+        if (keys["KeyD"]) moveDir.x += 1;
+
+        if (moveDir.lengthSq() > 0) {
+            moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED);
+            
+            // X-axis collision
+            const nextX = player.group.position.clone().add(new THREE.Vector3(moveDir.x, 0, 0));
+            if (!checkCollision(nextX)) player.group.position.x = nextX.x;
+            
+            // Z-axis collision
+            const nextZ = player.group.position.clone().add(new THREE.Vector3(0, 0, moveDir.z));
+            if (!checkCollision(nextZ)) player.group.position.z = nextZ.z;
+        }
+
+        player.velocity.y += GRAVITY;
+        const nextY = player.group.position.clone();
+        nextY.y += player.velocity.y;
+
+        if (!checkCollision(nextY)) {
+            player.group.position.y = nextY.y;
+            player.onGround = false;
+        } else {
+            if (player.velocity.y < 0) player.onGround = true;
+            player.velocity.y = 0;
+        }
+
+        if (keys["Space"] && player.onGround) {
+            player.velocity.y = JUMP;
+            player.onGround = false;
+        }
+
+        renderer.render(scene, camera);
+    }
 
   loadBlocks().then(()=>animate());
 
