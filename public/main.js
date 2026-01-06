@@ -21,6 +21,12 @@ export function initGame(THREE){
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   player.group.add(camera);
 
+  // Build Minecraft Player Model
+  const modelGroup = new THREE.Group();
+  const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
+  const shirtMat = new THREE.MeshStandardMaterial({color: 0x0000ff});
+  const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
+
   // First Person Hand/Item
   const fpHandGroup = new THREE.Group();
   const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), skinMat);
@@ -46,12 +52,6 @@ export function initGame(THREE){
   scene.add(sun);
 
   // Build Minecraft Player Model
-  const modelGroup = new THREE.Group();
-  const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
-  const shirtMat = new THREE.MeshStandardMaterial({color: 0x0000ff});
-  const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
-
-  // Head
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
   head.position.y = 1.6;
   modelGroup.add(head);
