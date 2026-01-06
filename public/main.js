@@ -6,6 +6,7 @@ export function initGame(THREE){
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  player.group.add(camera); // Add camera to player group to inherit rotation
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
@@ -326,23 +327,32 @@ export function initGame(THREE){
         player.group.rotation.y = player.yaw;
         
         if (player.cameraMode === 0) {
-            // First Person: Camera follows head pitch and group rotation
+            // First Person: Camera follows head pitch and inherits group rotation
             camera.rotation.set(player.pitch, 0, 0); 
-            camera.position.copy(player.group.position);
-            camera.position.y += 1.6;
+            camera.position.set(0, 1.6, 0); // Position relative to player group
             player.model.visible = false;
         } else if (player.cameraMode === 1) {
             // Third Person Back
             player.model.visible = true;
+            // Compute world position since camera is child of group
             const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-            camera.position.copy(player.group.position).add(offset);
-            camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+            const worldPos = player.group.position.clone().add(offset);
+            
+            // To position a child in world space, we can use worldToLocal on the parent
+            camera.position.copy(player.group.worldToLocal(worldPos));
+            
+            const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+            camera.lookAt(targetPos);
         } else if (player.cameraMode === 2) {
             // Third Person Front
             player.model.visible = true;
             const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-            camera.position.copy(player.group.position).add(offset);
-            camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+            const worldPos = player.group.position.clone().add(offset);
+            
+            camera.position.copy(player.group.worldToLocal(worldPos));
+            
+            const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+            camera.lookAt(targetPos);
         }
 
         const moveDir = new THREE.Vector3();
