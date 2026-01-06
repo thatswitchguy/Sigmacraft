@@ -84,11 +84,51 @@ export function initGame(THREE){
     }
   }
 
+  // RAYCAST
+  const raycaster = new THREE.Raycaster();
+  window.addEventListener("mousedown", e => {
+    // Only allow interaction if pointer is locked
+    if (document.pointerLockElement !== renderer.domElement) return;
+
+    raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+    const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
+    if (intersects.length > 0) {
+      const hit = intersects[0];
+      if (e.button === 0) {
+        // Place block
+        const blockName = document.getElementById("blockSelect").value || "dirt";
+        const mat = blockMaterials[blockName];
+        const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
+        newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
+
+        // Don't place if player is inside
+        if (!checkCollision(newBlock.position)) {
+          scene.add(newBlock);
+          blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
+        }
+      } else if (e.button === 2) {
+        // Break block
+        const obj = hit.object;
+        scene.remove(obj);
+        const idx = blocks3D.findIndex(b => b.mesh === obj);
+        if (idx !== -1) blocks3D.splice(idx, 1);
+      }
+    }
+  });
+
+  document.addEventListener("contextmenu", e => e.preventDefault());
+
   // Handle Camera Toggle
   window.addEventListener("keydown", e => {
     if (keys["KeyF"] && keys["Digit5"]) {
       player.cameraMode = (player.cameraMode + 1) % 3;
-      updateCamera();
+      // updateCamera() is called in animate loop, but we can force visibility update
+      if (player.cameraMode === 0) {
+        player.model.visible = false;
+      } else {
+        player.model.visible = true;
+      }
     }
   });
 
