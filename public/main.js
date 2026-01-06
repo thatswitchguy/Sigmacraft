@@ -323,7 +323,9 @@ export function initGame(THREE){
         if (player.cameraMode === 0) {
             // First Person: Camera follows head pitch
             camera.rotation.x = player.pitch;
-            camera.position.set(0, 1.6, 0);
+            // Update camera position to follow player group position plus eye level offset
+            camera.position.copy(player.group.position);
+            camera.position.y += 1.6;
             player.model.visible = false;
         } else if (player.cameraMode === 1) {
             // Third Person Back
@@ -331,8 +333,6 @@ export function initGame(THREE){
             const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
             camera.position.copy(player.group.position).add(offset);
             camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
-            // Ensure first person camera reference inside the group is still at head height
-            // Although we are using the main camera, we keep its relative position correct
         } else if (player.cameraMode === 2) {
             // Third Person Front
             player.model.visible = true;
