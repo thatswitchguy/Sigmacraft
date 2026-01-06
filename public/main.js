@@ -97,6 +97,12 @@ export function initGame(THREE){
     if (intersects.length > 0) {
       const hit = intersects[0];
       if (e.button === 0) {
+        // Break block
+        const obj = hit.object;
+        scene.remove(obj);
+        const idx = blocks3D.findIndex(b => b.mesh === obj);
+        if (idx !== -1) blocks3D.splice(idx, 1);
+      } else if (e.button === 2) {
         // Place block
         const blockName = document.getElementById("blockSelect").value || "dirt";
         const mat = blockMaterials[blockName];
@@ -109,12 +115,6 @@ export function initGame(THREE){
           scene.add(newBlock);
           blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
         }
-      } else if (e.button === 2) {
-        // Break block
-        const obj = hit.object;
-        scene.remove(obj);
-        const idx = blocks3D.findIndex(b => b.mesh === obj);
-        if (idx !== -1) blocks3D.splice(idx, 1);
       }
     }
   });
@@ -284,7 +284,7 @@ export function initGame(THREE){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({blockName, side, textureData: currentPixels})
     });
-    alert("Saved! Reload to see changes.");
+    alert("Saved! Reload to see/apply changes.");
   };
 
     // PHYSICS
