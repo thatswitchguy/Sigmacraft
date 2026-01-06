@@ -15,17 +15,86 @@ export function initGame(THREE){
   sun.position.set(50,100,50);
   scene.add(sun);
 
-  const player = { group: new THREE.Group(), velocity: new THREE.Vector3(), onGround:false, yaw:0, pitch:0 };
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.8,0.8), new THREE.MeshStandardMaterial({color:0xffcc99}));
+  const player = { 
+    group: new THREE.Group(), 
+    velocity: new THREE.Vector3(), 
+    onGround: false, 
+    yaw: 0, 
+    pitch: 0,
+    cameraMode: 0 // 0: First, 1: Third Back, 2: Third Front
+  };
+
+  // Build Minecraft Player Model
+  const modelGroup = new THREE.Group();
+  
+  const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
+  const shirtMat = new THREE.MeshStandardMaterial({color: 0x0000ff});
+  const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
+
+  // Head
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
   head.position.y = 1.6;
-  player.group.add(head);
-  camera.position.set(0,1.6,0);
-  head.add(camera);
+  modelGroup.add(head);
+
+  // Body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
+  body.position.y = 1.1;
+  modelGroup.add(body);
+
+  // Arms
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+  armL.position.set(-0.3, 1.1, 0);
+  modelGroup.add(armL);
+
+  const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+  armR.position.set(0.3, 1.1, 0);
+  modelGroup.add(armR);
+
+  // Legs
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+  legL.position.set(-0.1, 0.5, 0);
+  modelGroup.add(legL);
+
+  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+  legR.position.set(0.1, 0.5, 0);
+  modelGroup.add(legR);
+
+  player.group.add(modelGroup);
+  player.model = modelGroup;
   scene.add(player.group);
 
+  camera.position.set(0, 1.6, 0);
+  
+  function updateCamera() {
+    if (player.cameraMode === 0) {
+      // First Person
+      player.model.visible = false;
+      camera.position.set(0, 1.6, 0);
+      camera.rotation.y = Math.PI; // Face forward
+    } else if (player.cameraMode === 1) {
+      // Third Person Back
+      player.model.visible = true;
+      camera.position.set(0, 2.5, 4);
+      camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+    } else if (player.cameraMode === 2) {
+      // Third Person Front
+      player.model.visible = true;
+      camera.position.set(0, 2.5, -4);
+      camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+    }
+  }
+
+  // Handle Camera Toggle
+  window.addEventListener("keydown", e => {
+    if (keys["KeyF"] && keys["Digit5"]) {
+      player.cameraMode = (player.cameraMode + 1) % 3;
+      updateCamera();
+    }
+  });
+
   const keys = {};
-  window.addEventListener("keydown", e => keys[e.code]=true);
-  window.addEventListener("keyup", e => keys[e.code]=false);
+  window.addEventListener("keydown", e => keys[e.code] = true);
+  window.addEventListener("keyup", e => keys[e.code] = false);
   renderer.domElement.addEventListener("click", ()=>renderer.domElement.requestPointerLock());
   document.addEventListener("mousemove", e=>{
     if(document.pointerLockElement!==renderer.domElement) return;
@@ -205,7 +274,25 @@ export function initGame(THREE){
         requestAnimationFrame(animate);
 
         player.group.rotation.y = player.yaw;
-        camera.rotation.x = player.pitch;
+        
+        if (player.cameraMode === 0) {
+            // First Person: Camera follows head pitch
+            camera.rotation.x = player.pitch;
+            camera.position.set(0, 1.6, 0);
+            player.model.visible = false;
+        } else if (player.cameraMode === 1) {
+            // Third Person Back
+            player.model.visible = true;
+            const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+            camera.position.copy(player.group.position).add(offset);
+            camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+        } else if (player.cameraMode === 2) {
+            // Third Person Front
+            player.model.visible = true;
+            const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+            camera.position.copy(player.group.position).add(offset);
+            camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+        }
 
         const moveDir = new THREE.Vector3();
         if (keys["KeyW"]) moveDir.z -= 1;
