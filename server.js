@@ -16,10 +16,11 @@ app.get("/textures", (req, res) => {
 });
 
 app.post("/update-block", (req, res) => {
-    const { blockName, side, colorHex } = req.body;
+    const { blockName, side, textureData } = req.body;
     const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
     if (!data[blockName]) data[blockName] = { name: blockName, textures: {} };
-    data[blockName].textures[side] = colorHex;
+    // textureData can be a hex string (legacy) or an array of 256 hex strings (new)
+    data[blockName].textures[side] = textureData;
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
 });

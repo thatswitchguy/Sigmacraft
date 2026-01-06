@@ -34,25 +34,96 @@ export function initGame(THREE){
     player.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2,player.pitch));
   });
 
+  let currentPixels = Array(256).fill("#ffffff");
+
+  function createPixelGrid() {
+    const grid = document.getElementById("pixelGrid");
+    grid.innerHTML = "";
+    for (let i = 0; i < 256; i++) {
+      const pixel = document.createElement("div");
+      pixel.className = "pixel";
+      pixel.style.backgroundColor = currentPixels[i];
+      pixel.onclick = () => {
+        const color = document.getElementById("colorPicker").value;
+        currentPixels[i] = color;
+        pixel.style.backgroundColor = color;
+      };
+      grid.appendChild(pixel);
+    }
+  }
+
+  function updateGridFromData(data) {
+    if (Array.isArray(data)) {
+      currentPixels = [...data];
+    } else if (typeof data === 'string') {
+      currentPixels = Array(256).fill(data);
+    } else {
+      currentPixels = Array(256).fill("#ffffff");
+    }
+    const pixels = document.querySelectorAll(".pixel");
+    pixels.forEach((p, i) => p.style.backgroundColor = currentPixels[i]);
+  }
+
+  document.getElementById("blockSelect").onchange = updateEditor;
+  document.getElementById("sideSelect").onchange = updateEditor;
+
+  function updateEditor() {
+    const blockName = document.getElementById("blockSelect").value;
+    const side = document.getElementById("sideSelect").value;
+    if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
+      updateGridFromData(blockTypes[blockName].textures[side]);
+    }
+  }
+
+  document.getElementById("fillButton").onclick = () => {
+    const color = document.getElementById("colorPicker").value;
+    currentPixels = Array(256).fill(color);
+    const pixels = document.querySelectorAll(".pixel");
+    pixels.forEach(p => p.style.backgroundColor = color);
+  };
+
   async function loadBlocks(){
     const res = await fetch("/textures");
     blockTypes = await res.json();
+    const sel = document.getElementById("blockSelect");
+    sel.innerHTML = "";
+    
     for(const name in blockTypes){
       const tex = blockTypes[name].textures;
-      blockMaterials[name] = [
-        new THREE.MeshStandardMaterial({ color: tex.right }),
-        new THREE.MeshStandardMaterial({ color: tex.left }),
-        new THREE.MeshStandardMaterial({ color: tex.top }),
-        new THREE.MeshStandardMaterial({ color: tex.bottom }),
-        new THREE.MeshStandardMaterial({ color: tex.front }),
-        new THREE.MeshStandardMaterial({ color: tex.back })
-      ];
-      const sel = document.getElementById("blockSelect");
+      
+      const materials = [];
+      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+      
+      sides.forEach(side => {
+        const data = tex[side];
+        if (Array.isArray(data)) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 16;
+          canvas.height = 16;
+          const ctx = canvas.getContext('2d');
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.magFilter = THREE.NearestFilter;
+          texture.minFilter = THREE.NearestFilter;
+          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+        } else {
+          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+        }
+      });
+      
+      blockMaterials[name] = materials;
+      
       const opt = document.createElement("option");
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = blockTypes[name].name || name;
       sel.appendChild(opt);
     }
+    
+    createPixelGrid();
+    updateEditor();
     
     // GENERATE WORLD
     const noise = new SimplexNoise();
@@ -77,18 +148,20 @@ export function initGame(THREE){
   window.addEventListener("keydown", e=>{
     if(e.key==">"){
       const pw = prompt("Enter dev password:");
-      if(pw==="thatswitchguy") document.getElementById("devOverlay").style.display="block";
+      if(pw==="thatswitchguy") {
+        document.getElementById("devOverlay").style.display="flex";
+        updateEditor();
+      }
     }
   });
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
   document.getElementById("applyColor").onclick = async ()=>{
     const blockName = document.getElementById("blockSelect").value;
     const side = document.getElementById("sideSelect").value;
-    const colorHex = document.getElementById("colorPicker").value;
     await fetch("/update-block",{
       method:"POST",
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({blockName,side,colorHex})
+      body:JSON.stringify({blockName, side, textureData: currentPixels})
     });
     alert("Saved! Reload to see changes.");
   };

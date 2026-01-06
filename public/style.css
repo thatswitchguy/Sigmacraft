@@ -1,7 +1,119 @@
-body { margin:0; overflow:hidden; }
+body { margin:0; overflow:hidden; font-family: sans-serif; }
 canvas { display:block; }
+
 #devOverlay {
-  position:absolute; top:10px; left:10px;
-  background:rgba(0,0,0,0.8); color:white; padding:15px; z-index:100;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(30, 30, 30, 0.95);
+  color: white;
+  padding: 20px;
+  z-index: 1000;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  max-width: 90vw;
+  max-height: 90vh;
+  border: 1px solid #444;
 }
-input, select, button { margin:5px; }
+
+.dev-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #444;
+  padding-bottom: 10px;
+}
+
+.dev-header h2 { margin: 0; font-size: 1.2rem; }
+
+#closeDev {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+#closeDev:hover { color: white; }
+
+.dev-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.editor-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 15px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.control-group label {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.tool-buttons {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+select, input[type="color"], button {
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: white;
+}
+
+.pixel-grid-container {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  background: #111;
+  border-radius: 8px;
+}
+
+.pixel-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 1px;
+  width: 320px;
+  height: 320px;
+  border: 1px solid #333;
+}
+
+.pixel {
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  border: 0.1px solid rgba(255,255,255,0.05);
+}
+.pixel:hover {
+  outline: 1px solid white;
+  z-index: 1;
+}
+
+.action-buttons {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.primary-btn {
+  background: #4a90e2;
+  border: none;
+  padding: 10px 20px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.primary-btn:hover { background: #357abd; }
