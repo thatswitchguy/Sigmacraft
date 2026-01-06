@@ -21,6 +21,21 @@ export function initGame(THREE){
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
   player.group.add(camera);
 
+  // First Person Hand/Item
+  const fpHandGroup = new THREE.Group();
+  const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), skinMat);
+  fpHand.position.set(0.5, -0.4, -0.6);
+  fpHand.rotation.x = -0.4;
+  fpHandGroup.add(fpHand);
+  
+  const fpItem = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({color: 0xffffff}));
+  fpItem.position.set(0.5, -0.2, -0.8);
+  fpItem.visible = false;
+  fpHandGroup.add(fpItem);
+  
+  camera.add(fpHandGroup);
+  player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem };
+
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
@@ -58,6 +73,12 @@ export function initGame(THREE){
   armR.geometry.translate(0, -0.3, 0); // Move pivot to top
   armR.position.y += 0.3;
   modelGroup.add(armR);
+  
+  const tpItem = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshStandardMaterial({color: 0xffffff}));
+  tpItem.position.set(0, -0.4, 0);
+  tpItem.visible = false;
+  armR.add(tpItem);
+  player.tpItem = tpItem;
 
   // Legs
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
@@ -100,9 +121,15 @@ export function initGame(THREE){
 
   // RAYCAST
   const raycaster = new THREE.Raycaster();
+  let swingTime = 0;
+  let isSwinging = false;
+
   window.addEventListener("mousedown", e => {
     // Only allow interaction if pointer is locked
     if (document.pointerLockElement !== renderer.domElement) return;
+    
+    isSwinging = true;
+    swingTime = 0;
 
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
@@ -321,6 +348,26 @@ export function initGame(THREE){
     const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
     const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
     
+    const selectedItem = player.inventory[player.selectedSlot];
+    if (selectedItem && selectedItem.type) {
+      player.fp.item.visible = true;
+      player.fp.hand.visible = false;
+      player.tpItem.visible = true;
+      
+      const mat = blockMaterials[selectedItem.type];
+      if (Array.isArray(mat)) {
+        player.fp.item.material = mat[4]; // Use front face for visual
+        player.tpItem.material = mat[4];
+      } else {
+        player.fp.item.material = mat;
+        player.tpItem.material = mat;
+      }
+    } else {
+      player.fp.item.visible = false;
+      player.fp.hand.visible = true;
+      player.tpItem.visible = false;
+    }
+
     const updateSlot = (slot, i) => {
       const inventoryIdx = i + 27;
       slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
@@ -523,6 +570,18 @@ export function initGame(THREE){
 
     player.group.rotation.y = player.yaw;
     
+    if (isSwinging) {
+      swingTime += 0.2;
+      const swingAngle = Math.sin(swingTime) * 0.8;
+      player.fp.handGroup.rotation.x = swingAngle;
+      player.limbs.armR.rotation.x = -1.0 + swingAngle;
+      if (swingTime > Math.PI) {
+        isSwinging = false;
+        player.fp.handGroup.rotation.x = 0;
+        player.limbs.armR.rotation.x = 0;
+      }
+    }
+
     const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
     if (isMoving && player.onGround) {
       animationTime += 0.15;
