@@ -3,19 +3,6 @@ export function initGame(THREE){
   let blockMaterials = {};
   const blocks3D = [];
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-  player.group.add(camera); // Add camera to player group to inherit rotation
-  const renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  scene.add(new THREE.AmbientLight(0xffffff,0.4));
-  const sun = new THREE.DirectionalLight(0xffffff,0.8);
-  sun.position.set(50,100,50);
-  scene.add(sun);
-
   const player = { 
     group: new THREE.Group(), 
     velocity: new THREE.Vector3(), 
@@ -25,9 +12,23 @@ export function initGame(THREE){
     cameraMode: 0 // 0: First, 1: Third Back, 2: Third Front
   };
 
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
+  
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  player.group.add(camera);
+
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff,0.4));
+  const sun = new THREE.DirectionalLight(0xffffff,0.8);
+  sun.position.set(50,100,50);
+  scene.add(sun);
+
   // Build Minecraft Player Model
   const modelGroup = new THREE.Group();
-  
   const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
   const shirtMat = new THREE.MeshStandardMaterial({color: 0x0000ff});
   const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
