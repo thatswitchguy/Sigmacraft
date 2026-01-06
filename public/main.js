@@ -331,6 +331,8 @@ export function initGame(THREE){
             const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
             camera.position.copy(player.group.position).add(offset);
             camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+            // Ensure first person camera reference inside the group is still at head height
+            // Although we are using the main camera, we keep its relative position correct
         } else if (player.cameraMode === 2) {
             // Third Person Front
             player.model.visible = true;
@@ -348,12 +350,17 @@ export function initGame(THREE){
         if (moveDir.lengthSq() > 0) {
             moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED);
             
+            // Current position before move
+            const currentPos = player.group.position.clone();
+            
             // X-axis collision
-            const nextX = player.group.position.clone().add(new THREE.Vector3(moveDir.x, 0, 0));
+            const nextX = currentPos.clone();
+            nextX.x += moveDir.x;
             if (!checkCollision(nextX)) player.group.position.x = nextX.x;
             
             // Z-axis collision
-            const nextZ = player.group.position.clone().add(new THREE.Vector3(0, 0, moveDir.z));
+            const nextZ = player.group.position.clone(); // Use updated X if it moved
+            nextZ.z += moveDir.z;
             if (!checkCollision(nextZ)) player.group.position.z = nextZ.z;
         }
 
