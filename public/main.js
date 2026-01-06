@@ -304,8 +304,10 @@ export function initGame(THREE){
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
   
   function updateHotbarUI() {
-    const slots = document.querySelectorAll("#hotbar .slot");
-    slots.forEach((slot, i) => {
+    const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
+    const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
+    
+    const updateSlot = (slot, i) => {
       slot.classList.toggle("selected", i === player.selectedSlot);
       slot.innerHTML = "";
       const blockName = player.inventory[i];
@@ -313,23 +315,46 @@ export function initGame(THREE){
         const icon = createBlockIcon(blockName);
         slot.appendChild(icon);
       }
-    });
+    };
+
+    mainHotbarSlots.forEach(updateSlot);
+    invHotbarSlots.forEach(updateSlot);
   }
 
   function setupInventoryUI() {
+    // Setup block selection grid
     const grid = document.getElementById("inventoryGrid");
     grid.innerHTML = "";
-    Object.keys(blockTypes).forEach(name => {
+    
+    // Fill 3x9 grid (27 slots) with available blocks or empty slots
+    const blockNames = Object.keys(blockTypes);
+    for (let i = 0; i < 27; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
-      const icon = createBlockIcon(name);
-      slot.appendChild(icon);
+      const name = blockNames[i];
+      if (name) {
+        const icon = createBlockIcon(name);
+        slot.appendChild(icon);
+        slot.onclick = () => {
+          player.inventory[player.selectedSlot] = name;
+          updateHotbarUI();
+        };
+      }
+      grid.appendChild(slot);
+    }
+
+    // Setup hotbar link in inventory
+    const hotbarGrid = document.getElementById("hotbarSlots");
+    hotbarGrid.innerHTML = "";
+    for (let i = 0; i < 9; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
       slot.onclick = () => {
-        player.inventory[player.selectedSlot] = name;
+        player.selectedSlot = i;
         updateHotbarUI();
       };
-      grid.appendChild(slot);
-    });
+      hotbarGrid.appendChild(slot);
+    }
   }
 
   function createBlockIcon(blockName) {
