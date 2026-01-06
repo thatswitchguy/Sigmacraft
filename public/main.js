@@ -9,7 +9,9 @@ export function initGame(THREE){
     onGround: false, 
     yaw: 0, 
     pitch: 0,
-    cameraMode: 0 // 0: First, 1: Third Back, 2: Third Front
+    cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front
+    inventory: ["grass", "dirt", "stone", "cobblestone", "oak_log", "oak_leaves", null, null, null],
+    selectedSlot: 0
   };
 
   const scene = new THREE.Scene();
@@ -104,7 +106,9 @@ export function initGame(THREE){
         if (idx !== -1) blocks3D.splice(idx, 1);
       } else if (e.button === 2) {
         // Place block
-        const blockName = document.getElementById("blockSelect").value || "dirt";
+        const blockName = player.inventory[player.selectedSlot];
+        if (!blockName) return;
+        
         const mat = blockMaterials[blockName];
         const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
         const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
@@ -121,8 +125,28 @@ export function initGame(THREE){
 
   document.addEventListener("contextmenu", e => e.preventDefault());
 
-  // Handle Camera Toggle
+  // Handle Camera Toggle and Inventory
   window.addEventListener("keydown", e => {
+    // Inventory slots 1-9
+    if (e.code.startsWith("Digit") && e.code !== "Digit0") {
+      const slot = parseInt(e.code.replace("Digit", "")) - 1;
+      if (slot >= 0 && slot < 9) {
+        player.selectedSlot = slot;
+        updateHotbarUI();
+      }
+    }
+
+    if (e.code === "KeyE") {
+      const inv = document.getElementById("inventoryOverlay");
+      if (inv.style.display === "none") {
+        inv.style.display = "flex";
+        document.exitPointerLock();
+      } else {
+        inv.style.display = "none";
+        renderer.domElement.requestPointerLock();
+      }
+    }
+
     // Single key press logic for F and 5
     if (e.code === "KeyF" && keys["Digit5"] || e.code === "Digit5" && keys["KeyF"]) {
       // Prevent rapid switching by checking if we already toggled this press
@@ -245,6 +269,8 @@ export function initGame(THREE){
     
     createPixelGrid();
     updateEditor();
+    setupInventoryUI();
+    updateHotbarUI();
     
     // GENERATE WORLD
     const noise = new SimplexNoise();
@@ -276,6 +302,60 @@ export function initGame(THREE){
     }
   });
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
+  
+  function updateHotbarUI() {
+    const slots = document.querySelectorAll("#hotbar .slot");
+    slots.forEach((slot, i) => {
+      slot.classList.toggle("selected", i === player.selectedSlot);
+      slot.innerHTML = "";
+      const blockName = player.inventory[i];
+      if (blockName && blockTypes[blockName]) {
+        const icon = createBlockIcon(blockName);
+        slot.appendChild(icon);
+      }
+    });
+  }
+
+  function setupInventoryUI() {
+    const grid = document.getElementById("inventoryGrid");
+    grid.innerHTML = "";
+    Object.keys(blockTypes).forEach(name => {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const icon = createBlockIcon(name);
+      slot.appendChild(icon);
+      slot.onclick = () => {
+        player.inventory[player.selectedSlot] = name;
+        updateHotbarUI();
+      };
+      grid.appendChild(slot);
+    });
+  }
+
+  function createBlockIcon(blockName) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext("2d");
+    const tex = blockTypes[blockName].textures.front || blockTypes[blockName].textures.top || "#ffffff";
+    
+    if (Array.isArray(tex)) {
+      tex.forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+    } else {
+      ctx.fillStyle = tex;
+      ctx.fillRect(0, 0, 16, 16);
+    }
+    return canvas;
+  }
+
+  document.getElementById("closeInventory").onclick = () => {
+    document.getElementById("inventoryOverlay").style.display = "none";
+    renderer.domElement.requestPointerLock();
+  };
+
   document.getElementById("applyColor").onclick = async ()=>{
     const blockName = document.getElementById("blockSelect").value;
     const side = document.getElementById("sideSelect").value;
