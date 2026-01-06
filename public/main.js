@@ -49,19 +49,27 @@ export function initGame(THREE){
   // Arms
   const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
   armL.position.set(-0.3, 1.1, 0);
+  armL.geometry.translate(0, -0.3, 0); // Move pivot to top
+  armL.position.y += 0.3;
   modelGroup.add(armL);
 
   const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
   armR.position.set(0.3, 1.1, 0);
+  armR.geometry.translate(0, -0.3, 0); // Move pivot to top
+  armR.position.y += 0.3;
   modelGroup.add(armR);
 
   // Legs
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legL.position.set(-0.1, 0.3, 0);
+  legL.position.set(-0.1, 0.5, 0);
+  legL.geometry.translate(0, -0.3, 0); // Move pivot to top
+  legL.position.y += 0.3;
   modelGroup.add(legL);
 
   const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legR.position.set(0.1, 0.3, 0);
+  legR.position.set(0.1, 0.5, 0);
+  legR.geometry.translate(0, -0.3, 0); // Move pivot to top
+  legR.position.y += 0.3;
   modelGroup.add(legR);
 
   player.group.add(modelGroup);
