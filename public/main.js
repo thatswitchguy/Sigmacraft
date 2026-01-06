@@ -10,8 +10,9 @@ export function initGame(THREE){
     yaw: 0, 
     pitch: 0,
     cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front
-    inventory: ["grass", "dirt", "stone", "cobblestone", "oak_log", "oak_leaves", null, null, null],
-    selectedSlot: 0
+    inventory: Array(36).fill(null).map(() => ({ type: null, count: 0 })), // 27 inventory + 9 hotbar
+    selectedSlot: 27, // Start at first hotbar slot (27-35)
+    draggedItem: null
   };
 
   const scene = new THREE.Scene();
@@ -106,9 +107,10 @@ export function initGame(THREE){
         if (idx !== -1) blocks3D.splice(idx, 1);
       } else if (e.button === 2) {
         // Place block
-        const blockName = player.inventory[player.selectedSlot];
-        if (!blockName) return;
+        const slot = player.inventory[player.selectedSlot];
+        if (!slot || !slot.type || slot.count <= 0) return;
         
+        const blockName = slot.type;
         const mat = blockMaterials[blockName];
         const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
         const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
@@ -118,6 +120,9 @@ export function initGame(THREE){
         if (!checkCollision(newBlock.position)) {
           scene.add(newBlock);
           blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
+          slot.count--;
+          if (slot.count <= 0) slot.type = null;
+          updateHotbarUI();
         }
       }
     }
@@ -131,7 +136,7 @@ export function initGame(THREE){
     if (e.code.startsWith("Digit") && e.code !== "Digit0") {
       const slot = parseInt(e.code.replace("Digit", "")) - 1;
       if (slot >= 0 && slot < 9) {
-        player.selectedSlot = slot;
+        player.selectedSlot = 27 + slot;
         updateHotbarUI();
       }
     }
@@ -308,54 +313,130 @@ export function initGame(THREE){
     const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
     
     const updateSlot = (slot, i) => {
-      slot.classList.toggle("selected", i === player.selectedSlot);
+      const inventoryIdx = i + 27;
+      slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
       slot.innerHTML = "";
-      const blockName = player.inventory[i];
-      if (blockName && blockTypes[blockName]) {
-        const icon = createBlockIcon(blockName);
+      const item = player.inventory[inventoryIdx];
+      if (item && item.type && blockTypes[item.type]) {
+        const icon = createBlockIcon(item.type);
         slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
       }
     };
 
-    mainHotbarSlots.forEach(updateSlot);
-    invHotbarSlots.forEach(updateSlot);
+    mainHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
+    invHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
   }
 
   function setupInventoryUI() {
-    // Setup block selection grid
-    const grid = document.getElementById("inventoryGrid");
-    grid.innerHTML = "";
-    
-    // Fill 3x9 grid (27 slots) with available blocks or empty slots
-    const blockNames = Object.keys(blockTypes);
-    for (let i = 0; i < 27; i++) {
+    // Setup catalog grid
+    const catalog = document.getElementById("blockCatalog");
+    catalog.innerHTML = "";
+    Object.keys(blockTypes).forEach(name => {
       const slot = document.createElement("div");
       slot.className = "slot";
-      const name = blockNames[i];
-      if (name) {
-        const icon = createBlockIcon(name);
-        slot.appendChild(icon);
-        slot.onclick = () => {
-          player.inventory[player.selectedSlot] = name;
+      slot.appendChild(createBlockIcon(name));
+      slot.onclick = () => {
+        let found = player.inventory.find(s => s.type === name && s.count < 64);
+        if (!found) found = player.inventory.find(s => s.type === null);
+        if (found) {
+          found.type = name;
+          found.count = 64;
           updateHotbarUI();
-        };
-      }
-      grid.appendChild(slot);
-    }
+          renderInventoryGrid();
+        }
+      };
+      catalog.appendChild(slot);
+    });
+
+    renderInventoryGrid();
 
     // Setup hotbar link in inventory
     const hotbarGrid = document.getElementById("hotbarSlots");
     hotbarGrid.innerHTML = "";
     for (let i = 0; i < 9; i++) {
+      const inventoryIdx = i + 27;
       const slot = document.createElement("div");
       slot.className = "slot";
-      slot.onclick = () => {
-        player.selectedSlot = i;
-        updateHotbarUI();
-      };
+      slot.onclick = (e) => handleSlotClick(e, inventoryIdx);
       hotbarGrid.appendChild(slot);
     }
   }
+
+  function renderInventoryGrid() {
+    // Actually we need a main inventory grid (27 slots)
+    // The previous implementation used the block list as the grid.
+    // Let's repurpose #inventoryGrid to show the player's 27 inventory slots
+    const grid = document.getElementById("inventoryGrid");
+    grid.innerHTML = "";
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = player.inventory[i];
+      if (item && item.type) {
+        const icon = createBlockIcon(item.type);
+        slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+      }
+      slot.onclick = (e) => handleSlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function handleSlotClick(e, idx) {
+    if (player.draggedItem === null) {
+      if (player.inventory[idx].type) {
+        player.draggedItem = { ...player.inventory[idx], sourceIdx: idx };
+        player.inventory[idx] = { type: null, count: 0 };
+        // Create visual drag element
+        const dragEl = document.createElement("div");
+        dragEl.id = "dragged-item";
+        dragEl.appendChild(createBlockIcon(player.draggedItem.type));
+        document.body.appendChild(dragEl);
+        updateDragPos(e);
+      }
+    } else {
+      // Swap or place
+      const target = player.inventory[idx];
+      if (target.type === player.draggedItem.type) {
+        target.count += player.draggedItem.count;
+      } else {
+        player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
+        if (target.type) {
+           // Swap back if target was not empty? 
+           // For simplicity, let's just place and if target existed, put it back in source or just swap
+           player.inventory[player.draggedItem.sourceIdx] = target;
+        }
+      }
+      player.draggedItem = null;
+      const dragEl = document.getElementById("dragged-item");
+      if (dragEl) dragEl.remove();
+    }
+    renderInventoryGrid();
+    updateHotbarUI();
+  }
+
+  function updateDragPos(e) {
+    const dragEl = document.getElementById("dragged-item");
+    if (dragEl) {
+      dragEl.style.left = e.clientX + "px";
+      dragEl.style.top = e.clientY + "px";
+    }
+  }
+
+  window.addEventListener("mousemove", (e) => {
+    if (player.draggedItem) updateDragPos(e);
+  });
 
   function createBlockIcon(blockName) {
     const canvas = document.createElement("canvas");
