@@ -121,14 +121,16 @@ export function initGame(THREE){
 
   // Handle Camera Toggle
   window.addEventListener("keydown", e => {
+    // Check for both F and 5 keys. 
+    // Using keys["KeyF"] and keys["Digit5"] from our global keys object
     if (keys["KeyF"] && keys["Digit5"]) {
       player.cameraMode = (player.cameraMode + 1) % 3;
-      // updateCamera() is called in animate loop, but we can force visibility update
       if (player.cameraMode === 0) {
         player.model.visible = false;
       } else {
         player.model.visible = true;
       }
+      e.preventDefault(); // Prevent browser shortcuts
     }
   });
 
@@ -136,11 +138,14 @@ export function initGame(THREE){
   window.addEventListener("keydown", e => keys[e.code] = true);
   window.addEventListener("keyup", e => keys[e.code] = false);
   renderer.domElement.addEventListener("click", ()=>renderer.domElement.requestPointerLock());
-  document.addEventListener("mousemove", e=>{
-    if(document.pointerLockElement!==renderer.domElement) return;
-    player.yaw -= e.movementX*0.002;
-    player.pitch -= e.movementY*0.002;
-    player.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2,player.pitch));
+  document.addEventListener("mousemove", e => {
+    if (document.pointerLockElement !== renderer.domElement) return;
+    player.yaw -= e.movementX * 0.002;
+    player.pitch -= e.movementY * 0.002;
+    player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+    
+    // Explicitly update model rotation to match yaw
+    player.group.rotation.y = player.yaw;
   });
 
   let currentPixels = Array(256).fill("#ffffff");
