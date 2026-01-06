@@ -121,16 +121,18 @@ export function initGame(THREE){
 
   // Handle Camera Toggle
   window.addEventListener("keydown", e => {
-    // Check for both F and 5 keys. 
-    // Using keys["KeyF"] and keys["Digit5"] from our global keys object
-    if (keys["KeyF"] && keys["Digit5"]) {
-      player.cameraMode = (player.cameraMode + 1) % 3;
-      if (player.cameraMode === 0) {
-        player.model.visible = false;
-      } else {
-        player.model.visible = true;
+    // Single key press logic for F and 5
+    if (e.code === "KeyF" && keys["Digit5"] || e.code === "Digit5" && keys["KeyF"]) {
+      // Prevent rapid switching by checking if we already toggled this press
+      if (!e.repeat) {
+        player.cameraMode = (player.cameraMode + 1) % 3;
+        if (player.cameraMode === 0) {
+          player.model.visible = false;
+        } else {
+          player.model.visible = true;
+        }
+        e.preventDefault();
       }
-      e.preventDefault(); // Prevent browser shortcuts
     }
   });
 
@@ -140,11 +142,14 @@ export function initGame(THREE){
   renderer.domElement.addEventListener("click", ()=>renderer.domElement.requestPointerLock());
   document.addEventListener("mousemove", e => {
     if (document.pointerLockElement !== renderer.domElement) return;
-    player.yaw -= e.movementX * 0.002;
-    player.pitch -= e.movementY * 0.002;
+    
+    // Sensitivity factor
+    const sensitivity = 0.002;
+    player.yaw -= e.movementX * sensitivity;
+    player.pitch -= e.movementY * sensitivity;
     player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
     
-    // Explicitly update model rotation to match yaw
+    // Apply horizontal rotation to the player group
     player.group.rotation.y = player.yaw;
   });
 
@@ -321,10 +326,8 @@ export function initGame(THREE){
         player.group.rotation.y = player.yaw;
         
         if (player.cameraMode === 0) {
-            // First Person: Camera follows head pitch
-            camera.rotation.x = player.pitch;
-            camera.rotation.y = 0; // Reset camera local Y rotation to follow group
-            // Update camera position to follow player group position plus eye level offset
+            // First Person: Camera follows head pitch and group rotation
+            camera.rotation.set(player.pitch, 0, 0); 
             camera.position.copy(player.group.position);
             camera.position.y += 1.6;
             player.model.visible = false;
