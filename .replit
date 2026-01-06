@@ -46,4 +46,4 @@ outputType = "webview"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm start"
-waitForPort = 5000
+
