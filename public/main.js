@@ -57,15 +57,16 @@ export function initGame(THREE){
 
   // Legs
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legL.position.set(-0.1, 0.5, 0);
+  legL.position.set(-0.1, 0.3, 0);
   modelGroup.add(legL);
 
   const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legR.position.set(0.1, 0.5, 0);
+  legR.position.set(0.1, 0.3, 0);
   modelGroup.add(legR);
 
   player.group.add(modelGroup);
   player.model = modelGroup;
+  player.limbs = { armL, armR, legL, legR };
   scene.add(player.group);
 
   camera.position.set(0, 1.6, 0);
@@ -507,13 +508,29 @@ export function initGame(THREE){
         return false;
     }
 
-    // ANIMATE
-    function animate() {
-        requestAnimationFrame(animate);
+  // ANIMATE
+  let animationTime = 0;
+  function animate() {
+    requestAnimationFrame(animate);
 
-        player.group.rotation.y = player.yaw;
-        
-        if (player.cameraMode === 0) {
+    player.group.rotation.y = player.yaw;
+    
+    const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
+    if (isMoving && player.onGround) {
+      animationTime += 0.15;
+      const angle = Math.sin(animationTime) * 0.5;
+      player.limbs.legL.rotation.x = angle;
+      player.limbs.legR.rotation.x = -angle;
+      player.limbs.armL.rotation.x = -angle;
+      player.limbs.armR.rotation.x = angle;
+    } else {
+      player.limbs.legL.rotation.x = 0;
+      player.limbs.legR.rotation.x = 0;
+      player.limbs.armL.rotation.x = 0;
+      player.limbs.armR.rotation.x = 0;
+    }
+
+    if (player.cameraMode === 0) {
             // First Person: Camera follows head pitch and inherits group rotation
             camera.rotation.set(player.pitch, 0, 0); 
             camera.position.set(0, 1.6, 0); // Position relative to player group
