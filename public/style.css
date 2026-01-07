@@ -103,6 +103,24 @@ canvas { display:block; }
   border-color: #fff;
 }
 
+.mc-input {
+  background: #000;
+  border: 2px solid #555;
+  color: #fff;
+  padding: 10px;
+  font-size: 16px;
+  flex: 1;
+  outline: none;
+}
+
+.mc-input:focus {
+  border-color: #aaa;
+}
+
+.splash-editor-group {
+  grid-column: 1 / -1;
+}
+
 .dev-password-buttons {
   display: flex;
   gap: 10px;

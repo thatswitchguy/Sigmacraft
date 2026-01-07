@@ -367,19 +367,25 @@ export function initGame(THREE){
   // Add splash editor to dev layout
   const splashInput = document.createElement("input");
   splashInput.id = "splashInput";
-  splashInput.placeholder = "Edit Splash Text";
-  splashInput.style.margin = "10px";
+  splashInput.placeholder = "Enter new splash text...";
+  splashInput.className = "mc-input";
   
   const saveSplashBtn = document.createElement("button");
-  saveSplashBtn.textContent = "Save Splash";
+  saveSplashBtn.textContent = "Update Splash";
+  saveSplashBtn.className = "mc-btn";
+  saveSplashBtn.style.width = "auto";
+  saveSplashBtn.style.padding = "10px 20px";
+  
   saveSplashBtn.onclick = async () => {
+    if (!splashInput.value.trim()) return;
     await fetch("/update-splash", {
       method: "POST",
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ splash: splashInput.value })
     });
     document.getElementById("splashText").textContent = splashInput.value;
-    alert("Splash updated!");
+    splashInput.value = "";
+    alert("Splash text updated successfully!");
   };
 
   // Append to dev content
@@ -387,9 +393,25 @@ export function initGame(THREE){
     const devContent = document.querySelector(".dev-content");
     if (devContent) {
       const group = document.createElement("div");
-      group.className = "control-group";
-      group.appendChild(splashInput);
-      group.appendChild(saveSplashBtn);
+      group.className = "control-group splash-editor-group";
+      group.style.borderTop = "1px solid #444";
+      group.style.paddingTop = "20px";
+      group.style.marginTop = "10px";
+      
+      const label = document.createElement("label");
+      label.textContent = "Splash Text Editor";
+      label.style.display = "block";
+      label.style.marginBottom = "10px";
+      label.style.color = "#aaa";
+      
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "10px";
+      row.appendChild(splashInput);
+      row.appendChild(saveSplashBtn);
+      
+      group.appendChild(label);
+      group.appendChild(row);
       devContent.appendChild(group);
     }
   }, 100);
