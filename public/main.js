@@ -259,7 +259,88 @@ export function initGame(THREE){
     if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
+    
+    // Update sidebar active state
+    document.querySelectorAll(".sidebar-item").forEach(item => {
+      item.classList.toggle("active", item.dataset.id === blockName);
+    });
   }
+
+  function updateSidebar() {
+    const list = document.getElementById("blockSidebarList");
+    list.innerHTML = "";
+    Object.keys(blockTypes).forEach(id => {
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      item.dataset.id = id;
+      
+      const icon = createBlockIcon(id);
+      item.appendChild(icon);
+      
+      const label = document.createElement("span");
+      label.textContent = blockTypes[id].name || id;
+      item.appendChild(label);
+      
+      item.onclick = () => {
+        document.getElementById("blockSelect").value = id;
+        updateEditor();
+      };
+      list.appendChild(item);
+    });
+  }
+
+  document.getElementById("addBlockBtn").onclick = () => {
+    document.getElementById("newBlockOverlay").style.display = "flex";
+  };
+
+  document.getElementById("newBlockCancel").onclick = () => {
+    document.getElementById("newBlockOverlay").style.display = "none";
+  };
+
+  document.getElementById("newBlockSubmit").onclick = async () => {
+    const id = document.getElementById("newBlockId").value.trim().toLowerCase().replace(/\s+/g, '_');
+    const name = document.getElementById("newBlockName").value.trim();
+    
+    if (!id || !name) return alert("Please enter ID and Name");
+    if (blockTypes[id]) return alert("Block ID already exists");
+
+    // Initialize with default white texture
+    const defaultTex = Array(256).fill("#ffffff");
+    blockTypes[id] = {
+      name: name,
+      textures: {
+        top: defaultTex,
+        bottom: defaultTex,
+        left: defaultTex,
+        right: defaultTex,
+        front: defaultTex,
+        back: defaultTex
+      }
+    };
+
+    // Save initial state to server
+    for (const side in blockTypes[id].textures) {
+      await fetch("/update-block", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({blockName: id, side, textureData: defaultTex})
+      });
+    }
+
+    // Update UI
+    const sel = document.getElementById("blockSelect");
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = name;
+    sel.appendChild(opt);
+    sel.value = id;
+
+    document.getElementById("newBlockOverlay").style.display = "none";
+    updateSidebar();
+    updateEditor();
+    setupInventoryUI(); // Refresh creative menu
+    alert("New block created! Restart game to see it in world generation.");
+  };
 
   document.getElementById("fillButton").onclick = () => {
     const color = document.getElementById("colorPicker").value;
@@ -309,6 +390,7 @@ export function initGame(THREE){
     }
     
     createPixelGrid();
+    updateSidebar();
     updateEditor();
     setupInventoryUI();
     updateHotbarUI();
