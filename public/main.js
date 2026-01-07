@@ -539,7 +539,7 @@ export function initGame(THREE){
       slot.className = "slot";
       
       const item = player.inventory[inventoryIdx];
-      if (item && item.type) {
+      if (item && item.type && blockTypes[item.type]) {
         slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
         slot.onmouseleave = hideTooltip;
       }
