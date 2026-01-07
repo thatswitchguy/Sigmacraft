@@ -25,4 +25,18 @@ app.post("/update-block", (req, res) => {
     res.json({ success: true });
 });
 
+app.get("/config", (req, res) => {
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    res.json({ splash: data._config?.splash || "Welcome to Minecraft Clone!" });
+});
+
+app.post("/update-splash", (req, res) => {
+    const { splash } = req.body;
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    if (!data._config) data._config = {};
+    data._config.splash = splash;
+    fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

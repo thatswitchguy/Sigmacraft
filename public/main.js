@@ -349,7 +349,53 @@ export function initGame(THREE){
     pixels.forEach(p => p.style.backgroundColor = color);
   };
 
+  async function initTitle() {
+    const res = await fetch("/config");
+    const config = await res.json();
+    document.getElementById("splashText").textContent = config.splash;
+  }
+
+  document.getElementById("playBtn").onclick = () => {
+    document.getElementById("titleScreen").style.display = "none";
+    renderer.domElement.requestPointerLock();
+  };
+
+  document.getElementById("devModeBtn").onclick = () => {
+    document.getElementById("devPasswordOverlay").style.display = "flex";
+  };
+
+  // Add splash editor to dev layout
+  const splashInput = document.createElement("input");
+  splashInput.id = "splashInput";
+  splashInput.placeholder = "Edit Splash Text";
+  splashInput.style.margin = "10px";
+  
+  const saveSplashBtn = document.createElement("button");
+  saveSplashBtn.textContent = "Save Splash";
+  saveSplashBtn.onclick = async () => {
+    await fetch("/update-splash", {
+      method: "POST",
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ splash: splashInput.value })
+    });
+    document.getElementById("splashText").textContent = splashInput.value;
+    alert("Splash updated!");
+  };
+
+  // Append to dev content
+  setTimeout(() => {
+    const devContent = document.querySelector(".dev-content");
+    if (devContent) {
+      const group = document.createElement("div");
+      group.className = "control-group";
+      group.appendChild(splashInput);
+      group.appendChild(saveSplashBtn);
+      devContent.appendChild(group);
+    }
+  }, 100);
+
   async function loadBlocks(){
+    await initTitle();
     const res = await fetch("/textures");
     blockTypes = await res.json();
     const sel = document.getElementById("blockSelect");
