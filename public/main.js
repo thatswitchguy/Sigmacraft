@@ -416,8 +416,52 @@ export function initGame(THREE){
     }
   }, 100);
 
+  async function applySkin(skinData) {
+    if (!skinData) return;
+    const img = new Image();
+    img.onload = () => {
+      const tex = new THREE.CanvasTexture(img);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      
+      const skinMat = new THREE.MeshStandardMaterial({ map: tex });
+      player.model.traverse(child => {
+        if (child.isMesh && child !== player.tpItem) {
+          child.material = skinMat;
+        }
+      });
+      player.fp.hand.material = skinMat;
+    };
+    img.src = skinData;
+  }
+
+  document.getElementById("skinUploadBtn").onclick = () => {
+    document.getElementById("skinFileInput").click();
+  };
+
+  document.getElementById("skinFileInput").onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const skinData = event.target.result;
+      await fetch("/update-skin", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ skin: skinData })
+      });
+      applySkin(skinData);
+      alert("Skin uploaded and applied!");
+    };
+    reader.readAsDataURL(file);
+  };
+
   async function loadBlocks(){
     await initTitle();
+    const skinRes = await fetch("/skin");
+    const skinData = await skinRes.json();
+    if (skinData.skin) applySkin(skinData.skin);
+    
     const res = await fetch("/textures");
     blockTypes = await res.json();
     const sel = document.getElementById("blockSelect");

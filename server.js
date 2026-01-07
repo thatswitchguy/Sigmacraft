@@ -39,4 +39,18 @@ app.post("/update-splash", (req, res) => {
     res.json({ success: true });
 });
 
+app.get("/skin", (req, res) => {
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    res.json({ skin: data._config?.skin || null });
+});
+
+app.post("/update-skin", (req, res) => {
+    const { skin } = req.body; // base64 skin texture
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    if (!data._config) data._config = {};
+    data._config.skin = skin;
+    fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
