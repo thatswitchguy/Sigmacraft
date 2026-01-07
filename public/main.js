@@ -369,6 +369,7 @@ export function initGame(THREE){
   splashInput.id = "splashInput";
   splashInput.placeholder = "Enter new splash text...";
   splashInput.className = "mc-input";
+  splashInput.style.flex = "1";
   
   const saveSplashBtn = document.createElement("button");
   saveSplashBtn.textContent = "Update Splash";
@@ -392,6 +393,53 @@ export function initGame(THREE){
   setTimeout(() => {
     const devContent = document.querySelector(".dev-content");
     if (devContent) {
+      // Skin Upload Section
+      const skinGroup = document.createElement("div");
+      skinGroup.className = "control-group skin-editor-group";
+      skinGroup.style.borderTop = "1px solid #444";
+      skinGroup.style.paddingTop = "20px";
+      skinGroup.style.marginTop = "10px";
+      
+      const skinLabel = document.createElement("label");
+      skinLabel.textContent = "Character Skin";
+      skinLabel.style.display = "block";
+      skinLabel.style.marginBottom = "10px";
+      skinLabel.style.color = "#aaa";
+
+      const skinBtn = document.createElement("button");
+      skinBtn.textContent = "Upload New Skin (PNG)";
+      skinBtn.className = "mc-btn";
+      skinBtn.style.width = "100%";
+      skinBtn.onclick = () => document.getElementById("skinFileInput").click();
+
+      const skinInput = document.createElement("input");
+      skinInput.type = "file";
+      skinInput.id = "skinFileInput";
+      skinInput.accept = "image/png";
+      skinInput.style.display = "none";
+      skinInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const skinData = event.target.result;
+          await fetch("/update-skin", {
+            method: "POST",
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ skin: skinData })
+          });
+          applySkin(skinData);
+          alert("Skin updated!");
+        };
+        reader.readAsDataURL(file);
+      };
+
+      skinGroup.appendChild(skinLabel);
+      skinGroup.appendChild(skinBtn);
+      skinGroup.appendChild(skinInput);
+      devContent.appendChild(skinGroup);
+
+      // Splash Editor Section
       const group = document.createElement("div");
       group.className = "control-group splash-editor-group";
       group.style.borderTop = "1px solid #444";
@@ -407,6 +455,7 @@ export function initGame(THREE){
       const row = document.createElement("div");
       row.style.display = "flex";
       row.style.gap = "10px";
+      row.style.width = "100%";
       row.appendChild(splashInput);
       row.appendChild(saveSplashBtn);
       

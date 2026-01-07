@@ -119,6 +119,14 @@ canvas { display:block; }
 
 .splash-editor-group {
   grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.skin-editor-group {
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .dev-password-buttons {
