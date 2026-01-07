@@ -135,6 +135,10 @@ export function initGame(THREE){
     const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
     if (intersects.length > 0) {
       const hit = intersects[0];
+      
+      // Range check
+      if (hit.distance > 6) return;
+
       if (e.button === 0) {
         // Break block
         const obj = hit.object;
@@ -186,6 +190,13 @@ export function initGame(THREE){
         inv.style.display = "none";
         renderer.domElement.requestPointerLock();
       }
+    }
+
+    if (e.code === "KeyT" && document.pointerLockElement === renderer.domElement) {
+      document.exitPointerLock();
+      document.getElementById("chatOverlay").style.display = "block";
+      document.getElementById("chatInput").focus();
+      e.preventDefault();
     }
 
     // Single key press logic for F and 5
@@ -365,7 +376,64 @@ export function initGame(THREE){
   };
 
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
-  
+
+  // Chat logic
+  const chatInput = document.getElementById("chatInput");
+  chatInput.onkeydown = (e) => {
+    if (e.key === "Enter" && chatInput.value.trim() !== "") {
+      addChatMessage("Player", chatInput.value);
+      chatInput.value = "";
+      closeChat();
+    }
+    if (e.key === "Escape") {
+      closeChat();
+    }
+  };
+
+  function addChatMessage(user, msg) {
+    const chatMsgs = document.getElementById("chatMessages");
+    const div = document.createElement("div");
+    div.className = "chat-msg";
+    div.innerHTML = `<span class="name">${user}:</span> ${msg}`;
+    chatMsgs.appendChild(div);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    
+    // Auto fade after 5 seconds if not typing
+    setTimeout(() => {
+      if (document.activeElement !== chatInput) {
+        div.style.opacity = "0.5";
+      }
+    }, 5000);
+  }
+
+  function closeChat() {
+    document.getElementById("chatOverlay").style.display = "none";
+    renderer.domElement.requestPointerLock();
+  }
+
+  // Dev add block
+  document.getElementById("addBlockBtn").onclick = async () => {
+    const id = document.getElementById("newBlockId").value.trim().toLowerCase();
+    const name = document.getElementById("newBlockName").value.trim();
+    if (!id || !name) return alert("Fill all fields");
+    
+    // Propose adding new block to backend would normally require a server restart or dynamic reload
+    // For this prototype we simulate success and prompt reload
+    const defaultTex = Array(256).fill("#ffffff");
+    await fetch("/update-block", {
+      method: "POST",
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        blockName: id,
+        side: "all",
+        textureData: defaultTex,
+        displayName: name // Server needs to handle this
+      })
+    });
+    alert("New block added! Refresh to use.");
+    location.reload();
+  };
+
   function updateHotbarUI() {
     const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
     const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
