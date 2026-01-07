@@ -16,11 +16,29 @@ app.get("/textures", (req, res) => {
 });
 
 app.post("/update-block", (req, res) => {
-    const { blockName, side, textureData } = req.body;
+    const { blockName, side, textureData, displayName } = req.body;
     const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
-    if (!data[blockName]) data[blockName] = { name: blockName, textures: {} };
-    // textureData can be a hex string (legacy) or an array of 256 hex strings (new)
-    data[blockName].textures[side] = textureData;
+    
+    if (!data[blockName]) {
+        data[blockName] = { 
+            name: displayName || blockName, 
+            textures: {
+                top: textureData,
+                bottom: textureData,
+                left: textureData,
+                right: textureData,
+                front: textureData,
+                back: textureData
+            } 
+        };
+    } else if (side === "all") {
+        for (let s in data[blockName].textures) {
+            data[blockName].textures[s] = textureData;
+        }
+    } else {
+        data[blockName].textures[side] = textureData;
+    }
+    
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
 });
