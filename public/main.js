@@ -335,13 +335,35 @@ export function initGame(THREE){
   // DEV MODE
   window.addEventListener("keydown", e=>{
     if(e.key==">"){
-      const pw = prompt("Enter dev password:");
-      if(pw==="thatswitchguy") {
-        document.getElementById("devOverlay").style.display="flex";
-        updateEditor();
-      }
+      document.getElementById("devPasswordOverlay").style.display = "flex";
+      document.getElementById("devPasswordInput").focus();
+      document.exitPointerLock();
     }
   });
+
+  document.getElementById("devPasswordCancel").onclick = () => {
+    document.getElementById("devPasswordOverlay").style.display = "none";
+    document.getElementById("devPasswordInput").value = "";
+    renderer.domElement.requestPointerLock();
+  };
+
+  document.getElementById("devPasswordSubmit").onclick = () => {
+    const pw = document.getElementById("devPasswordInput").value;
+    if(pw === "thatswitchguy") {
+      document.getElementById("devPasswordOverlay").style.display = "none";
+      document.getElementById("devOverlay").style.display = "flex";
+      updateEditor();
+    } else {
+      alert("Incorrect password");
+    }
+    document.getElementById("devPasswordInput").value = "";
+  };
+
+  document.getElementById("devPasswordInput").onkeydown = (e) => {
+    if(e.key === "Enter") document.getElementById("devPasswordSubmit").click();
+    if(e.key === "Escape") document.getElementById("devPasswordCancel").click();
+  };
+
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
   
   function updateHotbarUI() {
@@ -571,13 +593,21 @@ export function initGame(THREE){
     player.group.rotation.y = player.yaw;
     
     if (isSwinging) {
-      swingTime += 0.2;
+      swingTime += 0.25;
       const swingAngle = Math.sin(swingTime) * 0.8;
-      player.fp.handGroup.rotation.x = swingAngle;
-      player.limbs.armR.rotation.x = -1.0 + swingAngle;
+      
+      // First Person: Bob and Swing
+      player.fp.handGroup.rotation.x = -swingAngle;
+      player.fp.handGroup.rotation.y = swingAngle * 0.3;
+      player.fp.handGroup.position.z = (swingAngle * 0.2);
+      
+      // Third Person Arm
+      player.limbs.armR.rotation.x = -0.5 - swingAngle;
+
       if (swingTime > Math.PI) {
         isSwinging = false;
-        player.fp.handGroup.rotation.x = 0;
+        player.fp.handGroup.rotation.set(0, 0, 0);
+        player.fp.handGroup.position.set(0, 0, 0);
         player.limbs.armR.rotation.x = 0;
       }
     }
