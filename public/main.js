@@ -448,11 +448,14 @@ export function initGame(THREE){
 
   document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
   
+  let labelTimeout;
   function updateHotbarUI() {
     const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
     const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
     
     const selectedItem = player.inventory[player.selectedSlot];
+    const label = document.getElementById("hotbarLabel");
+    
     if (selectedItem && selectedItem.type) {
       player.fp.item.visible = true;
       player.fp.hand.visible = false;
@@ -466,10 +469,19 @@ export function initGame(THREE){
         player.fp.item.material = mat;
         player.tpItem.material = mat;
       }
+
+      // Update hotbar label
+      label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
+      label.style.opacity = 1;
+      clearTimeout(labelTimeout);
+      labelTimeout = setTimeout(() => {
+        label.style.opacity = 0;
+      }, 2000);
     } else {
       player.fp.item.visible = false;
       player.fp.hand.visible = true;
       player.tpItem.visible = false;
+      label.style.opacity = 0;
     }
 
     const updateSlot = (slot, i) => {
@@ -501,6 +513,8 @@ export function initGame(THREE){
       const slot = document.createElement("div");
       slot.className = "slot";
       slot.appendChild(createBlockIcon(name));
+      slot.onmouseenter = (e) => showTooltip(e, blockTypes[name].name || name);
+      slot.onmouseleave = hideTooltip;
       slot.onclick = () => {
         let found = player.inventory.find(s => s.type === name && s.count < 64);
         if (!found) found = player.inventory.find(s => s.type === null);
@@ -523,15 +537,19 @@ export function initGame(THREE){
       const inventoryIdx = i + 27;
       const slot = document.createElement("div");
       slot.className = "slot";
+      
+      const item = player.inventory[inventoryIdx];
+      if (item && item.type) {
+        slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
+        slot.onmouseleave = hideTooltip;
+      }
+      
       slot.onclick = (e) => handleSlotClick(e, inventoryIdx);
       hotbarGrid.appendChild(slot);
     }
   }
 
   function renderInventoryGrid() {
-    // Actually we need a main inventory grid (27 slots)
-    // The previous implementation used the block list as the grid.
-    // Let's repurpose #inventoryGrid to show the player's 27 inventory slots
     const grid = document.getElementById("inventoryGrid");
     grid.innerHTML = "";
     for (let i = 0; i < 27; i++) {
@@ -547,10 +565,29 @@ export function initGame(THREE){
           count.textContent = item.count;
           slot.appendChild(count);
         }
+        slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
+        slot.onmouseleave = hideTooltip;
       }
       slot.onclick = (e) => handleSlotClick(e, i);
       grid.appendChild(slot);
     }
+  }
+
+  function showTooltip(e, text) {
+    const tooltip = document.getElementById("itemTooltip");
+    tooltip.textContent = text;
+    tooltip.style.display = "block";
+    updateTooltipPos(e);
+  }
+
+  function hideTooltip() {
+    document.getElementById("itemTooltip").style.display = "none";
+  }
+
+  function updateTooltipPos(e) {
+    const tooltip = document.getElementById("itemTooltip");
+    tooltip.style.left = e.clientX + "px";
+    tooltip.style.top = (e.clientY - 10) + "px";
   }
 
   function handleSlotClick(e, idx) {
@@ -596,6 +633,7 @@ export function initGame(THREE){
 
   window.addEventListener("mousemove", (e) => {
     if (player.draggedItem) updateDragPos(e);
+    if (document.getElementById("itemTooltip").style.display === "block") updateTooltipPos(e);
   });
 
   function createBlockIcon(blockName) {
