@@ -18,85 +18,21 @@
   </div>
 </div>
 
+<div id="optionsOverlay" style="display:none;" class="overlay-container">
+  <div class="options-window">
+    <h2>Options</h2>
+    <div class="options-content">
+      <button id="optionsSkinUpload" class="mc-btn">Upload Skin (PNG)</button>
+      <input type="file" id="skinFileInput" accept="image/png" style="display:none;">
+    </div>
+    <div class="options-footer">
+      <button id="optionsClose" class="mc-btn">Done</button>
+    </div>
+  </div>
+</div>
+
 <div id="itemTooltip"></div>
 <div id="hotbarLabel"></div>
-
-<div id="devPasswordOverlay" style="display:none;">
-  <div class="dev-password-window">
-    <h3>Developer Access</h3>
-    <input type="password" id="devPasswordInput" placeholder="Enter Password">
-    <div class="dev-password-buttons">
-      <button id="devPasswordCancel">Cancel</button>
-      <button id="devPasswordSubmit" class="primary-btn">Unlock</button>
-    </div>
-  </div>
-</div>
-
-<div id="devOverlay" style="display:none;">
-  <div class="dev-header">
-    <h2>Block Texture Editor</h2>
-    <button id="closeDev">&times;</button>
-  </div>
-  
-  <div class="dev-content">
-    <div class="dev-layout">
-      <div class="dev-sidebar">
-        <div class="sidebar-header">
-          <h4>Block List</h4>
-          <button id="addBlockBtn" class="small-btn">+</button>
-        </div>
-        <div id="blockSidebarList" class="sidebar-list"></div>
-      </div>
-
-      <div class="editor-main">
-        <div class="editor-controls">
-          <div class="control-group">
-            <label>Block</label>
-            <select id="blockSelect"></select>
-          </div>
-          <div class="control-group">
-            <label>Side</label>
-            <select id="sideSelect">
-              <option value="top">Top</option>
-              <option value="bottom">Bottom</option>
-              <option value="left">Left</option>
-              <option value="right">Right</option>
-              <option value="front">Front</option>
-              <option value="back">Back</option>
-            </select>
-          </div>
-          <div class="control-group">
-            <label>Tool</label>
-            <div class="tool-buttons">
-              <input type="color" id="colorPicker" value="#8B4513">
-              <button id="fillButton">Fill All</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="pixel-grid-container">
-          <div id="pixelGrid" class="pixel-grid"></div>
-        </div>
-
-        <div class="action-buttons">
-          <button id="applyColor" class="primary-btn">Save Texture</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="newBlockOverlay" style="display:none;">
-  <div class="dev-password-window">
-    <h3>Add New Block</h3>
-    <input type="text" id="newBlockId" placeholder="Block ID (e.g. red_stone)">
-    <input type="text" id="newBlockName" placeholder="Display Name (e.g. Red Stone)">
-    <div class="dev-password-buttons">
-      <button id="newBlockCancel">Cancel</button>
-      <button id="newBlockSubmit" class="primary-btn">Create</button>
-    </div>
-  </div>
-</div>
 
 <div id="hotbar">
   <div class="slot selected" data-slot="0"></div>

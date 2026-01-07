@@ -361,109 +361,33 @@ export function initGame(THREE){
   };
 
   document.getElementById("devModeBtn").onclick = () => {
-    document.getElementById("devPasswordOverlay").style.display = "flex";
+    document.getElementById("optionsOverlay").style.display = "flex";
   };
 
-  // Add splash editor to dev layout
-  const splashInput = document.createElement("input");
-  splashInput.id = "splashInput";
-  splashInput.placeholder = "Enter new splash text...";
-  splashInput.className = "mc-input";
-  splashInput.style.flex = "1";
-  
-  const saveSplashBtn = document.createElement("button");
-  saveSplashBtn.textContent = "Update Splash";
-  saveSplashBtn.className = "mc-btn";
-  saveSplashBtn.style.width = "auto";
-  saveSplashBtn.style.padding = "10px 20px";
-  
-  saveSplashBtn.onclick = async () => {
-    if (!splashInput.value.trim()) return;
-    await fetch("/update-splash", {
-      method: "POST",
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ splash: splashInput.value })
-    });
-    document.getElementById("splashText").textContent = splashInput.value;
-    splashInput.value = "";
-    alert("Splash text updated successfully!");
+  document.getElementById("optionsClose").onclick = () => {
+    document.getElementById("optionsOverlay").style.display = "none";
   };
 
-  // Append to dev content
-  setTimeout(() => {
-    const devContent = document.querySelector(".dev-content");
-    if (devContent) {
-      // Skin Upload Section
-      const skinGroup = document.createElement("div");
-      skinGroup.className = "control-group skin-editor-group";
-      skinGroup.style.borderTop = "1px solid #444";
-      skinGroup.style.paddingTop = "20px";
-      skinGroup.style.marginTop = "10px";
-      
-      const skinLabel = document.createElement("label");
-      skinLabel.textContent = "Character Skin";
-      skinLabel.style.display = "block";
-      skinLabel.style.marginBottom = "10px";
-      skinLabel.style.color = "#aaa";
+  document.getElementById("optionsSkinUpload").onclick = () => {
+    document.getElementById("skinFileInput").click();
+  };
 
-      const skinBtn = document.createElement("button");
-      skinBtn.textContent = "Upload New Skin (PNG)";
-      skinBtn.className = "mc-btn";
-      skinBtn.style.width = "100%";
-      skinBtn.onclick = () => document.getElementById("skinFileInput").click();
-
-      const skinInput = document.createElement("input");
-      skinInput.type = "file";
-      skinInput.id = "skinFileInput";
-      skinInput.accept = "image/png";
-      skinInput.style.display = "none";
-      skinInput.onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const skinData = event.target.result;
-          await fetch("/update-skin", {
-            method: "POST",
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ skin: skinData })
-          });
-          applySkin(skinData);
-          alert("Skin updated!");
-        };
-        reader.readAsDataURL(file);
-      };
-
-      skinGroup.appendChild(skinLabel);
-      skinGroup.appendChild(skinBtn);
-      skinGroup.appendChild(skinInput);
-      devContent.appendChild(skinGroup);
-
-      // Splash Editor Section
-      const group = document.createElement("div");
-      group.className = "control-group splash-editor-group";
-      group.style.borderTop = "1px solid #444";
-      group.style.paddingTop = "20px";
-      group.style.marginTop = "10px";
-      
-      const label = document.createElement("label");
-      label.textContent = "Splash Text Editor";
-      label.style.display = "block";
-      label.style.marginBottom = "10px";
-      label.style.color = "#aaa";
-      
-      const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.gap = "10px";
-      row.style.width = "100%";
-      row.appendChild(splashInput);
-      row.appendChild(saveSplashBtn);
-      
-      group.appendChild(label);
-      group.appendChild(row);
-      devContent.appendChild(group);
-    }
-  }, 100);
+  document.getElementById("skinFileInput").onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const skinData = event.target.result;
+      await fetch("/update-skin", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ skin: skinData })
+      });
+      applySkin(skinData);
+      alert("Skin updated!");
+    };
+    reader.readAsDataURL(file);
+  };
 
   async function applySkin(skinData) {
     if (!skinData) return;

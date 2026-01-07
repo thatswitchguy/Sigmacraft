@@ -129,6 +129,42 @@ canvas { display:block; }
   box-sizing: border-box;
 }
 
+.options-window {
+  background: #c6c6c6;
+  border: 4px solid #373737;
+  padding: 20px;
+  width: 400px;
+  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.options-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.options-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.overlay-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 6000;
+}
+
 .dev-password-buttons {
   display: flex;
   gap: 10px;
