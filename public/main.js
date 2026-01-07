@@ -372,6 +372,10 @@ export function initGame(THREE){
     document.getElementById("skinFileInput").click();
   };
 
+  document.getElementById("optionsClose").onclick = () => {
+    document.getElementById("optionsOverlay").style.display = "none";
+  };
+
   document.getElementById("skinFileInput").onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -475,8 +479,6 @@ export function initGame(THREE){
     }
     
     createPixelGrid();
-    updateSidebar();
-    updateEditor();
     setupInventoryUI();
     updateHotbarUI();
     
@@ -499,40 +501,9 @@ export function initGame(THREE){
     player.group.position.y = 15;
   }
 
-  // DEV MODE
-  window.addEventListener("keydown", e=>{
-    if(e.key==">"){
-      document.getElementById("devPasswordOverlay").style.display = "flex";
-      document.getElementById("devPasswordInput").focus();
-      document.exitPointerLock();
-    }
-  });
+  function updateEditor() {}
+  function updateSidebar() {}
 
-  document.getElementById("devPasswordCancel").onclick = () => {
-    document.getElementById("devPasswordOverlay").style.display = "none";
-    document.getElementById("devPasswordInput").value = "";
-    renderer.domElement.requestPointerLock();
-  };
-
-  document.getElementById("devPasswordSubmit").onclick = () => {
-    const pw = document.getElementById("devPasswordInput").value;
-    if(pw === "thatswitchguy") {
-      document.getElementById("devPasswordOverlay").style.display = "none";
-      document.getElementById("devOverlay").style.display = "flex";
-      updateEditor();
-    } else {
-      alert("Incorrect password");
-    }
-    document.getElementById("devPasswordInput").value = "";
-  };
-
-  document.getElementById("devPasswordInput").onkeydown = (e) => {
-    if(e.key === "Enter") document.getElementById("devPasswordSubmit").click();
-    if(e.key === "Escape") document.getElementById("devPasswordCancel").click();
-  };
-
-  document.getElementById("closeDev").onclick = ()=>document.getElementById("devOverlay").style.display="none";
-  
   let labelTimeout;
   function updateHotbarUI() {
     const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
@@ -671,8 +642,10 @@ export function initGame(THREE){
 
   function updateTooltipPos(e) {
     const tooltip = document.getElementById("itemTooltip");
-    tooltip.style.left = e.clientX + "px";
-    tooltip.style.top = (e.clientY - 10) + "px";
+    if (tooltip) {
+      tooltip.style.left = e.clientX + "px";
+      tooltip.style.top = (e.clientY - 10) + "px";
+    }
   }
 
   function handleSlotClick(e, idx) {
