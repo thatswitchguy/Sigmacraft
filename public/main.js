@@ -188,6 +188,19 @@ export function initGame(THREE){
       }
     }
 
+    if (e.code === "Period" || e.code === "Slash") {
+      const dev = document.getElementById("devOverlay");
+      if (dev) {
+        if (dev.style.display === "none") {
+          dev.style.display = "flex";
+          document.exitPointerLock();
+        } else {
+          dev.style.display = "none";
+          renderer.domElement.requestPointerLock();
+        }
+      }
+    }
+
     // Single key press logic for F and 5
     if (e.code === "KeyF" && keys["Digit5"] || e.code === "Digit5" && keys["KeyF"]) {
       // Prevent rapid switching by checking if we already toggled this press
