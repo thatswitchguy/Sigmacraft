@@ -250,12 +250,18 @@ export function initGame(THREE){
     pixels.forEach((p, i) => p.style.backgroundColor = currentPixels[i]);
   }
 
-  document.getElementById("blockSelect").onchange = updateEditor;
-  document.getElementById("sideSelect").onchange = updateEditor;
+  const blockSelect = document.getElementById("blockSelect");
+  if (blockSelect) blockSelect.onchange = updateEditor;
+  const sideSelect = document.getElementById("sideSelect");
+  if (sideSelect) sideSelect.onchange = updateEditor;
 
   function updateEditor() {
-    const blockName = document.getElementById("blockSelect").value;
-    const side = document.getElementById("sideSelect").value;
+    const blockSelect = document.getElementById("blockSelect");
+    const sideSelect = document.getElementById("sideSelect");
+    if (!blockSelect || !sideSelect) return;
+    
+    const blockName = blockSelect.value;
+    const side = sideSelect.value;
     if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
@@ -289,65 +295,79 @@ export function initGame(THREE){
     });
   }
 
-  document.getElementById("addBlockBtn").onclick = () => {
-    document.getElementById("newBlockOverlay").style.display = "flex";
-  };
-
-  document.getElementById("newBlockCancel").onclick = () => {
-    document.getElementById("newBlockOverlay").style.display = "none";
-  };
-
-  document.getElementById("newBlockSubmit").onclick = async () => {
-    const id = document.getElementById("newBlockId").value.trim().toLowerCase().replace(/\s+/g, '_');
-    const name = document.getElementById("newBlockName").value.trim();
-    
-    if (!id || !name) return alert("Please enter ID and Name");
-    if (blockTypes[id]) return alert("Block ID already exists");
-
-    // Initialize with default white texture
-    const defaultTex = Array(256).fill("#ffffff");
-    blockTypes[id] = {
-      name: name,
-      textures: {
-        top: defaultTex,
-        bottom: defaultTex,
-        left: defaultTex,
-        right: defaultTex,
-        front: defaultTex,
-        back: defaultTex
-      }
+  const addBlockBtn = document.getElementById("addBlockBtn");
+  if (addBlockBtn) {
+    addBlockBtn.onclick = () => {
+      document.getElementById("newBlockOverlay").style.display = "flex";
     };
+  }
 
-    // Save initial state to server
-    for (const side in blockTypes[id].textures) {
-      await fetch("/update-block", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({blockName: id, side, textureData: defaultTex})
-      });
-    }
+  const newBlockCancel = document.getElementById("newBlockCancel");
+  if (newBlockCancel) {
+    newBlockCancel.onclick = () => {
+      document.getElementById("newBlockOverlay").style.display = "none";
+    };
+  }
 
-    // Update UI
-    const sel = document.getElementById("blockSelect");
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = name;
-    sel.appendChild(opt);
-    sel.value = id;
+  const newBlockSubmit = document.getElementById("newBlockSubmit");
+  if (newBlockSubmit) {
+    newBlockSubmit.onclick = async () => {
+      const id = document.getElementById("newBlockId").value.trim().toLowerCase().replace(/\s+/g, '_');
+      const name = document.getElementById("newBlockName").value.trim();
+      
+      if (!id || !name) return alert("Please enter ID and Name");
+      if (blockTypes[id]) return alert("Block ID already exists");
 
-    document.getElementById("newBlockOverlay").style.display = "none";
-    updateSidebar();
-    updateEditor();
-    setupInventoryUI(); // Refresh creative menu
-    alert("New block created! Restart game to see it in world generation.");
-  };
+      // Initialize with default white texture
+      const defaultTex = Array(256).fill("#ffffff");
+      blockTypes[id] = {
+        name: name,
+        textures: {
+          top: defaultTex,
+          bottom: defaultTex,
+          left: defaultTex,
+          right: defaultTex,
+          front: defaultTex,
+          back: defaultTex
+        }
+      };
 
-  document.getElementById("fillButton").onclick = () => {
-    const color = document.getElementById("colorPicker").value;
-    currentPixels = Array(256).fill(color);
-    const pixels = document.querySelectorAll(".pixel");
-    pixels.forEach(p => p.style.backgroundColor = color);
-  };
+      // Save initial state to server
+      for (const side in blockTypes[id].textures) {
+        await fetch("/update-block", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({blockName: id, side, textureData: defaultTex})
+        });
+      }
+
+      // Update UI
+      const sel = document.getElementById("blockSelect");
+      if (sel) {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = name;
+        sel.appendChild(opt);
+        sel.value = id;
+      }
+
+      document.getElementById("newBlockOverlay").style.display = "none";
+      updateSidebar();
+      updateEditor();
+      setupInventoryUI(); // Refresh creative menu
+      alert("New block created! Restart game to see it in world generation.");
+    };
+  }
+
+  const fillButton = document.getElementById("fillButton");
+  if (fillButton) {
+    fillButton.onclick = () => {
+      const color = document.getElementById("colorPicker").value;
+      currentPixels = Array(256).fill(color);
+      const pixels = document.querySelectorAll(".pixel");
+      pixels.forEach(p => p.style.backgroundColor = color);
+    };
+  }
 
   async function initTitle() {
     const res = await fetch("/config");
@@ -412,26 +432,32 @@ export function initGame(THREE){
     img.src = skinData;
   }
 
-  document.getElementById("skinUploadBtn").onclick = () => {
-    document.getElementById("skinFileInput").click();
-  };
-
-  document.getElementById("skinFileInput").onchange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const skinData = event.target.result;
-      await fetch("/update-skin", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ skin: skinData })
-      });
-      applySkin(skinData);
-      alert("Skin uploaded and applied!");
+  const skinUploadBtn = document.getElementById("skinUploadBtn");
+  if (skinUploadBtn) {
+    skinUploadBtn.onclick = () => {
+      document.getElementById("skinFileInput").click();
     };
-    reader.readAsDataURL(file);
-  };
+  }
+
+  const skinFileInput = document.getElementById("skinFileInput");
+  if (skinFileInput) {
+    skinFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const skinData = event.target.result;
+        await fetch("/update-skin", {
+          method: "POST",
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ skin: skinData })
+        });
+        applySkin(skinData);
+        alert("Skin uploaded and applied!");
+      };
+      reader.readAsDataURL(file);
+    };
+  }
 
   async function loadBlocks(){
     await initTitle();
@@ -442,7 +468,7 @@ export function initGame(THREE){
     const res = await fetch("/textures");
     blockTypes = await res.json();
     const sel = document.getElementById("blockSelect");
-    sel.innerHTML = "";
+    if (sel) sel.innerHTML = "";
     
     for(const name in blockTypes){
       const tex = blockTypes[name].textures;
@@ -472,10 +498,12 @@ export function initGame(THREE){
       
       blockMaterials[name] = materials;
       
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = blockTypes[name].name || name;
-      sel.appendChild(opt);
+      if (sel) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = blockTypes[name].name || name;
+        sel.appendChild(opt);
+      }
     }
     
     createPixelGrid();
