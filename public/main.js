@@ -224,13 +224,16 @@ export function initGame(THREE){
 
   function createPixelGrid() {
     const grid = document.getElementById("pixelGrid");
+    if (!grid) return;
     grid.innerHTML = "";
     for (let i = 0; i < 256; i++) {
       const pixel = document.createElement("div");
       pixel.className = "pixel";
       pixel.style.backgroundColor = currentPixels[i];
       pixel.onclick = () => {
-        const color = document.getElementById("colorPicker").value;
+        const picker = document.getElementById("colorPicker");
+        if (!picker) return;
+        const color = picker.value;
         currentPixels[i] = color;
         pixel.style.backgroundColor = color;
       };
@@ -274,6 +277,7 @@ export function initGame(THREE){
 
   function updateSidebar() {
     const list = document.getElementById("blockSidebarList");
+    if (!list) return;
     list.innerHTML = "";
     Object.keys(blockTypes).forEach(id => {
       const item = document.createElement("div");
@@ -288,7 +292,8 @@ export function initGame(THREE){
       item.appendChild(label);
       
       item.onclick = () => {
-        document.getElementById("blockSelect").value = id;
+        const select = document.getElementById("blockSelect");
+        if (select) select.value = id;
         updateEditor();
       };
       list.appendChild(item);
@@ -370,48 +375,73 @@ export function initGame(THREE){
   }
 
   async function initTitle() {
-    const res = await fetch("/config");
-    const config = await res.json();
-    document.getElementById("splashText").textContent = config.splash;
+    try {
+      const res = await fetch("/config");
+      const config = await res.json();
+      const splash = document.getElementById("splashText");
+      if (splash) splash.textContent = config.splash;
+    } catch (e) {
+      console.error("Failed to load config", e);
+    }
   }
 
-  document.getElementById("playBtn").onclick = () => {
-    document.getElementById("titleScreen").style.display = "none";
-    renderer.domElement.requestPointerLock();
-  };
-
-  document.getElementById("devModeBtn").onclick = () => {
-    document.getElementById("optionsOverlay").style.display = "flex";
-  };
-
-  document.getElementById("optionsClose").onclick = () => {
-    document.getElementById("optionsOverlay").style.display = "none";
-  };
-
-  document.getElementById("optionsSkinUpload").onclick = () => {
-    document.getElementById("skinFileInput").click();
-  };
-
-  document.getElementById("optionsClose").onclick = () => {
-    document.getElementById("optionsOverlay").style.display = "none";
-  };
-
-  document.getElementById("skinFileInput").onchange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const skinData = event.target.result;
-      await fetch("/update-skin", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ skin: skinData })
-      });
-      applySkin(skinData);
-      alert("Skin updated!");
+  const playBtn = document.getElementById("playBtn");
+  if (playBtn) {
+    playBtn.onclick = () => {
+      document.getElementById("titleScreen").style.display = "none";
+      renderer.domElement.requestPointerLock();
     };
-    reader.readAsDataURL(file);
-  };
+  }
+
+  const devModeBtn = document.getElementById("devModeBtn");
+  if (devModeBtn) {
+    devModeBtn.onclick = () => {
+      const overlay = document.getElementById("optionsOverlay");
+      if (overlay) overlay.style.display = "flex";
+    };
+  }
+
+  const optionsClose_opt1 = document.getElementById("optionsClose");
+  if (optionsClose_opt1) {
+    optionsClose_opt1.onclick = () => {
+      document.getElementById("optionsOverlay").style.display = "none";
+    };
+  }
+
+  const optionsSkinUpload_opt = document.getElementById("optionsSkinUpload");
+  if (optionsSkinUpload_opt) {
+    optionsSkinUpload_opt.onclick = () => {
+      const input = document.getElementById("skinFileInput");
+      if (input) input.click();
+    };
+  }
+
+  const optionsClose_opt2 = document.getElementById("optionsClose");
+  if (optionsClose_opt2) {
+    optionsClose_opt2.onclick = () => {
+      document.getElementById("optionsOverlay").style.display = "none";
+    };
+  }
+
+  const skinFileInput_change = document.getElementById("skinFileInput");
+  if (skinFileInput_change) {
+    skinFileInput_change.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const skinData = event.target.result;
+        await fetch("/update-skin", {
+          method: "POST",
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skin: skinData })
+        });
+        applySkin(skinData);
+        alert("Skin updated!");
+      };
+      reader.readAsDataURL(file);
+    };
+  }
 
   async function applySkin(skinData) {
     if (!skinData) return;
@@ -555,17 +585,19 @@ export function initGame(THREE){
       }
 
       // Update hotbar label
-      label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
-      label.style.opacity = 1;
-      clearTimeout(labelTimeout);
-      labelTimeout = setTimeout(() => {
-        label.style.opacity = 0;
-      }, 2000);
+      if (label) {
+        label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
+        label.style.opacity = 1;
+        clearTimeout(labelTimeout);
+        labelTimeout = setTimeout(() => {
+          label.style.opacity = 0;
+        }, 2000);
+      }
     } else {
       player.fp.item.visible = false;
       player.fp.hand.visible = true;
       player.tpItem.visible = false;
-      label.style.opacity = 0;
+      if (label) label.style.opacity = 0;
     }
 
     const updateSlot = (slot, i) => {
@@ -592,49 +624,54 @@ export function initGame(THREE){
   function setupInventoryUI() {
     // Setup catalog grid
     const catalog = document.getElementById("blockCatalog");
-    catalog.innerHTML = "";
-    Object.keys(blockTypes).forEach(name => {
-      const slot = document.createElement("div");
-      slot.className = "slot";
-      slot.appendChild(createBlockIcon(name));
-      slot.onmouseenter = (e) => showTooltip(e, blockTypes[name].name || name);
-      slot.onmouseleave = hideTooltip;
-      slot.onclick = () => {
-        let found = player.inventory.find(s => s.type === name && s.count < 64);
-        if (!found) found = player.inventory.find(s => s.type === null);
-        if (found) {
-          found.type = name;
-          found.count = 64;
-          updateHotbarUI();
-          renderInventoryGrid();
-        }
-      };
-      catalog.appendChild(slot);
-    });
+    if (catalog) {
+      catalog.innerHTML = "";
+      Object.keys(blockTypes).forEach(name => {
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        slot.appendChild(createBlockIcon(name));
+        slot.onmouseenter = (e) => showTooltip(e, blockTypes[name].name || name);
+        slot.onmouseleave = hideTooltip;
+        slot.onclick = () => {
+          let found = player.inventory.find(s => s.type === name && s.count < 64);
+          if (!found) found = player.inventory.find(s => s.type === null);
+          if (found) {
+            found.type = name;
+            found.count = 64;
+            updateHotbarUI();
+            renderInventoryGrid();
+          }
+        };
+        catalog.appendChild(slot);
+      });
+    }
 
     renderInventoryGrid();
 
     // Setup hotbar link in inventory
     const hotbarGrid = document.getElementById("hotbarSlots");
-    hotbarGrid.innerHTML = "";
-    for (let i = 0; i < 9; i++) {
-      const inventoryIdx = i + 27;
-      const slot = document.createElement("div");
-      slot.className = "slot";
-      
-      const item = player.inventory[inventoryIdx];
-      if (item && item.type && blockTypes[item.type]) {
-        slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
-        slot.onmouseleave = hideTooltip;
+    if (hotbarGrid) {
+      hotbarGrid.innerHTML = "";
+      for (let i = 0; i < 9; i++) {
+        const inventoryIdx = i + 27;
+        const slot = document.createElement("div");
+        slot.className = "slot";
+        
+        const item = player.inventory[inventoryIdx];
+        if (item && item.type && blockTypes[item.type]) {
+          slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
+          slot.onmouseleave = hideTooltip;
+        }
+        
+        slot.onclick = (e) => handleSlotClick(e, inventoryIdx);
+        hotbarGrid.appendChild(slot);
       }
-      
-      slot.onclick = (e) => handleSlotClick(e, inventoryIdx);
-      hotbarGrid.appendChild(slot);
     }
   }
 
   function renderInventoryGrid() {
     const grid = document.getElementById("inventoryGrid");
+    if (!grid) return;
     grid.innerHTML = "";
     for (let i = 0; i < 27; i++) {
       const slot = document.createElement("div");
@@ -719,7 +756,8 @@ export function initGame(THREE){
 
   window.addEventListener("mousemove", (e) => {
     if (player.draggedItem) updateDragPos(e);
-    if (document.getElementById("itemTooltip").style.display === "block") updateTooltipPos(e);
+    const tooltip = document.getElementById("itemTooltip");
+    if (tooltip && tooltip.style.display === "block") updateTooltipPos(e);
   });
 
   function createBlockIcon(blockName) {
