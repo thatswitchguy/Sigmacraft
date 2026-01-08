@@ -450,36 +450,14 @@ export function initGame(THREE){
       const tex = new THREE.CanvasTexture(img);
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
-
-      // Minecraft skin dimensions are usually 64x64 or 64x32
-      // We'll create specialized materials for each body part
-      const createPartMaterial = (u, v, w, h, d) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = (w + d) * 2;
-        canvas.height = h + d;
-        // This is a simplified version, ideally we'd map UVs correctly.
-        // For now, let's just use the front face of the part from the skin.
-        // Standard Steve skin front faces: 
-        // Head: 8,8
-        // Body: 20,20
-        // Arm: 44,20
-        // Leg: 4,20
-        return new THREE.MeshStandardMaterial({ map: tex });
-      };
-
-      const skinMat = new THREE.MeshStandardMaterial({ map: tex });
       
-      // Map materials to body parts
-      if (player.model) {
-        player.model.traverse(child => {
-          if (child.isMesh && child !== player.tpItem) {
-            child.material = skinMat;
-          }
-        });
-      }
-      if (player.fp && player.fp.hand) {
-        player.fp.hand.material = skinMat;
-      }
+      const skinMat = new THREE.MeshStandardMaterial({ map: tex });
+      player.model.traverse(child => {
+        if (child.isMesh && child !== player.tpItem) {
+          child.material = skinMat;
+        }
+      });
+      player.fp.hand.material = skinMat;
     };
     img.src = skinData;
   }
