@@ -741,21 +741,31 @@ export function initGame(THREE){
     return canvas;
   }
 
-  document.getElementById("closeInventory").onclick = () => {
-    document.getElementById("inventoryOverlay").style.display = "none";
-    renderer.domElement.requestPointerLock();
-  };
+  const closeInventoryBtn = document.getElementById("closeInventory");
+  if (closeInventoryBtn) {
+    closeInventoryBtn.onclick = () => {
+      document.getElementById("inventoryOverlay").style.display = "none";
+      renderer.domElement.requestPointerLock();
+    };
+  }
 
-  document.getElementById("applyColor").onclick = async ()=>{
-    const blockName = document.getElementById("blockSelect").value;
-    const side = document.getElementById("sideSelect").value;
-    await fetch("/update-block",{
-      method:"POST",
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({blockName, side, textureData: currentPixels})
-    });
-    alert("Saved! Reload to see/apply changes.");
-  };
+  const applyColorBtn = document.getElementById("applyColor");
+  if (applyColorBtn) {
+    applyColorBtn.onclick = async () => {
+      const blockSelect = document.getElementById("blockSelect");
+      const sideSelect = document.getElementById("sideSelect");
+      if (!blockSelect || !sideSelect) return;
+      
+      const blockName = blockSelect.value;
+      const side = sideSelect.value;
+      await fetch("/update-block", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockName, side, textureData: currentPixels })
+      });
+      alert("Saved! Reload to see/apply changes.");
+    };
+  }
 
     // PHYSICS
     const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
