@@ -188,7 +188,7 @@ export function initGame(THREE){
       }
     }
 
-    if (e.code === ">" || e.code === ">") {
+    if (e.key === ">") {
       const dev = document.getElementById("devOverlay");
       if (dev) {
         if (dev.style.display === "none") {
