@@ -513,41 +513,41 @@ export function initGame(THREE){
     const sel = document.getElementById("blockSelect");
     if (sel) sel.innerHTML = "";
     
-    for(const name in blockTypes){
-      const tex = blockTypes[name].textures;
-      
-      const materials = [];
-      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-      
-      sides.forEach(side => {
-        const data = tex[side];
-        if (Array.isArray(data)) {
-          const canvas = document.createElement('canvas');
-          canvas.width = 16;
-          canvas.height = 16;
-          const ctx = canvas.getContext('2d');
-          data.forEach((color, i) => {
-            ctx.fillStyle = color;
-            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-          });
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.magFilter = THREE.NearestFilter;
-          texture.minFilter = THREE.NearestFilter;
-          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
-        } else {
-          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
-        }
-      });
-      
-      blockMaterials[name] = materials;
-      
-      if (sel) {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = blockTypes[name].name || name;
-        sel.appendChild(opt);
-      }
-    }
+     for(const name in blockTypes){
+       const tex = blockTypes[name].textures;
+
+       const materials = [];
+       const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+
+       sides.forEach(side => {
+         const data = tex?.[side];
+         if (Array.isArray(data)) {
+           const canvas = document.createElement('canvas');
+           canvas.width = 16;
+           canvas.height = 16;
+           const ctx = canvas.getContext('2d');
+           data.forEach((color, i) => {
+             ctx.fillStyle = color;
+             ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+           });
+           const texture = new THREE.CanvasTexture(canvas);
+           texture.magFilter = THREE.NearestFilter;
+           texture.minFilter = THREE.NearestFilter;
+           materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+         } else {
+           materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+         }
+       });
+
+       blockMaterials[name] = materials;
+
+       if (sel) {
+         const opt = document.createElement("option");
+         opt.value = name;
+         opt.textContent = blockTypes[name].name || name;
+         sel.appendChild(opt);
+       }
+     }
     
     createPixelGrid();
     setupInventoryUI();
@@ -778,15 +778,16 @@ export function initGame(THREE){
     canvas.width = 16;
     canvas.height = 16;
     const ctx = canvas.getContext("2d");
-    const tex = blockTypes[blockName].textures.front || blockTypes[blockName].textures.top || "#ffffff";
-    
-    if (Array.isArray(tex)) {
-      tex.forEach((color, i) => {
+    const textures = blockTypes[blockName]?.textures ?? {};
+    const texData = textures.front || textures.top || "#ffffff";
+
+    if (Array.isArray(texData)) {
+      texData.forEach((color, i) => {
         ctx.fillStyle = color;
         ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
       });
     } else {
-      ctx.fillStyle = tex;
+      ctx.fillStyle = texData;
       ctx.fillRect(0, 0, 16, 16);
     }
     return canvas;
