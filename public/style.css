@@ -63,6 +63,11 @@ canvas { display:block; }
   text-shadow: 4px 4px #333;
   margin-bottom: 40px;
   font-family: 'Minecraft', sans-serif;
+  letter-spacing: 5px;
+  background: linear-gradient(to bottom, #fff, #aaa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(4px 4px 0 #000);
 }
 
 .splash {
@@ -96,11 +101,21 @@ canvas { display:block; }
   font-size: 20px;
   cursor: pointer;
   box-shadow: inset -2px -2px #333, inset 2px 2px #999;
+  transition: all 0.1s;
+  text-transform: uppercase;
+  font-weight: bold;
 }
 
 .mc-btn:hover {
   background: #777;
   border-color: #fff;
+  color: white;
+  transform: scale(1.02);
+}
+
+.mc-btn:active {
+  box-shadow: inset 2px 2px #333, inset -2px -2px #999;
+  transform: scale(0.98);
 }
 
 .mc-input {
