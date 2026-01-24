@@ -10,6 +10,30 @@ app.use(express.static(path.join(process.cwd(), "public")));
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 
+app.post("/update-block-name", (req, res) => {
+    const { blockName, newName } = req.body;
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    if (data[blockName]) {
+        data[blockName].name = newName;
+        fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: "Block not found" });
+    }
+});
+
+app.post("/delete-block", (req, res) => {
+    const { blockName } = req.body;
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    if (data[blockName]) {
+        delete data[blockName];
+        fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ error: "Block not found" });
+    }
+});
+
 app.get("/textures", (req, res) => {
     const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
     res.json(data);

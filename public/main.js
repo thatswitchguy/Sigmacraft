@@ -272,20 +272,42 @@ export function initGame(THREE){
   if (sideSelect) sideSelect.onchange = updateEditor;
 
   function updateEditor() {
-    const blockSelect = document.getElementById("blockSelect");
     const sideSelect = document.getElementById("sideSelect");
-    if (!blockSelect || !sideSelect) return;
+    const nameInput = document.getElementById("editBlockName");
+    if (!currentDevBlock || !sideSelect) return;
     
-    const blockName = blockSelect.value;
+    const blockName = currentDevBlock;
     const side = sideSelect.value;
+    
+    if (nameInput) nameInput.value = blockTypes[blockName].name || blockName;
+
     if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
     
-    // Update sidebar active state
     document.querySelectorAll(".sidebar-item").forEach(item => {
       item.classList.toggle("active", item.dataset.id === blockName);
     });
+  }
+
+  let currentDevBlock = "grass";
+
+  function createBlockIcon(id) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext("2d");
+    const tex = blockTypes[id].textures.top;
+    if (Array.isArray(tex)) {
+      tex.forEach((c, i) => {
+        ctx.fillStyle = c;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+    } else {
+      ctx.fillStyle = tex || "#fff";
+      ctx.fillRect(0, 0, 16, 16);
+    }
+    return canvas;
   }
 
   function updateSidebar() {
@@ -295,6 +317,7 @@ export function initGame(THREE){
     Object.keys(blockTypes).forEach(id => {
       const item = document.createElement("div");
       item.className = "sidebar-item";
+      if (id === currentDevBlock) item.classList.add("active");
       item.dataset.id = id;
       
       const icon = createBlockIcon(id);
@@ -305,12 +328,90 @@ export function initGame(THREE){
       item.appendChild(label);
       
       item.onclick = () => {
-        const select = document.getElementById("blockSelect");
-        if (select) select.value = id;
+        currentDevBlock = id;
         updateEditor();
       };
       list.appendChild(item);
     });
+  }
+
+  const deleteBlockBtn = document.getElementById("deleteBlockBtn");
+  if (deleteBlockBtn) {
+    deleteBlockBtn.onclick = async () => {
+      if (!currentDevBlock) return;
+      if (["grass", "dirt", "stone"].includes(currentDevBlock)) return alert("Cannot delete base blocks");
+      if (!confirm(`Delete ${currentDevBlock}?`)) return;
+
+      await fetch("/delete-block", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({blockName: currentDevBlock})
+      });
+      
+      delete blockTypes[currentDevBlock];
+      currentDevBlock = Object.keys(blockTypes)[0];
+      updateSidebar();
+      updateEditor();
+      setupInventoryUI();
+    };
+  }
+
+  const editBlockName = document.getElementById("editBlockName");
+  if (editBlockName) {
+    editBlockName.onchange = async () => {
+      if (!currentDevBlock) return;
+      const newName = editBlockName.value.trim();
+      if (!newName) return;
+      
+      blockTypes[currentDevBlock].name = newName;
+      await fetch("/update-block-name", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({blockName: currentDevBlock, newName})
+      });
+      updateSidebar();
+      setupInventoryUI();
+    };
+  }
+
+  const applyColor = document.getElementById("applyColor");
+  if (applyColor) {
+    applyColor.onclick = async () => {
+      const side = document.getElementById("sideSelect").value;
+      if (!currentDevBlock || !side) return;
+
+      blockTypes[currentDevBlock].textures[side] = [...currentPixels];
+      
+      await fetch("/update-block", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          blockName: currentDevBlock,
+          side: side,
+          textureData: currentPixels
+        })
+      });
+      
+      // Update materials live
+      const materials = blockMaterials[currentDevBlock];
+      const sideIdx = ['right', 'left', 'top', 'bottom', 'front', 'back'].indexOf(side);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      currentPixels.forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      materials[sideIdx] = new THREE.MeshStandardMaterial({ map: texture });
+      
+      updateSidebar();
+      alert("Texture saved!");
+    };
   }
 
   const addBlockBtn = document.getElementById("addBlockBtn");
@@ -555,10 +656,10 @@ export function initGame(THREE){
     
     // GENERATE WORLD
     const noise = new SimplexNoise();
-    const size = 20;
+    const size = 50;
     for(let x = -size; x < size; x++){
       for(let z = -size; z < size; z++){
-        const h = Math.floor(noise.noise2D(x/15, z/15) * 4) + 5;
+        const h = Math.floor(noise.noise2D(x/25, z/25) * 6) + 5;
         for(let y = 0; y < h; y++){
           const type = (y === h-1) ? "grass" : "dirt";
           const mat = blockMaterials[type];

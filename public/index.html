@@ -21,42 +21,71 @@
 
   <div id="devOverlay" style="display:none;">
     <div class="dev-header">
-      <h2>Block Texture Editor</h2>
+      <h2>Dev Mode</h2>
       <button id="closeDev">&times;</button>
     </div>
 
-    <div class="dev-content">
-      <div class="editor-controls">
-        <div class="control-group">
-          <label>Block</label>
-          <select id="blockSelect"></select>
+    <div class="dev-layout">
+      <div class="dev-sidebar">
+        <div class="sidebar-header">
+          <h4>Blocks</h4>
+          <button id="addBlockBtn" class="small-btn">+</button>
         </div>
-        <div class="control-group">
-          <label>Side</label>
-          <select id="sideSelect">
-            <option value="top">Top</option>
-            <option value="bottom">Bottom</option>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-            <option value="front">Front</option>
-            <option value="back">Back</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <label>Tool</label>
-          <div class="tool-buttons">
-            <input type="color" id="colorPicker" value="#8B4513">
-            <button id="fillButton">Fill All</button>
+        <div id="blockSidebarList" class="sidebar-list"></div>
+      </div>
+
+      <div class="editor-main">
+        <div class="dev-content">
+          <div class="editor-controls">
+            <div class="control-group">
+              <label>Block Name</label>
+              <div style="display:flex; gap:5px;">
+                <input type="text" id="editBlockName" placeholder="Name">
+                <button id="deleteBlockBtn" style="background:#8b0000;">Del</button>
+              </div>
+            </div>
+            <div class="control-group">
+              <label>Side</label>
+              <select id="sideSelect">
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+                <option value="front">Front</option>
+                <option value="back">Back</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label>Tool</label>
+              <div class="tool-buttons">
+                <input type="color" id="colorPicker" value="#8B4513">
+                <button id="fillButton">Fill</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pixel-grid-container">
+            <div id="pixelGrid" class="pixel-grid"></div>
+          </div>
+
+          <div class="action-buttons">
+            <button id="applyColor" class="primary-btn">Save Texture</button>
           </div>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div class="pixel-grid-container">
-        <div id="pixelGrid" class="pixel-grid"></div>
+  <div id="newBlockOverlay" style="display:none;">
+    <div class="options-window">
+      <h2>New Block</h2>
+      <div class="options-content">
+        <input type="text" id="newBlockId" placeholder="ID (e.g. stone_bricks)">
+        <input type="text" id="newBlockName" placeholder="Display Name">
       </div>
-
-      <div class="action-buttons">
-        <button id="applyColor" class="primary-btn">Save Texture</button>
+      <div class="options-footer" style="gap:10px;">
+        <button id="newBlockSubmit" class="mc-btn">Add</button>
+        <button id="newBlockCancel" class="mc-btn">Cancel</button>
       </div>
     </div>
   </div>
