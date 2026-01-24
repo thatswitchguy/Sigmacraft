@@ -193,6 +193,8 @@ export function initGame(THREE){
       if (dev) {
         if (dev.style.display === "none") {
           dev.style.display = "flex";
+          updateSidebar();
+          updateEditor();
           document.exitPointerLock();
         } else {
           dev.style.display = "none";
@@ -656,10 +658,10 @@ export function initGame(THREE){
     
     // GENERATE WORLD
     const noise = new SimplexNoise();
-    const size = 50;
+    const size = 20;
     for(let x = -size; x < size; x++){
       for(let z = -size; z < size; z++){
-        const h = Math.floor(noise.noise2D(x/25, z/25) * 6) + 5;
+        const h = Math.floor(noise.noise2D(x/15, z/15) * 4) + 5;
         for(let y = 0; y < h; y++){
           const type = (y === h-1) ? "grass" : "dirt";
           const mat = blockMaterials[type];
