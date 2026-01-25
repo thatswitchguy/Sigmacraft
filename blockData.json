@@ -3372,5 +3372,8 @@
         "#ffffff"
       ]
     }
+  },
+  "_config": {
+    "splash": "Buggy!"
   }
 }
