@@ -387,12 +387,135 @@ export function initGame(THREE){
     };
   }
 
+  const closeDev = document.getElementById("closeDev");
+  if (closeDev) {
+    closeDev.onclick = () => {
+      document.getElementById("devOverlay").style.display = "none";
+      renderer.domElement.requestPointerLock();
+    };
+  }
+
+  function createBlockIcon(id) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext("2d");
+    const texData = blockTypes[id].textures.top;
+    if (Array.isArray(texData)) {
+      texData.forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+    } else {
+      ctx.fillStyle = texData || "#ffffff";
+      ctx.fillRect(0, 0, 16, 16);
+    }
+    return canvas;
+  }
+
+  function updateSidebar() {
+    const list = document.getElementById("blockSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(blockTypes).forEach(id => {
+      if (id === "_config") return;
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      item.dataset.id = id;
+      
+      const icon = createBlockIcon(id);
+      item.appendChild(icon);
+      
+      const label = document.createElement("span");
+      label.textContent = blockTypes[id].name || id;
+      label.style.flex = "1";
+      item.appendChild(label);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.innerHTML = "&times;";
+      deleteBtn.className = "small-btn";
+      deleteBtn.style.background = "transparent";
+      deleteBtn.style.border = "none";
+      deleteBtn.style.color = "#ff4444";
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete block ${id}?`)) {
+          delete blockTypes[id];
+          // In a real app we'd have a delete endpoint
+          updateSidebar();
+        }
+      };
+      item.appendChild(deleteBtn);
+      
+      item.onclick = () => {
+        document.getElementById("editBlockId").value = id;
+        document.getElementById("editBlockName").value = blockTypes[id].name || id;
+        updateEditor();
+      };
+      list.appendChild(item);
+    });
+  }
+
+  const saveSplashBtn = document.getElementById("saveSplashBtn");
+  if (saveSplashBtn) {
+    saveSplashBtn.onclick = async () => {
+      const splash = document.getElementById("splashInput").value;
+      await fetch("/update-splash", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({splash})
+      });
+      alert("Splash updated!");
+    };
+  }
+
+  const applyColor = document.getElementById("applyColor");
+  if (applyColor) {
+    applyColor.onclick = async () => {
+      const id = document.getElementById("editBlockId").value;
+      const name = document.getElementById("editBlockName").value;
+      const side = document.getElementById("sideSelect").value;
+      if (!id) return alert("Select a block first");
+
+      blockTypes[id].name = name;
+      blockTypes[id].textures[side] = [...currentPixels];
+
+      await fetch("/update-block", {
+        method: "POST",
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({blockName: id, side, textureData: currentPixels})
+      });
+
+      // Update materials in-game
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      currentPixels.forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      
+      const sideIdx = ['right', 'left', 'top', 'bottom', 'front', 'back'].indexOf(side);
+      blockMaterials[id][sideIdx].map = texture;
+      blockMaterials[id][sideIdx].needsUpdate = true;
+
+      updateSidebar();
+      alert("Saved!");
+    };
+  }
+
   async function initTitle() {
     try {
       const res = await fetch("/config");
       const config = await res.json();
       const splash = document.getElementById("splashText");
       if (splash) splash.textContent = config.splash;
+      const splashInput = document.getElementById("splashInput");
+      if (splashInput) splashInput.value = config.splash;
     } catch (e) {
       console.error("Failed to load config", e);
     }
