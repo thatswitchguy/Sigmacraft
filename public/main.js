@@ -193,8 +193,6 @@ export function initGame(THREE){
       if (dev) {
         if (dev.style.display === "none") {
           dev.style.display = "flex";
-          updateSidebar();
-          updateEditor();
           document.exitPointerLock();
         } else {
           dev.style.display = "none";
@@ -274,42 +272,20 @@ export function initGame(THREE){
   if (sideSelect) sideSelect.onchange = updateEditor;
 
   function updateEditor() {
+    const blockSelect = document.getElementById("blockSelect");
     const sideSelect = document.getElementById("sideSelect");
-    const nameInput = document.getElementById("editBlockName");
-    if (!currentDevBlock || !sideSelect) return;
+    if (!blockSelect || !sideSelect) return;
     
-    const blockName = currentDevBlock;
+    const blockName = blockSelect.value;
     const side = sideSelect.value;
-    
-    if (nameInput) nameInput.value = blockTypes[blockName].name || blockName;
-
     if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
     
+    // Update sidebar active state
     document.querySelectorAll(".sidebar-item").forEach(item => {
       item.classList.toggle("active", item.dataset.id === blockName);
     });
-  }
-
-  let currentDevBlock = "grass";
-
-  function createBlockIcon(id) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 16;
-    const ctx = canvas.getContext("2d");
-    const tex = blockTypes[id].textures.top;
-    if (Array.isArray(tex)) {
-      tex.forEach((c, i) => {
-        ctx.fillStyle = c;
-        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-      });
-    } else {
-      ctx.fillStyle = tex || "#fff";
-      ctx.fillRect(0, 0, 16, 16);
-    }
-    return canvas;
   }
 
   function updateSidebar() {
@@ -319,7 +295,6 @@ export function initGame(THREE){
     Object.keys(blockTypes).forEach(id => {
       const item = document.createElement("div");
       item.className = "sidebar-item";
-      if (id === currentDevBlock) item.classList.add("active");
       item.dataset.id = id;
       
       const icon = createBlockIcon(id);
@@ -330,90 +305,12 @@ export function initGame(THREE){
       item.appendChild(label);
       
       item.onclick = () => {
-        currentDevBlock = id;
+        const select = document.getElementById("blockSelect");
+        if (select) select.value = id;
         updateEditor();
       };
       list.appendChild(item);
     });
-  }
-
-  const deleteBlockBtn = document.getElementById("deleteBlockBtn");
-  if (deleteBlockBtn) {
-    deleteBlockBtn.onclick = async () => {
-      if (!currentDevBlock) return;
-      if (["grass", "dirt", "stone"].includes(currentDevBlock)) return alert("Cannot delete base blocks");
-      if (!confirm(`Delete ${currentDevBlock}?`)) return;
-
-      await fetch("/delete-block", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({blockName: currentDevBlock})
-      });
-      
-      delete blockTypes[currentDevBlock];
-      currentDevBlock = Object.keys(blockTypes)[0];
-      updateSidebar();
-      updateEditor();
-      setupInventoryUI();
-    };
-  }
-
-  const editBlockName = document.getElementById("editBlockName");
-  if (editBlockName) {
-    editBlockName.onchange = async () => {
-      if (!currentDevBlock) return;
-      const newName = editBlockName.value.trim();
-      if (!newName) return;
-      
-      blockTypes[currentDevBlock].name = newName;
-      await fetch("/update-block-name", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({blockName: currentDevBlock, newName})
-      });
-      updateSidebar();
-      setupInventoryUI();
-    };
-  }
-
-  const applyColor = document.getElementById("applyColor");
-  if (applyColor) {
-    applyColor.onclick = async () => {
-      const side = document.getElementById("sideSelect").value;
-      if (!currentDevBlock || !side) return;
-
-      blockTypes[currentDevBlock].textures[side] = [...currentPixels];
-      
-      await fetch("/update-block", {
-        method: "POST",
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          blockName: currentDevBlock,
-          side: side,
-          textureData: currentPixels
-        })
-      });
-      
-      // Update materials live
-      const materials = blockMaterials[currentDevBlock];
-      const sideIdx = ['right', 'left', 'top', 'bottom', 'front', 'back'].indexOf(side);
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = 16;
-      canvas.height = 16;
-      const ctx = canvas.getContext('2d');
-      currentPixels.forEach((color, i) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-      });
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      materials[sideIdx] = new THREE.MeshStandardMaterial({ map: texture });
-      
-      updateSidebar();
-      alert("Texture saved!");
-    };
   }
 
   const addBlockBtn = document.getElementById("addBlockBtn");
@@ -616,41 +513,41 @@ export function initGame(THREE){
     const sel = document.getElementById("blockSelect");
     if (sel) sel.innerHTML = "";
     
-     for(const name in blockTypes){
-       const tex = blockTypes[name].textures;
-
-       const materials = [];
-       const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-
-       sides.forEach(side => {
-         const data = tex?.[side];
-         if (Array.isArray(data)) {
-           const canvas = document.createElement('canvas');
-           canvas.width = 16;
-           canvas.height = 16;
-           const ctx = canvas.getContext('2d');
-           data.forEach((color, i) => {
-             ctx.fillStyle = color;
-             ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-           });
-           const texture = new THREE.CanvasTexture(canvas);
-           texture.magFilter = THREE.NearestFilter;
-           texture.minFilter = THREE.NearestFilter;
-           materials.push(new THREE.MeshStandardMaterial({ map: texture }));
-         } else {
-           materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
-         }
-       });
-
-       blockMaterials[name] = materials;
-
-       if (sel) {
-         const opt = document.createElement("option");
-         opt.value = name;
-         opt.textContent = blockTypes[name].name || name;
-         sel.appendChild(opt);
-       }
-     }
+    for(const name in blockTypes){
+      const tex = blockTypes[name].textures;
+      
+      const materials = [];
+      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+      
+      sides.forEach(side => {
+        const data = tex[side];
+        if (Array.isArray(data)) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 16;
+          canvas.height = 16;
+          const ctx = canvas.getContext('2d');
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.magFilter = THREE.NearestFilter;
+          texture.minFilter = THREE.NearestFilter;
+          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+        } else {
+          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+        }
+      });
+      
+      blockMaterials[name] = materials;
+      
+      if (sel) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = blockTypes[name].name || name;
+        sel.appendChild(opt);
+      }
+    }
     
     createPixelGrid();
     setupInventoryUI();
@@ -881,16 +778,15 @@ export function initGame(THREE){
     canvas.width = 16;
     canvas.height = 16;
     const ctx = canvas.getContext("2d");
-    const textures = blockTypes[blockName]?.textures ?? {};
-    const texData = textures.front || textures.top || "#ffffff";
-
-    if (Array.isArray(texData)) {
-      texData.forEach((color, i) => {
+    const tex = blockTypes[blockName].textures.front || blockTypes[blockName].textures.top || "#ffffff";
+    
+    if (Array.isArray(tex)) {
+      tex.forEach((color, i) => {
         ctx.fillStyle = color;
         ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
       });
     } else {
-      ctx.fillStyle = texData;
+      ctx.fillStyle = tex;
       ctx.fillRect(0, 0, 16, 16);
     }
     return canvas;
