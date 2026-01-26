@@ -9,6 +9,7 @@ app.use(express.json());
 app.use(express.static(path.join(process.cwd(), "public")));
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
+const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
 
 app.get("/textures", (req, res) => {
     const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
@@ -50,6 +51,28 @@ app.post("/update-skin", (req, res) => {
     if (!data._config) data._config = {};
     data._config.skin = skin;
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+    res.json({ success: true });
+});
+
+app.get("/block-timing", (req, res) => {
+    try {
+        const data = JSON.parse(fs.readFileSync(TIMING_FILE));
+        res.json(data);
+    } catch (e) {
+        res.json({ default: 1.0 });
+    }
+});
+
+app.post("/update-block-timing", (req, res) => {
+    const { blockName, time } = req.body;
+    let data = {};
+    try {
+        data = JSON.parse(fs.readFileSync(TIMING_FILE));
+    } catch (e) {
+        data = { default: 1.0 };
+    }
+    data[blockName] = time;
+    fs.writeFileSync(TIMING_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
 });
 

@@ -1,7 +1,12 @@
 export function initGame(THREE){
   let blockTypes = {};
   let blockMaterials = {};
+  let blockTiming = { default: 1.0 };
   const blocks3D = [];
+  
+  let breakingBlock = null;
+  let breakingProgress = 0;
+  let breakingOverlay = null;
 
   const player = { 
     group: new THREE.Group(), 
@@ -124,8 +129,60 @@ export function initGame(THREE){
   let swingTime = 0;
   let isSwinging = false;
 
+  let isBreaking = false;
+  let breakStartTime = 0;
+  let currentBreakTarget = null;
+
+  function showBlockCountMessage(action, blockName, count) {
+    let msgDiv = document.getElementById("blockCountMessage");
+    if (!msgDiv) {
+      msgDiv = document.createElement("div");
+      msgDiv.id = "blockCountMessage";
+      msgDiv.style.cssText = "position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:white;padding:8px 16px;border-radius:4px;font-family:sans-serif;z-index:1000;transition:opacity 0.3s;";
+      document.body.appendChild(msgDiv);
+    }
+    const displayName = blockTypes[blockName]?.name || blockName;
+    msgDiv.textContent = `${action} ${displayName} (${count} remaining)`;
+    msgDiv.style.opacity = "1";
+    clearTimeout(msgDiv._timeout);
+    msgDiv._timeout = setTimeout(() => msgDiv.style.opacity = "0", 2000);
+  }
+
+  function createBreakingOverlay(mesh) {
+    const geo = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const mat = new THREE.MeshBasicMaterial({ 
+      color: 0x000000, 
+      transparent: true, 
+      opacity: 0,
+      side: THREE.FrontSide,
+      depthTest: true
+    });
+    const overlay = new THREE.Mesh(geo, mat);
+    overlay.position.copy(mesh.position);
+    scene.add(overlay);
+    return overlay;
+  }
+
+  function updateBreakingOverlay(progress) {
+    if (breakingOverlay) {
+      breakingOverlay.material.opacity = progress * 0.5;
+      breakingOverlay.material.color.setHex(progress > 0.7 ? 0xff0000 : progress > 0.4 ? 0xff6600 : 0x000000);
+    }
+  }
+
+  function removeBreakingOverlay() {
+    if (breakingOverlay) {
+      scene.remove(breakingOverlay);
+      breakingOverlay = null;
+    }
+  }
+
+  function getBreakTime(blockType) {
+    if (blockTiming[blockType] !== undefined) return blockTiming[blockType];
+    return blockTiming.default || 1.0;
+  }
+
   window.addEventListener("mousedown", e => {
-    // Only allow interaction if pointer is locked
     if (document.pointerLockElement !== renderer.domElement) return;
     
     isSwinging = true;
@@ -133,36 +190,98 @@ export function initGame(THREE){
 
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
-    if (intersects.length > 0) {
-      const hit = intersects[0];
-      if (e.button === 0) {
-        // Break block
-        const obj = hit.object;
-        scene.remove(obj);
-        const idx = blocks3D.findIndex(b => b.mesh === obj);
-        if (idx !== -1) blocks3D.splice(idx, 1);
-      } else if (e.button === 2) {
-        // Place block
-        const slot = player.inventory[player.selectedSlot];
-        if (!slot || !slot.type || slot.count <= 0) return;
-        
-        const blockName = slot.type;
-        const mat = blockMaterials[blockName];
-        const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-        const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
-        newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
-
-        // Don't place if player is inside
-        if (!checkCollision(newBlock.position)) {
-          scene.add(newBlock);
-          blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
-          slot.count--;
-          if (slot.count <= 0) slot.type = null;
-          updateHotbarUI();
+    
+    if (e.button === 0) {
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const blockData = blocks3D.find(b => b.mesh === hit.object);
+        if (blockData) {
+          const breakTime = getBreakTime(blockData.type);
+          if (breakTime < 0) return;
+          
+          isBreaking = true;
+          breakStartTime = performance.now();
+          currentBreakTarget = blockData;
+          breakingBlock = blockData;
+          breakingProgress = 0;
+          breakingOverlay = createBreakingOverlay(blockData.mesh);
         }
+      }
+    } else if (e.button === 2 && intersects.length > 0) {
+      const hit = intersects[0];
+      const slot = player.inventory[player.selectedSlot];
+      if (!slot || !slot.type || slot.count <= 0) return;
+      
+      const blockName = slot.type;
+      const mat = blockMaterials[blockName];
+      const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
+      newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
+
+      if (!checkCollision(newBlock.position)) {
+        scene.add(newBlock);
+        blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
+        slot.count--;
+        if (slot.count <= 0) slot.type = null;
+        updateHotbarUI();
+        showBlockCountMessage("Placed", blockName, slot.count);
       }
     }
   });
+
+  window.addEventListener("mouseup", e => {
+    if (e.button === 0) {
+      isBreaking = false;
+      currentBreakTarget = null;
+      breakingBlock = null;
+      breakingProgress = 0;
+      removeBreakingOverlay();
+    }
+  });
+
+  function updateBreaking() {
+    if (!isBreaking || !currentBreakTarget) return;
+    
+    raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+    const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
+    
+    if (intersects.length === 0 || intersects[0].object !== currentBreakTarget.mesh) {
+      isBreaking = false;
+      currentBreakTarget = null;
+      breakingBlock = null;
+      breakingProgress = 0;
+      removeBreakingOverlay();
+      return;
+    }
+    
+    const breakTime = getBreakTime(currentBreakTarget.type) * 1000;
+    const elapsed = performance.now() - breakStartTime;
+    breakingProgress = Math.min(elapsed / breakTime, 1);
+    updateBreakingOverlay(breakingProgress);
+    
+    if (elapsed >= breakTime) {
+      const obj = currentBreakTarget.mesh;
+      const blockType = currentBreakTarget.type;
+      scene.remove(obj);
+      const idx = blocks3D.findIndex(b => b.mesh === obj);
+      if (idx !== -1) blocks3D.splice(idx, 1);
+      
+      let slot = player.inventory.find(s => s.type === blockType && s.count < 64);
+      if (!slot) slot = player.inventory.find(s => s.type === null);
+      if (slot) {
+        slot.type = blockType;
+        slot.count = (slot.count || 0) + 1;
+        updateHotbarUI();
+        showBlockCountMessage("Mined", blockType, slot.count);
+      }
+      
+      isBreaking = false;
+      currentBreakTarget = null;
+      breakingBlock = null;
+      breakingProgress = 0;
+      removeBreakingOverlay();
+    }
+  }
 
   document.addEventListener("contextmenu", e => e.preventDefault());
 
@@ -292,7 +411,7 @@ export function initGame(THREE){
     const list = document.getElementById("blockSidebarList");
     if (!list) return;
     list.innerHTML = "";
-    Object.keys(blockTypes).forEach(id => {
+    Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
       const item = document.createElement("div");
       item.className = "sidebar-item";
       item.dataset.id = id;
@@ -417,8 +536,7 @@ export function initGame(THREE){
     const list = document.getElementById("blockSidebarList");
     if (!list) return;
     list.innerHTML = "";
-    Object.keys(blockTypes).forEach(id => {
-      if (id === "_config") return;
+    Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
       const item = document.createElement("div");
       item.className = "sidebar-item";
       item.dataset.id = id;
@@ -633,6 +751,13 @@ export function initGame(THREE){
     
     const res = await fetch("/textures");
     blockTypes = await res.json();
+    
+    try {
+      const timingRes = await fetch("/block-timing");
+      blockTiming = await timingRes.json();
+    } catch (e) {
+      blockTiming = { default: 1.0 };
+    }
     const sel = document.getElementById("blockSelect");
     if (sel) sel.innerHTML = "";
     
@@ -982,6 +1107,8 @@ export function initGame(THREE){
   let animationTime = 0;
   function animate() {
     requestAnimationFrame(animate);
+    
+    updateBreaking();
 
     player.group.rotation.y = player.yaw;
     
