@@ -637,7 +637,9 @@ export function initGame(THREE){
     if (sel) sel.innerHTML = "";
     
     for(const name in blockTypes){
-      const tex = blockTypes[name].textures;
+      if (name.startsWith('_')) continue;
+      const tex = blockTypes[name]?.textures;
+      if (!tex) continue;
       
       const materials = [];
       const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
@@ -762,7 +764,7 @@ export function initGame(THREE){
     const catalog = document.getElementById("blockCatalog");
     if (catalog) {
       catalog.innerHTML = "";
-      Object.keys(blockTypes).forEach(name => {
+      Object.keys(blockTypes).filter(name => !name.startsWith('_') && blockTypes[name]?.textures).forEach(name => {
         const slot = document.createElement("div");
         slot.className = "slot";
         slot.appendChild(createBlockIcon(name));
@@ -901,7 +903,8 @@ export function initGame(THREE){
     canvas.width = 16;
     canvas.height = 16;
     const ctx = canvas.getContext("2d");
-    const tex = blockTypes[blockName].textures.front || blockTypes[blockName].textures.top || "#ffffff";
+    const textures = blockTypes[blockName]?.textures;
+    const tex = textures?.front || textures?.top || "#ffffff";
     
     if (Array.isArray(tex)) {
       tex.forEach((color, i) => {
