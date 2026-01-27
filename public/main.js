@@ -257,25 +257,28 @@ export function initGame(THREE){
   }
 
   function createBlockDrop(position, blockType) {
-    const mat = blockMaterials[blockType];
-    const dropMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), mat);
+    const originalMat = blockMaterials[blockType];
+    let mat;
+    if (Array.isArray(originalMat)) {
+      mat = originalMat.map(m => m.clone());
+    } else {
+      mat = originalMat.clone();
+    }
+    const dropMesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), mat);
     dropMesh.position.copy(position);
-    dropMesh.position.y += 0.5;
+    dropMesh.position.y += 0.3;
     scene.add(dropMesh);
     
     const drop = {
       mesh: dropMesh,
       type: blockType,
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 2,
-        3 + Math.random() * 2,
-        (Math.random() - 0.5) * 2
+        (Math.random() - 0.5) * 3,
+        4 + Math.random() * 2,
+        (Math.random() - 0.5) * 3
       ),
-      rotation: new THREE.Vector3(
-        Math.random() * 0.2,
-        Math.random() * 0.2,
-        Math.random() * 0.2
-      ),
+      grounded: false,
+      groundY: 0,
       age: 0,
       bobPhase: Math.random() * Math.PI * 2
     };
@@ -283,31 +286,42 @@ export function initGame(THREE){
     return drop;
   }
 
+  function getGroundHeight(x, z) {
+    let maxY = 0;
+    for (const block of blocks3D) {
+      if (Math.abs(block.mesh.position.x - x) < 0.5 && 
+          Math.abs(block.mesh.position.z - z) < 0.5) {
+        maxY = Math.max(maxY, block.mesh.position.y + 0.5);
+      }
+    }
+    return maxY;
+  }
+
   function updateBlockDrops(delta) {
-    const gravity = 15;
+    const gravity = 20;
     const playerPos = player.group.position;
-    const pickupRadius = 1.5;
+    const pickupRadius = 1.8;
     
     for (let i = blockDrops.length - 1; i >= 0; i--) {
       const drop = blockDrops[i];
       drop.age += delta;
       
-      drop.velocity.y -= gravity * delta;
-      drop.mesh.position.add(drop.velocity.clone().multiplyScalar(delta));
-      
-      if (drop.mesh.position.y < 0) {
-        drop.mesh.position.y = 0;
-        drop.velocity.y = 0;
-        drop.velocity.x *= 0.8;
-        drop.velocity.z *= 0.8;
+      if (!drop.grounded) {
+        drop.velocity.y -= gravity * delta;
+        drop.mesh.position.add(drop.velocity.clone().multiplyScalar(delta));
+        
+        const groundY = getGroundHeight(drop.mesh.position.x, drop.mesh.position.z) + 0.2;
+        if (drop.mesh.position.y <= groundY) {
+          drop.mesh.position.y = groundY;
+          drop.grounded = true;
+          drop.groundY = groundY;
+          drop.velocity.set(0, 0, 0);
+        }
+      } else {
+        drop.mesh.position.y = drop.groundY + Math.sin(drop.bobPhase + drop.age * 2) * 0.08;
       }
       
-      drop.mesh.rotation.x += drop.rotation.x;
-      drop.mesh.rotation.y += drop.rotation.y;
-      
-      if (drop.age > 0.5) {
-        drop.mesh.position.y += Math.sin(drop.bobPhase + drop.age * 3) * 0.003;
-      }
+      drop.mesh.rotation.y += delta * 1.5;
       
       const dist = playerPos.distanceTo(drop.mesh.position);
       if (dist < pickupRadius && drop.age > 0.3) {
