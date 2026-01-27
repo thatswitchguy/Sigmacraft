@@ -148,25 +148,102 @@ export function initGame(THREE){
     msgDiv._timeout = setTimeout(() => msgDiv.style.opacity = "0", 2000);
   }
 
+  function createCrackTexture(stage) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, 16, 16);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.lineWidth = 1;
+    
+    if (stage >= 1) {
+      ctx.beginPath();
+      ctx.moveTo(8, 0); ctx.lineTo(6, 5); ctx.lineTo(10, 8);
+      ctx.stroke();
+    }
+    if (stage >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(0, 6); ctx.lineTo(4, 8); ctx.lineTo(3, 12);
+      ctx.stroke();
+    }
+    if (stage >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(12, 2); ctx.lineTo(14, 6); ctx.lineTo(16, 5);
+      ctx.moveTo(2, 14); ctx.lineTo(6, 12); ctx.lineTo(8, 16);
+      ctx.stroke();
+    }
+    if (stage >= 4) {
+      ctx.beginPath();
+      ctx.moveTo(10, 8); ctx.lineTo(12, 12); ctx.lineTo(16, 14);
+      ctx.moveTo(0, 10); ctx.lineTo(3, 12); ctx.lineTo(2, 16);
+      ctx.stroke();
+    }
+    if (stage >= 5) {
+      ctx.beginPath();
+      ctx.moveTo(4, 0); ctx.lineTo(2, 4); ctx.lineTo(0, 3);
+      ctx.moveTo(6, 5); ctx.lineTo(4, 8); ctx.lineTo(6, 12);
+      ctx.stroke();
+    }
+    if (stage >= 6) {
+      ctx.beginPath();
+      ctx.moveTo(10, 8); ctx.lineTo(14, 10); ctx.lineTo(16, 8);
+      ctx.moveTo(8, 16); ctx.lineTo(10, 12); ctx.lineTo(14, 14);
+      ctx.stroke();
+    }
+    if (stage >= 7) {
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(3, 4);
+      ctx.moveTo(13, 0); ctx.lineTo(10, 4);
+      ctx.moveTo(0, 14); ctx.lineTo(4, 10);
+      ctx.moveTo(16, 12); ctx.lineTo(12, 8);
+      ctx.stroke();
+    }
+    if (stage >= 8) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fillRect(0, 0, 16, 16);
+    }
+    if (stage >= 9) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, 16, 16);
+    }
+    
+    return canvas;
+  }
+
   function createBreakingOverlay(mesh) {
-    const geo = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const geo = new THREE.BoxGeometry(1.002, 1.002, 1.002);
+    const canvas = createCrackTexture(0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    
     const mat = new THREE.MeshBasicMaterial({ 
-      color: 0x000000, 
-      transparent: true, 
-      opacity: 0,
+      map: texture,
+      transparent: true,
+      opacity: 1,
       side: THREE.FrontSide,
-      depthTest: true
+      depthTest: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -1
     });
     const overlay = new THREE.Mesh(geo, mat);
     overlay.position.copy(mesh.position);
+    overlay.userData.canvas = canvas;
+    overlay.userData.texture = texture;
     scene.add(overlay);
     return overlay;
   }
 
   function updateBreakingOverlay(progress) {
     if (breakingOverlay) {
-      breakingOverlay.material.opacity = progress * 0.5;
-      breakingOverlay.material.color.setHex(progress > 0.7 ? 0xff0000 : progress > 0.4 ? 0xff6600 : 0x000000);
+      const stage = Math.floor(progress * 10);
+      const canvas = createCrackTexture(stage);
+      breakingOverlay.material.map = new THREE.CanvasTexture(canvas);
+      breakingOverlay.material.map.magFilter = THREE.NearestFilter;
+      breakingOverlay.material.map.minFilter = THREE.NearestFilter;
+      breakingOverlay.material.needsUpdate = true;
     }
   }
 
@@ -267,11 +344,12 @@ export function initGame(THREE){
       if (idx !== -1) blocks3D.splice(idx, 1);
       
       let slot = player.inventory.find(s => s.type === blockType && s.count < 64);
-      if (!slot) slot = player.inventory.find(s => s.type === null);
+      if (!slot) slot = player.inventory.find(s => s.type === null || s.count === 0);
       if (slot) {
         slot.type = blockType;
         slot.count = (slot.count || 0) + 1;
         updateHotbarUI();
+        renderInventoryGrid();
         showBlockCountMessage("Mined", blockType, slot.count);
       }
       

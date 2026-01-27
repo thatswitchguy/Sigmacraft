@@ -1,4 +1,4 @@
-body { margin:0; overflow:hidden; font-family: sans-serif; }
+body { margin:0; overflow:hidden; font-family: Verdana, Geneva, Tahoma; }
 canvas { display:block; }
 
 #devPasswordOverlay {
