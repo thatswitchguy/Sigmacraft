@@ -7,6 +7,7 @@ export function initGame(THREE){
   let breakingBlock = null;
   let breakingProgress = 0;
   let breakingOverlay = null;
+  const blockDrops = [];
 
   const player = { 
     group: new THREE.Group(), 
@@ -39,8 +40,9 @@ export function initGame(THREE){
   fpHand.rotation.x = -0.4;
   fpHandGroup.add(fpHand);
   
-  const fpItem = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial({color: 0xffffff}));
-  fpItem.position.set(0.5, -0.2, -0.8);
+  const fpItem = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({color: 0xffffff}));
+  fpItem.position.set(0.6, -0.3, -0.9);
+  fpItem.rotation.set(-0.2, 0.4, 0.1);
   fpItem.visible = false;
   fpHandGroup.add(fpItem);
   
@@ -142,7 +144,7 @@ export function initGame(THREE){
       document.body.appendChild(msgDiv);
     }
     const displayName = blockTypes[blockName]?.name || blockName;
-    msgDiv.textContent = `${action} ${displayName} (${count} remaining)`;
+    msgDiv.textContent = `${action} ${displayName} (${count} )`;
     msgDiv.style.opacity = "1";
     clearTimeout(msgDiv._timeout);
     msgDiv._timeout = setTimeout(() => msgDiv.style.opacity = "0", 2000);
@@ -254,6 +256,111 @@ export function initGame(THREE){
     }
   }
 
+  function createBlockDrop(position, blockType) {
+    const mat = blockMaterials[blockType];
+    const dropMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), mat);
+    dropMesh.position.copy(position);
+    dropMesh.position.y += 0.5;
+    scene.add(dropMesh);
+    
+    const drop = {
+      mesh: dropMesh,
+      type: blockType,
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 2,
+        3 + Math.random() * 2,
+        (Math.random() - 0.5) * 2
+      ),
+      rotation: new THREE.Vector3(
+        Math.random() * 0.2,
+        Math.random() * 0.2,
+        Math.random() * 0.2
+      ),
+      age: 0,
+      bobPhase: Math.random() * Math.PI * 2
+    };
+    blockDrops.push(drop);
+    return drop;
+  }
+
+  function updateBlockDrops(delta) {
+    const gravity = 15;
+    const playerPos = player.group.position;
+    const pickupRadius = 1.5;
+    
+    for (let i = blockDrops.length - 1; i >= 0; i--) {
+      const drop = blockDrops[i];
+      drop.age += delta;
+      
+      drop.velocity.y -= gravity * delta;
+      drop.mesh.position.add(drop.velocity.clone().multiplyScalar(delta));
+      
+      if (drop.mesh.position.y < 0) {
+        drop.mesh.position.y = 0;
+        drop.velocity.y = 0;
+        drop.velocity.x *= 0.8;
+        drop.velocity.z *= 0.8;
+      }
+      
+      drop.mesh.rotation.x += drop.rotation.x;
+      drop.mesh.rotation.y += drop.rotation.y;
+      
+      if (drop.age > 0.5) {
+        drop.mesh.position.y += Math.sin(drop.bobPhase + drop.age * 3) * 0.003;
+      }
+      
+      const dist = playerPos.distanceTo(drop.mesh.position);
+      if (dist < pickupRadius && drop.age > 0.3) {
+        let slot = null;
+        for (let j = 27; j < 36; j++) {
+          if (player.inventory[j].type === drop.type && player.inventory[j].count < 64) {
+            slot = player.inventory[j];
+            break;
+          }
+        }
+        if (!slot) {
+          for (let j = 27; j < 36; j++) {
+            if (player.inventory[j].type === null || player.inventory[j].count === 0) {
+              slot = player.inventory[j];
+              break;
+            }
+          }
+        }
+        if (!slot) {
+          for (let j = 0; j < 27; j++) {
+            if (player.inventory[j].type === drop.type && player.inventory[j].count < 64) {
+              slot = player.inventory[j];
+              break;
+            }
+          }
+        }
+        if (!slot) {
+          for (let j = 0; j < 27; j++) {
+            if (player.inventory[j].type === null || player.inventory[j].count === 0) {
+              slot = player.inventory[j];
+              break;
+            }
+          }
+        }
+        
+        if (slot) {
+          slot.type = drop.type;
+          slot.count = (slot.count || 0) + 1;
+          scene.remove(drop.mesh);
+          blockDrops.splice(i, 1);
+          updateHotbarUI();
+          renderInventoryGrid();
+          showBlockCountMessage("Picked up", drop.type, slot.count);
+        }
+      }
+      
+      if (drop.age > 300) {
+        scene.remove(drop.mesh);
+        blockDrops.splice(i, 1);
+      }
+    }
+  }
+
   function getBreakTime(blockType) {
     if (blockTiming[blockType] !== undefined) return blockTiming[blockType];
     return blockTiming.default || 1.0;
@@ -339,19 +446,12 @@ export function initGame(THREE){
     if (elapsed >= breakTime) {
       const obj = currentBreakTarget.mesh;
       const blockType = currentBreakTarget.type;
+      const blockPos = obj.position.clone();
       scene.remove(obj);
       const idx = blocks3D.findIndex(b => b.mesh === obj);
       if (idx !== -1) blocks3D.splice(idx, 1);
       
-      let slot = player.inventory.find(s => s.type === blockType && s.count < 64);
-      if (!slot) slot = player.inventory.find(s => s.type === null || s.count === 0);
-      if (slot) {
-        slot.type = blockType;
-        slot.count = (slot.count || 0) + 1;
-        updateHotbarUI();
-        renderInventoryGrid();
-        showBlockCountMessage("Mined", blockType, slot.count);
-      }
+      createBlockDrop(blockPos, blockType);
       
       isBreaking = false;
       currentBreakTarget = null;
@@ -1183,10 +1283,16 @@ export function initGame(THREE){
 
   // ANIMATE
   let animationTime = 0;
+  let lastTime = performance.now();
   function animate() {
     requestAnimationFrame(animate);
     
+    const now = performance.now();
+    const delta = Math.min((now - lastTime) / 1000, 0.1);
+    lastTime = now;
+    
     updateBreaking();
+    updateBlockDrops(delta);
 
     player.group.rotation.y = player.yaw;
     
