@@ -505,6 +505,7 @@ export function initGame(THREE){
         if (dev.style.display === "none") {
           dev.style.display = "flex";
           document.exitPointerLock();
+          updateSidebar();
         } else {
           dev.style.display = "none";
           renderer.domElement.requestPointerLock();
@@ -596,31 +597,6 @@ export function initGame(THREE){
     // Update sidebar active state
     document.querySelectorAll(".sidebar-item").forEach(item => {
       item.classList.toggle("active", item.dataset.id === blockName);
-    });
-  }
-
-  function updateSidebar() {
-    const list = document.getElementById("blockSidebarList");
-    if (!list) return;
-    list.innerHTML = "";
-    Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
-      const item = document.createElement("div");
-      item.className = "sidebar-item";
-      item.dataset.id = id;
-      
-      const icon = createBlockIcon(id);
-      item.appendChild(icon);
-      
-      const label = document.createElement("span");
-      label.textContent = blockTypes[id].name || id;
-      item.appendChild(label);
-      
-      item.onclick = () => {
-        const select = document.getElementById("blockSelect");
-        if (select) select.value = id;
-        updateEditor();
-      };
-      list.appendChild(item);
     });
   }
 
@@ -1014,8 +990,6 @@ export function initGame(THREE){
     player.group.position.y = 15;
   }
 
-  function updateEditor() {}
-  function updateSidebar() {}
 
   let labelTimeout;
   function updateHotbarUI() {
