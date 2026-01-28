@@ -736,7 +736,15 @@ export function initGame(THREE){
       item.onclick = () => {
         document.getElementById("editBlockId").value = id;
         document.getElementById("editBlockName").value = blockTypes[id].name || id;
-        updateEditor();
+        const blockSelect = document.getElementById("blockSelect");
+        if (blockSelect) blockSelect.value = id;
+        const side = document.getElementById("sideSelect")?.value || "top";
+        if (blockTypes[id] && blockTypes[id].textures[side]) {
+          updateGridFromData(blockTypes[id].textures[side]);
+        }
+        document.querySelectorAll(".sidebar-item").forEach(item => {
+          item.classList.toggle("active", item.dataset.id === id);
+        });
       };
       list.appendChild(item);
     });
