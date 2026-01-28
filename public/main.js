@@ -585,12 +585,13 @@ export function initGame(THREE){
 
   function updateEditor() {
     const blockSelect = document.getElementById("blockSelect");
+    const editBlockId = document.getElementById("editBlockId");
     const sideSelect = document.getElementById("sideSelect");
-    if (!blockSelect || !sideSelect) return;
+    if (!sideSelect) return;
     
-    const blockName = blockSelect.value;
+    const blockName = blockSelect?.value || editBlockId?.value || "";
     const side = sideSelect.value;
-    if (blockTypes[blockName] && blockTypes[blockName].textures[side]) {
+    if (blockName && blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
     
