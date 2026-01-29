@@ -421,7 +421,6 @@ export function initGame(THREE){
         slot.count--;
         if (slot.count <= 0) slot.type = null;
         updateHotbarUI();
-        showBlockCountMessage("Placed", blockName, slot.count);
       }
     }
   });
@@ -476,8 +475,84 @@ export function initGame(THREE){
 
   document.addEventListener("contextmenu", e => e.preventDefault());
 
+  // Game settings
+  const gameSettings = {
+    framerate: 60,
+    brightness: 100,
+    contrast: 100,
+    hideHand: false
+  };
+
+  function togglePauseMenu() {
+    const pause = document.getElementById("pauseMenu");
+    if (pause.style.display === "none") {
+      pause.style.display = "flex";
+      document.getElementById("pauseMain").style.display = "block";
+      document.getElementById("pauseVideo").style.display = "none";
+      document.getElementById("pauseGame").style.display = "none";
+      document.exitPointerLock();
+    } else {
+      pause.style.display = "none";
+      renderer.domElement.requestPointerLock();
+    }
+  }
+
+  function applySettings() {
+    document.body.style.filter = `brightness(${gameSettings.brightness}%) contrast(${gameSettings.contrast}%)`;
+    if (player.heldBlock) {
+      player.heldBlock.visible = !gameSettings.hideHand;
+    }
+  }
+
+  // Pause menu controls
+  const resumeBtn = document.getElementById("resumeBtn");
+  if (resumeBtn) {
+    resumeBtn.onclick = () => togglePauseMenu();
+  }
+
+  const quitBtn = document.getElementById("quitBtn");
+  if (quitBtn) {
+    quitBtn.onclick = () => {
+      document.getElementById("pauseMenu").style.display = "none";
+      document.getElementById("titleScreen").style.display = "flex";
+    };
+  }
+
+  const brightnessSlider = document.getElementById("brightnessSlider");
+  if (brightnessSlider) {
+    brightnessSlider.oninput = () => {
+      gameSettings.brightness = brightnessSlider.value;
+      document.getElementById("brightnessValue").textContent = brightnessSlider.value + "%";
+      applySettings();
+    };
+  }
+
+  const contrastSlider = document.getElementById("contrastSlider");
+  if (contrastSlider) {
+    contrastSlider.oninput = () => {
+      gameSettings.contrast = contrastSlider.value;
+      document.getElementById("contrastValue").textContent = contrastSlider.value + "%";
+      applySettings();
+    };
+  }
+
+  const hideHandCheck = document.getElementById("hideHandCheck");
+  if (hideHandCheck) {
+    hideHandCheck.onchange = () => {
+      gameSettings.hideHand = hideHandCheck.checked;
+      applySettings();
+    };
+  }
+
   // Handle Camera Toggle and Inventory
   window.addEventListener("keydown", e => {
+    if (e.code === "Escape") {
+      const titleScreen = document.getElementById("titleScreen");
+      if (titleScreen.style.display !== "none") return;
+      togglePauseMenu();
+      return;
+    }
+
     // Inventory slots 1-9
     if (e.code.startsWith("Digit") && e.code !== "Digit0") {
       const slot = parseInt(e.code.replace("Digit", "")) - 1;

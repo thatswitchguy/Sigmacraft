@@ -11,11 +11,12 @@
 <div id="titleScreen">
   <div class="title-container">
     <h1 class="minecraft-title">Sigmacraft</h1>
+    <br>
     <div id="splashText" class="splash">Welcome!</div>
-    <div class="title-buttons">
+    <div align="centre" class="title-buttons">
       <button id="playBtn" class="mc-btn">Singleplayer</button>
       <button id="devModeBtn" class="mc-btn">Options</button>
-      <div class="text" style="color: #fff; font-size: 20px; position: centre">v.1.2 Very buggy</div>
+      <div class="text" style="color: #fff; font-size: 20px; position: centre">v.1.3</div>
     </div>
   </div>
   <a href="credits.html" class="credits-link">Credits</a>
@@ -155,6 +156,52 @@
 </div>
 
 <div id="crosshair"></div>
+
+<div id="pauseMenu" style="display:none;">
+  <div class="pause-window">
+    <div id="pauseMain">
+      <h2>Game Paused</h2>
+      <div class="pause-buttons">
+        <button class="mc-btn" onclick="document.getElementById('pauseMain').style.display='none';document.getElementById('pauseVideo').style.display='block';">Video</button>
+        <button class="mc-btn" onclick="document.getElementById('pauseMain').style.display='none';document.getElementById('pauseGame').style.display='block';">Game</button>
+        <button class="mc-btn" id="resumeBtn">Resume</button>
+        <button class="mc-btn" id="quitBtn">Save and Quit to Title</button>
+      </div>
+    </div>
+    <div id="pauseVideo" style="display:none;">
+      <h2>Video Settings</h2>
+      <div class="settings-group">
+        <label>Framerate</label>
+        <select id="framerateSelect" class="mc-select">
+          <option value="30">30 FPS</option>
+          <option value="60" selected>60 FPS</option>
+          <option value="120">120 FPS</option>
+          <option value="0">Unlimited</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label>Brightness</label>
+        <input type="range" id="brightnessSlider" min="50" max="150" value="100" class="mc-slider">
+        <span id="brightnessValue">100%</span>
+      </div>
+      <div class="settings-group">
+        <label>Contrast</label>
+        <input type="range" id="contrastSlider" min="50" max="150" value="100" class="mc-slider">
+        <span id="contrastValue">100%</span>
+      </div>
+      <button class="mc-btn" onclick="document.getElementById('pauseVideo').style.display='none';document.getElementById('pauseMain').style.display='block';">Back</button>
+    </div>
+    <div id="pauseGame" style="display:none;">
+      <h2>Game Settings</h2>
+      <div class="settings-group">
+        <label>
+          <input type="checkbox" id="hideHandCheck"> Hide Hand
+        </label>
+      </div>
+      <button class="mc-btn" onclick="document.getElementById('pauseGame').style.display='none';document.getElementById('pauseMain').style.display='block';">Back</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
 <script type="module">
