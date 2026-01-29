@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Credits - Sigmacraft</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <style>
+    @font-face {
+      font-family: 'Minecraftia';
+      src: url('Minecraftia.ttf') format('truetype');
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Minecraftia', Verdana, Geneva, Tahoma, sans-serif;
+      background-color: #0c0c0c;
+      background-image: radial-gradient(circle at 2px 2px, #1a1a1a 1px, transparent 0);
+      background-size: 24px 24px;
+      min-height: 100vh;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    .credits-container {
+      max-width: 700px;
+      width: 100%;
+      background: rgba(30, 30, 30, 0.9);
+      border: 3px solid #444;
+      border-radius: 8px;
+      padding: 40px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    h1 {
+      font-size: 48px;
+      text-align: center;
+      color: #fff;
+      text-shadow: 4px 4px #333;
+      margin-bottom: 30px;
+    }
+
+    .credits-section {
+      margin-bottom: 30px;
+    }
+
+    .credits-section h2 {
+      font-size: 20px;
+      color: #55ff55;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #444;
+      padding-bottom: 8px;
+    }
+
+    .credits-section p,
+    .credits-section li {
+      font-size: 14px;
+      color: #ccc;
+      line-height: 1.8;
+    }
+
+    .credits-section ul {
+      list-style: none;
+      padding-left: 10px;
+    }
+
+    .credits-section li::before {
+      content: "- ";
+      color: #888;
+    }
+
+    .credits-section a {
+      color: #5599ff;
+      text-decoration: none;
+    }
+
+    .credits-section a:hover {
+      color: #77bbff;
+      text-decoration: underline;
+    }
+
+    .back-btn {
+      display: inline-block;
+      margin-top: 30px;
+      padding: 12px 30px;
+      background: linear-gradient(180deg, #5a5a5a 0%, #3a3a3a 100%);
+      border: 3px solid #222;
+      border-radius: 4px;
+      color: #fff;
+      font-family: 'Minecraftia', sans-serif;
+      font-size: 16px;
+      text-decoration: none;
+      text-shadow: 2px 2px #000;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+
+    .back-btn:hover {
+      background: linear-gradient(180deg, #6a6a6a 0%, #4a4a4a 100%);
+      transform: translateY(-2px);
+    }
+
+    .back-btn:active {
+      transform: translateY(1px);
+    }
+
+    .footer {
+      margin-top: auto;
+      padding-top: 40px;
+      text-align: center;
+      color: #555;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="credits-container">
+    <h1>Credits</h1>
+
+    <div class="credits-section">
+      <h2>Development</h2>
+      <ul>
+        <li>Game Creator: Your Name Here</li>
+        <li>Programming: Your Name Here</li>
+        <li>Art & Textures: Your Name Here</li>
+      </ul>
+    </div>
+
+    <div class="credits-section">
+      <h2>Technologies</h2>
+      <ul>
+        <li>Three.js - 3D Graphics Engine</li>
+        <li>Express.js - Web Server</li>
+        <li>Simplex Noise - Terrain Generation</li>
+      </ul>
+    </div>
+
+    <div class="credits-section">
+      <h2>Assets</h2>
+      <ul>
+        <li>Minecraftia Font by Andrew Tyler</li>
+      </ul>
+    </div>
+
+    <div class="credits-section">
+      <h2>Special Thanks</h2>
+      <p>Thank you to everyone who played and provided feedback!</p>
+    </div>
+
+    <div style="text-align: center;">
+      <a href="index.html" class="back-btn">Back to Game</a>
+    </div>
+  </div>
+
+  <div class="footer">
+    Sigmacraft - Made with passion
+  </div>
+</body>
+</html>

@@ -1,4 +1,9 @@
-body { margin:0; overflow:hidden; font-family: Verdana, Geneva, Tahoma; }
+@font-face {
+  font-family: 'Minecraftia';
+  src: url('Minecraftia.ttf') format('truetype');
+}
+
+body { margin:0; overflow:hidden; font-family: 'Minecraftia', Verdana, Geneva, Tahoma; }
 canvas { display:block; }
 
 #devPasswordOverlay {
@@ -62,7 +67,21 @@ canvas { display:block; }
   color: #fff;
   text-shadow: 4px 4px #333;
   margin-bottom: 40px;
-  font-family: 'Minecraft', sans-serif;
+  font-family: 'Minecraftia', sans-serif;
+}
+
+.credits-link {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  color: #888;
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.credits-link:hover {
+  color: #fff;
 }
 
 .splash {
