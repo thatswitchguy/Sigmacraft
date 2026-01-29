@@ -364,7 +364,6 @@ export function initGame(THREE){
           blockDrops.splice(i, 1);
           updateHotbarUI();
           renderInventoryGrid();
-          showBlockCountMessage("Picked up", drop.type, slot.count);
         }
       }
       
