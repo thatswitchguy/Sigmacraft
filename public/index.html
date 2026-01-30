@@ -41,14 +41,20 @@
 
         <div class="editor-main">
           <div class="editor-controls">
+            <details>
+              <summary>Block ID</summary>
             <div class="control-group">
               <label>Block ID</label>
               <input type="text" id="editBlockId" readonly>
             </div>
+            </details>
+            <details>
+              <summary>Block name</summary>
             <div class="control-group">
               <label>Block Name</label>
               <input type="text" id="editBlockName">
             </div>
+          </details>
             <div class="control-group">
               <label>Side</label>
               <select id="sideSelect">
@@ -67,6 +73,8 @@
                 <button id="fillButton">Fill All</button>
               </div>
             </div>
+            <details>
+              <summary>Splash</summary>
             <div class="control-group splash-editor-group">
               <label>Splash Text</label>
               <div class="tool-buttons">
@@ -74,12 +82,11 @@
                 <button id="saveSplashBtn">Save Splash</button>
               </div>
             </div>
+            </details>
           </div>
-
           <div class="pixel-grid-container">
             <div id="pixelGrid" class="pixel-grid"></div>
           </div>
-
           <div class="action-buttons">
             <button id="applyColor" class="primary-btn">Save Texture & Name</button>
           </div>
