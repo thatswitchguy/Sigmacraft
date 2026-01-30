@@ -569,21 +569,20 @@ export function initGame(THREE){
         document.exitPointerLock();
       } else {
         inv.style.display = "none";
+        hideTooltip();
         renderer.domElement.requestPointerLock();
       }
     }
 
     if (e.key === ">") {
+      const devPassword = document.getElementById("devPasswordOverlay");
       const dev = document.getElementById("devOverlay");
-      if (dev) {
-        if (dev.style.display === "none") {
-          dev.style.display = "flex";
-          document.exitPointerLock();
-          updateSidebar();
-        } else {
-          dev.style.display = "none";
-          renderer.domElement.requestPointerLock();
-        }
+      if (dev.style.display === "flex") {
+        dev.style.display = "none";
+        renderer.domElement.requestPointerLock();
+      } else if (devPassword) {
+        devPassword.style.display = "flex";
+        document.exitPointerLock();
       }
     }
 
@@ -757,6 +756,31 @@ export function initGame(THREE){
     };
   }
 
+  const devPasswordSubmit = document.getElementById("devPasswordSubmit");
+  if (devPasswordSubmit) {
+    devPasswordSubmit.onclick = () => {
+      const input = document.getElementById("devPasswordInput");
+      if (input.value === "Banana@123") {
+        document.getElementById("devPasswordOverlay").style.display = "none";
+        document.getElementById("devOverlay").style.display = "flex";
+        updateSidebar();
+        input.value = "";
+      } else {
+        alert("Incorrect password");
+        input.value = "";
+      }
+    };
+  }
+
+  const devPasswordCancel = document.getElementById("devPasswordCancel");
+  if (devPasswordCancel) {
+    devPasswordCancel.onclick = () => {
+      document.getElementById("devPasswordOverlay").style.display = "none";
+      document.getElementById("devPasswordInput").value = "";
+      renderer.domElement.requestPointerLock();
+    };
+  }
+
   function createBlockIcon(id) {
     const canvas = document.createElement("canvas");
     canvas.width = 16;
@@ -798,11 +822,16 @@ export function initGame(THREE){
       deleteBtn.style.background = "transparent";
       deleteBtn.style.border = "none";
       deleteBtn.style.color = "#ff4444";
-      deleteBtn.onclick = (e) => {
+      deleteBtn.onclick = async (e) => {
         e.stopPropagation();
         if (confirm(`Delete block ${id}?`)) {
+          await fetch("/delete-block", {
+            method: "POST",
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ blockName: id })
+          });
           delete blockTypes[id];
-          // In a real app we'd have a delete endpoint
+          delete blockMaterials[id];
           updateSidebar();
         }
       };

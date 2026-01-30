@@ -84,6 +84,21 @@ canvas { display:block; }
   color: #fff;
 }
 
+.version-text {
+  color: #888;
+  font-size: 16px;
+  margin-top: 10px;
+}
+
+.dev-password-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.dev-password-buttons .mc-btn {
+  flex: 1;
+}
+
 .splash {
   position: absolute;
   top: 45%;
@@ -98,6 +113,13 @@ canvas { display:block; }
 @keyframes splashBounce {
   from { transform: rotate(-20deg) scale(1); }
   to { transform: rotate(-20deg) scale(1.1); }
+}
+
+.title-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .title-buttons {

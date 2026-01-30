@@ -11,15 +11,25 @@
 <div id="titleScreen">
   <div class="title-container">
     <h1 class="minecraft-title">Sigmacraft</h1>
-    <br>
     <div id="splashText" class="splash">Welcome!</div>
-    <div align="centre" class="title-buttons">
+    <div class="title-buttons">
       <button id="playBtn" class="mc-btn">Singleplayer</button>
       <button id="devModeBtn" class="mc-btn">Options</button>
-      <div class="text" style="color: #fff; font-size: 20px; position: centre">v.1.3</div>
+      <div class="version-text">v.1.3</div>
     </div>
   </div>
   <a href="credits.html" class="credits-link">Credits</a>
+</div>
+
+<div id="devPasswordOverlay" style="display:none;">
+  <div class="dev-password-window">
+    <h3>Developer Mode</h3>
+    <input type="password" id="devPasswordInput" placeholder="Enter password">
+    <div class="dev-password-buttons">
+      <button id="devPasswordSubmit" class="mc-btn">Enter</button>
+      <button id="devPasswordCancel" class="mc-btn">Cancel</button>
+    </div>
+  </div>
 </div>
 
 

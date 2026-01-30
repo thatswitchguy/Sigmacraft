@@ -76,4 +76,14 @@ app.post("/update-block-timing", (req, res) => {
     res.json({ success: true });
 });
 
+app.post("/delete-block", (req, res) => {
+    const { blockName } = req.body;
+    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    if (data[blockName]) {
+        delete data[blockName];
+        fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+    }
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
