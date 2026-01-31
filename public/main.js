@@ -906,6 +906,320 @@ export function initGame(THREE){
     };
   }
 
+  // Dev Mode Tabs
+  document.querySelectorAll('.dev-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.dev-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.dev-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const tabName = tab.dataset.tab;
+      document.getElementById(tabName + 'Tab').classList.add('active');
+      if (tabName === 'structures') {
+        initStructureEditor();
+      }
+    };
+  });
+
+  // Structure Editor
+  let structures = {};
+  let currentStructure = null;
+  let structureScene, structureCamera, structureRenderer, structureControls;
+  let structureBlocks = [];
+  let structureSize = { x: 5, y: 5, z: 5 };
+
+  async function loadStructures() {
+    try {
+      const res = await fetch("/structures");
+      structures = await res.json();
+      updateStructureSidebar();
+    } catch (e) {
+      structures = {};
+    }
+  }
+
+  function updateStructureSidebar() {
+    const list = document.getElementById("structureSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(structures).forEach(id => {
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      item.innerHTML = `<span>${structures[id].name || id}</span>`;
+      item.onclick = () => loadStructureToEditor(id);
+      list.appendChild(item);
+    });
+  }
+
+  function loadStructureToEditor(id) {
+    currentStructure = id;
+    const s = structures[id];
+    document.getElementById("structureName").value = s.name || id;
+    document.getElementById("structureSizeX").value = s.size?.x || 5;
+    document.getElementById("structureSizeY").value = s.size?.y || 5;
+    document.getElementById("structureSizeZ").value = s.size?.z || 5;
+    document.getElementById("structureRarity").value = s.rarity || 50;
+    document.getElementById("rarityValue").textContent = s.rarity || 50;
+    document.getElementById("spawnHeightMin").value = s.spawnHeight?.min || 60;
+    document.getElementById("spawnHeightMax").value = s.spawnHeight?.max || 80;
+    document.getElementById("ruleOnGround").checked = s.rules?.onGround !== false;
+    document.getElementById("ruleFlatArea").checked = s.rules?.flatArea || false;
+    document.getElementById("ruleNoWater").checked = s.rules?.noWater || false;
+    document.getElementById("ruleNoTrees").checked = s.rules?.noTrees || false;
+    structureSize = s.size || { x: 5, y: 5, z: 5 };
+    rebuildStructureGrid(s.blocks || []);
+  }
+
+  function initStructureEditor() {
+    loadStructures();
+    const canvas = document.getElementById("structureCanvas");
+    if (!canvas || structureRenderer) return;
+
+    structureScene = new THREE.Scene();
+    structureScene.background = new THREE.Color(0x1a1a1a);
+    
+    const container = canvas.parentElement;
+    const width = container.clientWidth || 400;
+    const height = container.clientHeight || 300;
+    
+    structureCamera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
+    structureCamera.position.set(10, 10, 10);
+    structureCamera.lookAt(0, 0, 0);
+    
+    structureRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    structureRenderer.setSize(width, height);
+    
+    structureScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const light = new THREE.DirectionalLight(0xffffff, 0.8);
+    light.position.set(5, 10, 5);
+    structureScene.add(light);
+    
+    // Add grid helper
+    const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);
+    structureScene.add(gridHelper);
+    
+    // Populate block palette
+    const blockSelect = document.getElementById("structureBlockSelect");
+    if (blockSelect) {
+      blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
+      Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = blockTypes[id].name || id;
+        blockSelect.appendChild(opt);
+      });
+    }
+    
+    rebuildStructureGrid([]);
+    animateStructureEditor();
+    
+    // Mouse interaction for placing blocks
+    let isMouseDown = false;
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    
+    canvas.onmousedown = (e) => {
+      isMouseDown = true;
+      handleStructureClick(e);
+    };
+    canvas.onmouseup = () => isMouseDown = false;
+    canvas.onmousemove = (e) => {
+      if (isMouseDown) handleStructureClick(e);
+    };
+    
+    function handleStructureClick(e) {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, structureCamera);
+      
+      const intersects = raycaster.intersectObjects(structureBlocks.filter(b => b.visible));
+      if (intersects.length > 0) {
+        const block = intersects[0].object;
+        const selectedBlock = document.getElementById("structureBlockSelect").value;
+        if (selectedBlock) {
+          block.userData.blockType = selectedBlock;
+          block.material = blockMaterials[selectedBlock] ? blockMaterials[selectedBlock].map(m => m.clone()) : new THREE.MeshStandardMaterial({color: 0x888888});
+          block.visible = true;
+        } else {
+          block.userData.blockType = null;
+          block.visible = false;
+        }
+      }
+    }
+  }
+
+  function rebuildStructureGrid(existingBlocks = []) {
+    structureBlocks.forEach(b => structureScene?.remove(b));
+    structureBlocks = [];
+    
+    const blockMap = {};
+    existingBlocks.forEach(b => {
+      blockMap[`${b.x},${b.y},${b.z}`] = b.type;
+    });
+    
+    for (let x = 0; x < structureSize.x; x++) {
+      for (let y = 0; y < structureSize.y; y++) {
+        for (let z = 0; z < structureSize.z; z++) {
+          const key = `${x},${y},${z}`;
+          const existingType = blockMap[key];
+          
+          const geo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
+          let mat;
+          if (existingType && blockMaterials[existingType]) {
+            mat = blockMaterials[existingType].map(m => m.clone());
+          } else {
+            mat = new THREE.MeshStandardMaterial({ 
+              color: 0x333333, 
+              transparent: true, 
+              opacity: 0.1,
+              wireframe: true
+            });
+          }
+          
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(
+            x - structureSize.x / 2 + 0.5,
+            y + 0.5,
+            z - structureSize.z / 2 + 0.5
+          );
+          mesh.userData = { x, y, z, blockType: existingType || null };
+          mesh.visible = !!existingType;
+          
+          if (!existingType) {
+            mesh.material = new THREE.MeshStandardMaterial({ 
+              color: 0x444444, 
+              transparent: true, 
+              opacity: 0.1
+            });
+            mesh.visible = true;
+          }
+          
+          structureScene?.add(mesh);
+          structureBlocks.push(mesh);
+        }
+      }
+    }
+  }
+
+  let structureRotation = 0;
+  function animateStructureEditor() {
+    if (!structureRenderer) return;
+    requestAnimationFrame(animateStructureEditor);
+    structureRotation += 0.002;
+    structureCamera.position.x = Math.cos(structureRotation) * 15;
+    structureCamera.position.z = Math.sin(structureRotation) * 15;
+    structureCamera.lookAt(0, structureSize.y / 2, 0);
+    structureRenderer.render(structureScene, structureCamera);
+  }
+
+  // Structure Editor Controls
+  const applySizeBtn = document.getElementById("applySizeBtn");
+  if (applySizeBtn) {
+    applySizeBtn.onclick = () => {
+      structureSize = {
+        x: parseInt(document.getElementById("structureSizeX").value) || 5,
+        y: parseInt(document.getElementById("structureSizeY").value) || 5,
+        z: parseInt(document.getElementById("structureSizeZ").value) || 5
+      };
+      rebuildStructureGrid([]);
+    };
+  }
+
+  const structureRaritySlider = document.getElementById("structureRarity");
+  if (structureRaritySlider) {
+    structureRaritySlider.oninput = () => {
+      document.getElementById("rarityValue").textContent = structureRaritySlider.value;
+    };
+  }
+
+  const structureClearBtn = document.getElementById("structureClearBtn");
+  if (structureClearBtn) {
+    structureClearBtn.onclick = () => {
+      rebuildStructureGrid([]);
+    };
+  }
+
+  const addStructureBtn = document.getElementById("addStructureBtn");
+  if (addStructureBtn) {
+    addStructureBtn.onclick = () => {
+      const id = "structure_" + Date.now();
+      currentStructure = id;
+      document.getElementById("structureName").value = "New Structure";
+      structureSize = { x: 5, y: 5, z: 5 };
+      document.getElementById("structureSizeX").value = 5;
+      document.getElementById("structureSizeY").value = 5;
+      document.getElementById("structureSizeZ").value = 5;
+      document.getElementById("structureRarity").value = 50;
+      document.getElementById("rarityValue").textContent = "50";
+      rebuildStructureGrid([]);
+    };
+  }
+
+  const saveStructureBtn = document.getElementById("saveStructureBtn");
+  if (saveStructureBtn) {
+    saveStructureBtn.onclick = async () => {
+      if (!currentStructure) {
+        currentStructure = "structure_" + Date.now();
+      }
+      
+      const blocks = structureBlocks
+        .filter(b => b.userData.blockType)
+        .map(b => ({
+          x: b.userData.x,
+          y: b.userData.y,
+          z: b.userData.z,
+          type: b.userData.blockType
+        }));
+      
+      const structure = {
+        name: document.getElementById("structureName").value || "Unnamed",
+        size: structureSize,
+        rarity: parseInt(document.getElementById("structureRarity").value) || 50,
+        spawnHeight: {
+          min: parseInt(document.getElementById("spawnHeightMin").value) || 60,
+          max: parseInt(document.getElementById("spawnHeightMax").value) || 80
+        },
+        rules: {
+          onGround: document.getElementById("ruleOnGround").checked,
+          flatArea: document.getElementById("ruleFlatArea").checked,
+          noWater: document.getElementById("ruleNoWater").checked,
+          noTrees: document.getElementById("ruleNoTrees").checked
+        },
+        blocks
+      };
+      
+      await fetch("/save-structure", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: currentStructure, structure })
+      });
+      
+      structures[currentStructure] = structure;
+      updateStructureSidebar();
+      alert("Structure saved!");
+    };
+  }
+
+  const deleteStructureBtn = document.getElementById("deleteStructureBtn");
+  if (deleteStructureBtn) {
+    deleteStructureBtn.onclick = async () => {
+      if (!currentStructure) return;
+      if (!confirm("Delete this structure?")) return;
+      
+      await fetch("/delete-structure", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: currentStructure })
+      });
+      
+      delete structures[currentStructure];
+      currentStructure = null;
+      updateStructureSidebar();
+      rebuildStructureGrid([]);
+      document.getElementById("structureName").value = "";
+    };
+  }
+
   async function initTitle() {
     try {
       const res = await fetch("/config");
@@ -981,17 +1295,96 @@ export function initGame(THREE){
     if (!skinData) return;
     const img = new Image();
     img.onload = () => {
-      const tex = new THREE.CanvasTexture(img);
-      tex.magFilter = THREE.NearestFilter;
-      tex.minFilter = THREE.NearestFilter;
+      const skinWidth = img.width;
+      const skinHeight = img.height;
       
-      const skinMat = new THREE.MeshStandardMaterial({ map: tex });
-      player.model.traverse(child => {
-        if (child.isMesh && child !== player.tpItem) {
-          child.material = skinMat;
-        }
-      });
-      player.fp.hand.material = skinMat;
+      function extractPart(x, y, w, h) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        return new THREE.MeshStandardMaterial({ map: tex });
+      }
+      
+      function createBoxMaterials(uvs) {
+        return [
+          extractPart(uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
+          extractPart(uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
+          extractPart(uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
+          extractPart(uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
+          extractPart(uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h),
+          extractPart(uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h)
+        ];
+      }
+      
+      const headUV = {
+        right: {x: 0, y: 8, w: 8, h: 8},
+        left: {x: 16, y: 8, w: 8, h: 8},
+        top: {x: 8, y: 0, w: 8, h: 8},
+        bottom: {x: 16, y: 0, w: 8, h: 8},
+        front: {x: 8, y: 8, w: 8, h: 8},
+        back: {x: 24, y: 8, w: 8, h: 8}
+      };
+      
+      const bodyUV = {
+        right: {x: 16, y: 20, w: 4, h: 12},
+        left: {x: 28, y: 20, w: 4, h: 12},
+        top: {x: 20, y: 16, w: 8, h: 4},
+        bottom: {x: 28, y: 16, w: 8, h: 4},
+        front: {x: 20, y: 20, w: 8, h: 12},
+        back: {x: 32, y: 20, w: 8, h: 12}
+      };
+      
+      const armRightUV = {
+        right: {x: 40, y: 20, w: 4, h: 12},
+        left: {x: 48, y: 20, w: 4, h: 12},
+        top: {x: 44, y: 16, w: 4, h: 4},
+        bottom: {x: 48, y: 16, w: 4, h: 4},
+        front: {x: 44, y: 20, w: 4, h: 12},
+        back: {x: 52, y: 20, w: 4, h: 12}
+      };
+      
+      const armLeftUV = skinHeight >= 64 ? {
+        right: {x: 32, y: 52, w: 4, h: 12},
+        left: {x: 40, y: 52, w: 4, h: 12},
+        top: {x: 36, y: 48, w: 4, h: 4},
+        bottom: {x: 40, y: 48, w: 4, h: 4},
+        front: {x: 36, y: 52, w: 4, h: 12},
+        back: {x: 44, y: 52, w: 4, h: 12}
+      } : armRightUV;
+      
+      const legRightUV = {
+        right: {x: 0, y: 20, w: 4, h: 12},
+        left: {x: 8, y: 20, w: 4, h: 12},
+        top: {x: 4, y: 16, w: 4, h: 4},
+        bottom: {x: 8, y: 16, w: 4, h: 4},
+        front: {x: 4, y: 20, w: 4, h: 12},
+        back: {x: 12, y: 20, w: 4, h: 12}
+      };
+      
+      const legLeftUV = skinHeight >= 64 ? {
+        right: {x: 16, y: 52, w: 4, h: 12},
+        left: {x: 24, y: 52, w: 4, h: 12},
+        top: {x: 20, y: 48, w: 4, h: 4},
+        bottom: {x: 24, y: 48, w: 4, h: 4},
+        front: {x: 20, y: 52, w: 4, h: 12},
+        back: {x: 28, y: 52, w: 4, h: 12}
+      } : legRightUV;
+      
+      const modelParts = player.model.children;
+      if (modelParts[0]) modelParts[0].material = createBoxMaterials(headUV);
+      if (modelParts[1]) modelParts[1].material = createBoxMaterials(bodyUV);
+      if (modelParts[2]) modelParts[2].material = createBoxMaterials(armLeftUV);
+      if (modelParts[3]) modelParts[3].material = createBoxMaterials(armRightUV);
+      if (modelParts[4]) modelParts[4].material = createBoxMaterials(legLeftUV);
+      if (modelParts[5]) modelParts[5].material = createBoxMaterials(legRightUV);
+      
+      player.fp.hand.material = extractPart(44, 20, 4, 12);
     };
     img.src = skinData;
   }
@@ -1163,30 +1556,6 @@ export function initGame(THREE){
   }
 
   function setupInventoryUI() {
-    // Setup catalog grid
-    const catalog = document.getElementById("blockCatalog");
-    if (catalog) {
-      catalog.innerHTML = "";
-      Object.keys(blockTypes).filter(name => !name.startsWith('_') && blockTypes[name]?.textures).forEach(name => {
-        const slot = document.createElement("div");
-        slot.className = "slot";
-        slot.appendChild(createBlockIcon(name));
-        slot.onmouseenter = (e) => showTooltip(e, blockTypes[name].name || name);
-        slot.onmouseleave = hideTooltip;
-        slot.onclick = () => {
-          let found = player.inventory.find(s => s.type === name && s.count < 64);
-          if (!found) found = player.inventory.find(s => s.type === null);
-          if (found) {
-            found.type = name;
-            found.count = 64;
-            updateHotbarUI();
-            renderInventoryGrid();
-          }
-        };
-        catalog.appendChild(slot);
-      });
-    }
-
     renderInventoryGrid();
 
     // Setup hotbar link in inventory

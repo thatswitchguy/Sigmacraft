@@ -39,17 +39,23 @@
       <button id="closeDev">&times;</button>
     </div>
 
-    <div class="dev-content">
-      <div class="dev-layout">
-        <div class="dev-sidebar">
-          <div class="sidebar-header">
-            <h4>Blocks</h4>
-            <button id="addBlockBtn" class="small-btn">+</button>
-          </div>
-          <div id="blockSidebarList" class="sidebar-list"></div>
-        </div>
+    <div class="dev-tabs">
+      <button class="dev-tab active" data-tab="blocks">Blocks</button>
+      <button class="dev-tab" data-tab="structures">Structures</button>
+    </div>
 
-        <div class="editor-main">
+    <div class="dev-content">
+      <div id="blocksTab" class="dev-tab-content active">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Blocks</h4>
+              <button id="addBlockBtn" class="small-btn">+</button>
+            </div>
+            <div id="blockSidebarList" class="sidebar-list"></div>
+          </div>
+
+          <div class="editor-main">
           <div class="editor-controls">
             <details>
               <summary>Block ID</summary>
@@ -99,6 +105,75 @@
           </div>
           <div class="action-buttons">
             <button id="applyColor" class="primary-btn">Save Texture & Name</button>
+          </div>
+        </div>
+      </div>
+    </div>
+      </div>
+
+      <div id="structuresTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Structures</h4>
+              <button id="addStructureBtn" class="small-btn">+</button>
+            </div>
+            <div id="structureSidebarList" class="sidebar-list"></div>
+          </div>
+
+          <div class="structure-editor-main">
+            <div class="structure-controls">
+              <div class="control-group">
+                <label>Structure Name</label>
+                <input type="text" id="structureName" placeholder="e.g. Desert Temple">
+              </div>
+              <div class="control-group">
+                <label>Size</label>
+                <div class="size-inputs">
+                  <input type="number" id="structureSizeX" value="5" min="1" max="32" placeholder="X">
+                  <input type="number" id="structureSizeY" value="5" min="1" max="32" placeholder="Y">
+                  <input type="number" id="structureSizeZ" value="5" min="1" max="32" placeholder="Z">
+                  <button id="applySizeBtn" class="small-btn">Apply</button>
+                </div>
+              </div>
+              <div class="control-group">
+                <label>Block Palette</label>
+                <select id="structureBlockSelect"></select>
+              </div>
+              <div class="control-group">
+                <label>Rarity (1 = Common, 100 = Very Rare)</label>
+                <input type="range" id="structureRarity" min="1" max="100" value="50">
+                <span id="rarityValue">50</span>
+              </div>
+              <div class="control-group">
+                <label>Spawn Height</label>
+                <div class="height-inputs">
+                  <input type="number" id="spawnHeightMin" value="60" min="0" max="256" placeholder="Min">
+                  <span>to</span>
+                  <input type="number" id="spawnHeightMax" value="80" min="0" max="256" placeholder="Max">
+                </div>
+              </div>
+              <div class="control-group">
+                <label>Spawn Rules</label>
+                <div class="spawn-rules">
+                  <label><input type="checkbox" id="ruleOnGround" checked> Must be on solid ground</label>
+                  <label><input type="checkbox" id="ruleFlatArea"> Requires flat area</label>
+                  <label><input type="checkbox" id="ruleNoWater"> Not in water</label>
+                  <label><input type="checkbox" id="ruleNoTrees"> Clear of trees</label>
+                </div>
+              </div>
+            </div>
+            <div class="structure-3d-container">
+              <canvas id="structureCanvas"></canvas>
+              <div class="structure-toolbar">
+                <button id="structureRotateBtn" class="small-btn">Rotate View</button>
+                <button id="structureClearBtn" class="small-btn">Clear All</button>
+              </div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveStructureBtn" class="primary-btn">Save Structure</button>
+              <button id="deleteStructureBtn" class="danger-btn">Delete</button>
+            </div>
           </div>
         </div>
       </div>
@@ -164,10 +239,6 @@
     <div id="inventoryHotbar" class="inventory-section">
       <h4>Hotbar</h4>
       <div id="hotbarSlots" class="inventory-grid"></div>
-    </div>
-    <div class="inventory-section" style="margin-top:10px;">
-      <h4>Creative Inventory (Here until Survival mode is added)</h4>
-      <div id="blockCatalog" class="inventory-grid" style="grid-template-columns: repeat(9, 1fr); max-height: 100px; overflow-y: auto;"></div>
     </div>
   </div>
 </div>

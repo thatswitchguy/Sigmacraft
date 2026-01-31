@@ -86,4 +86,40 @@ app.post("/delete-block", (req, res) => {
     res.json({ success: true });
 });
 
+const STRUCTURE_FILE = path.join(process.cwd(), "structures.json");
+
+function loadStructures() {
+    try {
+        return JSON.parse(fs.readFileSync(STRUCTURE_FILE));
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveStructures(data) {
+    fs.writeFileSync(STRUCTURE_FILE, JSON.stringify(data, null, 2));
+}
+
+app.get("/structures", (req, res) => {
+    res.json(loadStructures());
+});
+
+app.post("/save-structure", (req, res) => {
+    const { id, structure } = req.body;
+    const data = loadStructures();
+    data[id] = structure;
+    saveStructures(data);
+    res.json({ success: true });
+});
+
+app.post("/delete-structure", (req, res) => {
+    const { id } = req.body;
+    const data = loadStructures();
+    if (data[id]) {
+        delete data[id];
+        saveStructures(data);
+    }
+    res.json({ success: true });
+});
+
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
