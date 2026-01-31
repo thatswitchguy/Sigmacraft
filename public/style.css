@@ -416,12 +416,26 @@ canvas { display:block; }
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
+  max-height: calc(90vh - 120px);
 }
 
 .dev-layout {
   display: flex;
   gap: 20px;
-  height: 500px;
+  min-height: 500px;
+}
+
+.dev-tab-content {
+  overflow-y: auto;
+}
+
+.structure-editor-main {
+  overflow-y: auto;
+}
+
+.structure-controls {
+  flex-shrink: 0;
 }
 
 .dev-sidebar {
