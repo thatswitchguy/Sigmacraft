@@ -12,13 +12,20 @@ const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
 
 app.get("/textures", (req, res) => {
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
-    res.json(data);
+    try {
+        const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+        res.json(data);
+    } catch (e) {
+        res.json({});
+    }
 });
 
 app.post("/update-block", (req, res) => {
     const { blockName, side, textureData } = req.body;
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    let data = {};
+    try {
+        data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    } catch (e) {}
     if (!data[blockName]) data[blockName] = { name: blockName, textures: {} };
     // textureData can be a hex string (legacy) or an array of 256 hex strings (new)
     data[blockName].textures[side] = textureData;
@@ -27,13 +34,20 @@ app.post("/update-block", (req, res) => {
 });
 
 app.get("/config", (req, res) => {
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
-    res.json({ splash: data._config?.splash || "Welcome to Minecraft Clone!" });
+    try {
+        const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+        res.json({ splash: data._config?.splash || "Welcome to Minecraft Clone!" });
+    } catch (e) {
+        res.json({ splash: "Welcome to Minecraft Clone!" });
+    }
 });
 
 app.post("/update-splash", (req, res) => {
     const { splash } = req.body;
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    let data = {};
+    try {
+        data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    } catch (e) {}
     if (!data._config) data._config = {};
     data._config.splash = splash;
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
@@ -41,13 +55,20 @@ app.post("/update-splash", (req, res) => {
 });
 
 app.get("/skin", (req, res) => {
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
-    res.json({ skin: data._config?.skin || null });
+    try {
+        const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+        res.json({ skin: data._config?.skin || null });
+    } catch (e) {
+        res.json({ skin: null });
+    }
 });
 
 app.post("/update-skin", (req, res) => {
     const { skin } = req.body; // base64 skin texture
-    const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    let data = {};
+    try {
+        data = JSON.parse(fs.readFileSync(BLOCK_FILE));
+    } catch (e) {}
     if (!data._config) data._config = {};
     data._config.skin = skin;
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));

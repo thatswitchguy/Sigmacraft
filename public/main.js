@@ -111,16 +111,19 @@ export function initGame(THREE){
     if (player.cameraMode === 0) {
       // First Person
       player.model.visible = false;
+      player.fp.handGroup.visible = true;
       camera.position.set(0, 1.6, 0);
       camera.rotation.y = Math.PI; // Face forward
     } else if (player.cameraMode === 1) {
       // Third Person Back
       player.model.visible = true;
+      player.fp.handGroup.visible = false;
       camera.position.set(0, 2.5, 4);
       camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     } else if (player.cameraMode === 2) {
       // Third Person Front
       player.model.visible = true;
+      player.fp.handGroup.visible = false;
       camera.position.set(0, 2.5, -4);
       camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     }
@@ -591,11 +594,7 @@ export function initGame(THREE){
       // Prevent rapid switching by checking if we already toggled this press
       if (!e.repeat) {
         player.cameraMode = (player.cameraMode + 1) % 3;
-        if (player.cameraMode === 0) {
-          player.model.visible = false;
-        } else {
-          player.model.visible = true;
-        }
+        updateCamera();
         e.preventDefault();
       }
     }
@@ -647,8 +646,25 @@ export function initGame(THREE){
     } else {
       currentPixels = Array(256).fill("#ffffff");
     }
-    const pixels = document.querySelectorAll(".pixel");
-    pixels.forEach((p, i) => p.style.backgroundColor = currentPixels[i]);
+    const pixel = document.querySelectorAll(".pixel");
+    pixel.forEach((p, i) => {
+      p.style.backgroundColor = currentPixels[i];
+    });
+    
+    // Explicitly notify server of the update to ensure it saves
+    const blockSelect = document.getElementById("blockSelect");
+    const editBlockId = document.getElementById("editBlockId");
+    const sideSelect = document.getElementById("sideSelect");
+    const blockName = blockSelect?.value || editBlockId?.value || "";
+    const side = sideSelect?.value || "front";
+    
+    if (blockName) {
+      fetch("/update-block", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockName, side, textureData: currentPixels })
+      });
+    }
   }
 
   const blockSelect = document.getElementById("blockSelect");
@@ -1304,6 +1320,11 @@ export function initGame(THREE){
         canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.imageSmoothingEnabled = false;
+        
+        // Flip horizontally to fix backwards skin
+        ctx.translate(w, 0);
+        ctx.scale(-1, 1);
+        
         ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
         const tex = new THREE.CanvasTexture(canvas);
         tex.magFilter = THREE.NearestFilter;
@@ -1542,7 +1563,7 @@ export function initGame(THREE){
     const label = document.getElementById("hotbarLabel");
     
     if (selectedItem && selectedItem.type) {
-      player.fp.item.visible = true;
+      player.fp.item.visible = player.cameraMode === 0;
       player.fp.hand.visible = false;
       player.tpItem.visible = true;
       
@@ -1566,7 +1587,7 @@ export function initGame(THREE){
       }
     } else {
       player.fp.item.visible = false;
-      player.fp.hand.visible = true;
+      player.fp.hand.visible = player.cameraMode === 0;
       player.tpItem.visible = false;
       if (label) label.style.opacity = 0;
     }
