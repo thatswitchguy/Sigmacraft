@@ -1421,10 +1421,17 @@ export function initGame(THREE){
     const skinRes = await fetch("/skin");
     const skinData = await skinRes.json();
     if (skinData.skin) applySkin(skinData.skin);
+
+    const structRes = await fetch("/structures");
+    const structData = await structRes.json();
+    Object.assign(structures, structData);
     
     const res = await fetch("/textures");
     blockTypes = await res.json();
     
+    const sideSelect = document.getElementById("sideSelect");
+    if (sideSelect && !sideSelect.value) sideSelect.value = "front";
+
     try {
       const timingRes = await fetch("/block-timing");
       blockTiming = await timingRes.json();
@@ -1489,6 +1496,36 @@ export function initGame(THREE){
           mesh.position.set(x, y, z);
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
+        }
+        
+        // Structure generation
+        for (const structId in structures) {
+          const struct = structures[structId];
+          const rarity = struct.rarity || 50;
+          // Scale rarity: 100 means very rare, 1 means very common. 
+          // Let's say chance is 1 / (rarity * 100)
+          if (Math.random() < 1 / (rarity * 20)) {
+            const spawnX = x;
+            const spawnZ = z;
+            const groundY = Math.floor(noise.noise2D(spawnX/15, spawnZ/15) * 4) + 5;
+            
+            // Check rules
+            if (struct.rules?.onGround && groundY < 1) continue;
+            
+            struct.blocks.forEach(b => {
+              const bx = spawnX + b.x - Math.floor(struct.size.x / 2);
+              const by = groundY + b.y;
+              const bz = spawnZ + b.z - Math.floor(struct.size.z / 2);
+              
+              const mat = blockMaterials[b.type];
+              if (mat) {
+                const sMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+                sMesh.position.set(bx, by, bz);
+                scene.add(sMesh);
+                blocks3D.push({mesh: sMesh, type: b.type, pos:{x:bx, y:by, z:bz}});
+              }
+            });
+          }
         }
       }
     }
@@ -1712,7 +1749,43 @@ export function initGame(THREE){
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ blockName, side, textureData: currentPixels })
       });
-      alert("Saved! Reload to see/apply changes.");
+
+      // Update local state immediately
+      if (!blockTypes[blockName]) blockTypes[blockName] = { name: blockName, textures: {} };
+      blockTypes[blockName].textures[side] = [...currentPixels];
+      
+      // Update materials
+      const materials = [];
+      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+      sides.forEach(s => {
+        const data = blockTypes[blockName].textures[s];
+        if (Array.isArray(data)) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 16;
+          canvas.height = 16;
+          const ctx = canvas.getContext('2d');
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.magFilter = THREE.NearestFilter;
+          texture.minFilter = THREE.NearestFilter;
+          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+        } else {
+          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+        }
+      });
+      blockMaterials[blockName] = materials;
+      
+      // Update existing blocks in world
+      blocks3D.forEach(b => {
+        if (b.type === blockName) {
+          b.mesh.material = materials;
+        }
+      });
+
+      alert("Texture saved!");
     };
   }
 
