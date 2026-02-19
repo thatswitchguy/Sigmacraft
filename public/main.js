@@ -633,6 +633,28 @@ export function initGame(THREE){
         const color = picker.value;
         currentPixels[i] = color;
         pixel.style.backgroundColor = color;
+        
+        // Save to server on every pixel click
+        const blockSelect = document.getElementById("blockSelect");
+        const editBlockId = document.getElementById("editBlockId");
+        const sideSelect = document.getElementById("sideSelect");
+        const blockName = blockSelect?.value || editBlockId?.value || "";
+        const side = sideSelect?.value || "front";
+        
+        if (blockName) {
+          fetch("/update-block", {
+            method: "POST",
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blockName, side, textureData: currentPixels })
+          }).then(res => res.json()).then(data => {
+             // Update local block types to reflect change immediately
+             if (blockTypes[blockName]) {
+                 blockTypes[blockName].textures[side] = [...currentPixels];
+                 // Rebuild materials for this block
+                 updateBlockMaterials(blockName);
+             }
+          });
+        }
       };
       grid.appendChild(pixel);
     }
@@ -646,8 +668,8 @@ export function initGame(THREE){
     } else {
       currentPixels = Array(256).fill("#ffffff");
     }
-    const pixel = document.querySelectorAll(".pixel");
-    pixel.forEach((p, i) => {
+    const pixels = document.querySelectorAll(".pixel");
+    pixels.forEach((p, i) => {
       p.style.backgroundColor = currentPixels[i];
     });
     
@@ -1514,6 +1536,10 @@ export function initGame(THREE){
           const type = (y === h-1) ? "grass" : "dirt";
           const mat = blockMaterials[type];
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+          mesh.position.set(x, y, z);
+          scene.add(mesh);
+          blocks3D.push({mesh, type, pos:{x,y,z}});
+        }
           mesh.position.set(x, y, z);
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
