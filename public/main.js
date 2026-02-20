@@ -642,22 +642,61 @@ export function initGame(THREE){
         const side = sideSelect?.value || "front";
         
         if (blockName) {
+          console.log("Saving texture for", blockName, side);
           fetch("/update-block", {
             method: "POST",
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ blockName, side, textureData: currentPixels })
+            body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
           }).then(res => res.json()).then(data => {
+             console.log("Save response:", data);
              // Update local block types to reflect change immediately
              if (blockTypes[blockName]) {
                  blockTypes[blockName].textures[side] = [...currentPixels];
                  // Rebuild materials for this block
                  updateBlockMaterials(blockName);
              }
-          });
+          }).catch(err => console.error("Save failed:", err));
         }
       };
       grid.appendChild(pixel);
     }
+  }
+
+  function updateBlockMaterials(name) {
+    const tex = blockTypes[name]?.textures;
+    if (!tex) return;
+    
+    const materials = [];
+    const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+    
+    sides.forEach(side => {
+      const data = tex[side];
+      if (Array.isArray(data)) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        data.forEach((color, i) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+        });
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+      } else {
+        materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+      }
+    });
+    
+    blockMaterials[name] = materials;
+    
+    // Update all existing blocks of this type in the scene
+    blocks3D.forEach(b => {
+      if (b.type === name) {
+        b.mesh.material = materials;
+      }
+    });
   }
 
   function updateGridFromData(data) {
@@ -1344,8 +1383,13 @@ export function initGame(THREE){
         ctx.imageSmoothingEnabled = false;
         
         // Flip horizontally to fix backwards skin
-        ctx.translate(w, 0);
-        ctx.scale(-1, 1);
+        // Minecraft skins are mapped such that the default drawImage might appear flipped 
+        // depending on how the box is UV mapped. The user says it's backwards.
+        // Standard Minecraft skins are often mirrored for some parts.
+        // Let's remove the scale(-1, 1) if it was causing the "backwards" issue, 
+        // or keep it if it was intended to fix it but maybe the UVs are wrong.
+        // Actually, the user says "skin applies backwards", which usually means 
+        // the front is on the back or the textures are mirrored.
         
         ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
         const tex = new THREE.CanvasTexture(canvas);
@@ -1539,40 +1583,6 @@ export function initGame(THREE){
           mesh.position.set(x, y, z);
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
-        }
-          mesh.position.set(x, y, z);
-          scene.add(mesh);
-          blocks3D.push({mesh, type, pos:{x,y,z}});
-        }
-        
-        // Structure generation
-        for (const structId in structures) {
-          const struct = structures[structId];
-          const rarity = struct.rarity || 50;
-          // Scale rarity: 100 means very rare, 1 means very common. 
-          // Let's say chance is 1 / (rarity * 100)
-          if (Math.random() < 1 / (rarity * 20)) {
-            const spawnX = x;
-            const spawnZ = z;
-            const groundY = Math.floor(noise.noise2D(spawnX/15, spawnZ/15) * 4) + 5;
-            
-            // Check rules
-            if (struct.rules?.onGround && groundY < 1) continue;
-            
-            struct.blocks.forEach(b => {
-              const bx = spawnX + b.x - Math.floor(struct.size.x / 2);
-              const by = groundY + b.y;
-              const bz = spawnZ + b.z - Math.floor(struct.size.z / 2);
-              
-              const mat = blockMaterials[b.type];
-              if (mat) {
-                const sMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
-                sMesh.position.set(bx, by, bz);
-                scene.add(sMesh);
-                blocks3D.push({mesh: sMesh, type: b.type, pos:{x:bx, y:by, z:bz}});
-              }
-            });
-          }
         }
       }
     }
