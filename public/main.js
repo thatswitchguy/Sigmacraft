@@ -1046,87 +1046,9 @@ export function initGame(THREE){
     rebuildStructureGrid(s.blocks || []);
   }
 
-  function initStructureEditor() {
-    loadStructures();
-    const canvas = document.getElementById("structureCanvas");
-    if (!canvas || structureRenderer) return;
-
-    structureScene = new THREE.Scene();
-    structureScene.background = new THREE.Color(0x1a1a1a);
-    
-    const container = canvas.parentElement;
-    const width = container.clientWidth || 400;
-    const height = container.clientHeight || 300;
-    
-    structureCamera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100);
-    structureCamera.position.set(10, 10, 10);
-    structureCamera.lookAt(0, 0, 0);
-    
-    structureRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    structureRenderer.setSize(width, height);
-    
-    structureScene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const light = new THREE.DirectionalLight(0xffffff, 0.8);
-    light.position.set(5, 10, 5);
-    structureScene.add(light);
-    
-    // Add grid helper
-    const gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x333333);
-    structureScene.add(gridHelper);
-    
-    // Populate block palette
-    const blockSelect = document.getElementById("structureBlockSelect");
-    if (blockSelect) {
-      blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
-      Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = blockTypes[id].name || id;
-        blockSelect.appendChild(opt);
-      });
-    }
-    
-    rebuildStructureGrid([]);
-    animateStructureEditor();
-    
-    // Mouse interaction for placing blocks
-    let isMouseDown = false;
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-    
-    canvas.onmousedown = (e) => {
-      isMouseDown = true;
-      handleStructureClick(e);
-    };
-    canvas.onmouseup = () => isMouseDown = false;
-    canvas.onmousemove = (e) => {
-      if (isMouseDown) handleStructureClick(e);
-    };
-    
-    function handleStructureClick(e) {
-      const rect = canvas.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, structureCamera);
-      
-      const intersects = raycaster.intersectObjects(structureBlocks.filter(b => b.visible));
-      if (intersects.length > 0) {
-        const block = intersects[0].object;
-        const selectedBlock = document.getElementById("structureBlockSelect").value;
-        if (selectedBlock) {
-          block.userData.blockType = selectedBlock;
-          block.material = blockMaterials[selectedBlock] ? blockMaterials[selectedBlock].map(m => m.clone()) : new THREE.MeshStandardMaterial({color: 0x888888});
-          block.visible = true;
-        } else {
-          block.userData.blockType = null;
-          block.visible = false;
-        }
-      }
-    }
-  }
-
   function rebuildStructureGrid(existingBlocks = []) {
-    structureBlocks.forEach(b => structureScene?.remove(b));
+    if (!structureScene) return;
+    structureBlocks.forEach(b => structureScene.remove(b));
     structureBlocks = [];
     
     const blockMap = {};
@@ -1156,7 +1078,7 @@ export function initGame(THREE){
           const mesh = new THREE.Mesh(geo, mat);
           mesh.position.set(
             x - structureSize.x / 2 + 0.5,
-            y + 0.5,
+            y, // align with grid floor
             z - structureSize.z / 2 + 0.5
           );
           mesh.userData = { x, y, z, blockType: existingType || null };
@@ -1171,21 +1093,144 @@ export function initGame(THREE){
             mesh.visible = true;
           }
           
-          structureScene?.add(mesh);
+          structureScene.add(mesh);
           structureBlocks.push(mesh);
         }
       }
     }
   }
 
-  let structureRotation = 0;
+  function initStructureEditor() {
+    loadStructures();
+    const canvas = document.getElementById("structureCanvas");
+    if (!canvas || structureRenderer) return;
+
+    structureScene = new THREE.Scene();
+    structureScene.background = new THREE.Color(0x050505);
+    
+    const container = canvas.parentElement;
+    const width = container.clientWidth || 400;
+    const height = container.clientHeight || 300;
+    
+    structureCamera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+    structureCamera.position.set(10, 10, 10);
+    
+    structureRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    structureRenderer.setSize(width, height);
+    
+    structureScene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const light = new THREE.DirectionalLight(0xffffff, 0.6);
+    light.position.set(5, 10, 5);
+    structureScene.add(light);
+    
+    // Grid floor
+    const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
+    structureScene.add(gridHelper);
+    
+    // Orbit-like controls logic
+    let isRightMouseDown = false;
+    let prevMouse = { x: 0, y: 0 };
+    let cameraDistance = 15;
+    let cameraPhi = Math.PI / 4;
+    let cameraTheta = Math.PI / 4;
+
+    function updateCameraPos() {
+      structureCamera.position.x = cameraDistance * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+      structureCamera.position.y = cameraDistance * Math.cos(cameraPhi);
+      structureCamera.position.z = cameraDistance * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+      structureCamera.lookAt(0, structureSize.y / 2, 0);
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2) isRightMouseDown = true;
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) isRightMouseDown = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (isRightMouseDown) {
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        cameraTheta -= dx * 0.01;
+        cameraPhi -= dy * 0.01;
+        cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, cameraPhi));
+        updateCameraPos();
+      }
+      prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      cameraDistance += e.deltaY * 0.01;
+      cameraDistance = Math.max(2, Math.min(100, cameraDistance));
+      updateCameraPos();
+      e.preventDefault();
+    }, { passive: false });
+
+    updateCameraPos();
+    
+    // Populate block palette
+    const blockSelect = document.getElementById("structureBlockSelect");
+    if (blockSelect) {
+      blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
+      Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = blockTypes[id].name || id;
+        blockSelect.appendChild(opt);
+      });
+    }
+    
+    rebuildStructureGrid([]);
+    animateStructureEditor();
+    
+    // Mouse interaction for placing blocks
+    let isLeftMouseDown = false;
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) {
+        isLeftMouseDown = true;
+        handleStructureClick(e);
+      }
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) isLeftMouseDown = false;
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (isLeftMouseDown) handleStructureClick(e);
+    });
+    
+    function handleStructureClick(e) {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, structureCamera);
+      
+      const intersects = raycaster.intersectObjects(structureBlocks);
+      if (intersects.length > 0) {
+        const block = intersects[0].object;
+        const selectedBlock = document.getElementById("structureBlockSelect").value;
+        if (selectedBlock) {
+          block.userData.blockType = selectedBlock;
+          const mats = blockMaterials[selectedBlock];
+          block.material = Array.isArray(mats) ? mats.map(m => m.clone()) : mats.clone();
+          block.visible = true;
+        } else {
+          block.userData.blockType = null;
+          block.material = new THREE.MeshStandardMaterial({ color: 0x444444, transparent: true, opacity: 0.1 });
+          block.visible = true;
+        }
+      }
+    }
+  }
+
   function animateStructureEditor() {
     if (!structureRenderer) return;
     requestAnimationFrame(animateStructureEditor);
-    structureRotation += 0.002;
-    structureCamera.position.x = Math.cos(structureRotation) * 15;
-    structureCamera.position.z = Math.sin(structureRotation) * 15;
-    structureCamera.lookAt(0, structureSize.y / 2, 0);
     structureRenderer.render(structureScene, structureCamera);
   }
 
@@ -1584,6 +1629,38 @@ export function initGame(THREE){
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
         }
+
+        // Structure generation check
+        Object.keys(structures).forEach(id => {
+          const s = structures[id];
+          const rarity = s.rarity || 50;
+          // rarity 1 = 1/100 chance, rarity 100 = 1/10000 chance approx
+          // Let's use a simpler logic: Math.random() < 1 / (rarity * 10)
+          if (Math.random() < 1 / (rarity * 20)) {
+            const spawnY = h;
+            if (spawnY >= (s.spawnHeight?.min || 0) && spawnY <= (s.spawnHeight?.max || 256)) {
+              // Check rules
+              let canSpawn = true;
+              if (s.rules?.onGround && h <= 0) canSpawn = false;
+              
+              if (canSpawn) {
+                s.blocks.forEach(b => {
+                  const bx = x + b.x - Math.floor(s.size.x / 2);
+                  const by = spawnY + b.y;
+                  const bz = z + b.z - Math.floor(s.size.z / 2);
+                  
+                  const bMat = blockMaterials[b.type];
+                  if (bMat) {
+                    const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), bMat);
+                    bMesh.position.set(bx, by, bz);
+                    scene.add(bMesh);
+                    blocks3D.push({mesh: bMesh, type: b.type, pos: {x: bx, y: by, z: bz}});
+                  }
+                });
+              }
+            }
+          }
+        });
       }
     }
     player.group.position.y = 15;

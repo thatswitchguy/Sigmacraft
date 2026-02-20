@@ -317,13 +317,33 @@ canvas { display:block; }
   font-size: 12px;
 }
 
+#devOverlay.full-screen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  top: 0;
+  left: 0;
+  transform: none;
+}
+
+#devOverlay.full-screen .dev-content {
+  max-height: calc(100vh - 100px);
+}
+
+#devOverlay.full-screen .dev-layout {
+  height: calc(100vh - 150px);
+}
+
 .structure-3d-container {
   flex: 1;
   min-height: 300px;
-  background: #1a1a1a;
+  background: #111;
   border-radius: 8px;
   position: relative;
   overflow: hidden;
+  border: 1px solid #444;
 }
 
 #structureCanvas {
