@@ -986,6 +986,19 @@ export function initGame(THREE){
   // Dev Mode Tabs
   document.querySelectorAll('.dev-tab').forEach(tab => {
     tab.onclick = () => {
+      if (tab.id === "fullScreenEditorBtn") {
+        const overlay = document.getElementById("devOverlay");
+        overlay.classList.toggle("full-screen");
+        tab.textContent = overlay.classList.contains("full-screen") ? "Window Mode" : "Blender Mode";
+        // Resize renderers
+        if (structureRenderer) {
+          const container = document.getElementById("structureCanvas").parentElement;
+          structureRenderer.setSize(container.clientWidth, container.clientHeight);
+          structureCamera.aspect = container.clientWidth / container.clientHeight;
+          structureCamera.updateProjectionMatrix();
+        }
+        return;
+      }
       document.querySelectorAll('.dev-tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.dev-tab-content').forEach(c => c.classList.remove('active'));
       tab.classList.add('active');
