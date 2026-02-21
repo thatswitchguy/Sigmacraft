@@ -1140,8 +1140,8 @@ export function initGame(THREE){
     const gridHelper = new THREE.GridHelper(40, 40, 0x444444, 0x222222);
     structureScene.add(gridHelper);
     
-    // Orbit-like controls logic
-    let isRightMouseDown = false;
+    // Blender-style rotation logic
+    let isRotatingView = false;
     let prevMouse = { x: 0, y: 0 };
     let cameraDistance = 15;
     let cameraPhi = Math.PI / 4;
@@ -1154,17 +1154,19 @@ export function initGame(THREE){
       structureCamera.lookAt(0, structureSize.y / 2, 0);
     }
 
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 2) isRightMouseDown = true;
-      prevMouse = { x: e.clientX, y: e.clientY };
-    });
+    const blenderHand = document.getElementById('blenderHand');
+    if (blenderHand) {
+      blenderHand.onmousedown = (e) => {
+        isRotatingView = true;
+        prevMouse = { x: e.clientX, y: e.clientY };
+        document.body.style.cursor = 'grabbing';
+        e.preventDefault();
+        e.stopPropagation();
+      };
+    }
 
-    window.addEventListener('mouseup', (e) => {
-      if (e.button === 2) isRightMouseDown = false;
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (isRightMouseDown) {
+    window.addEventListener('mousemove', (e) => {
+      if (isRotatingView) {
         const dx = e.clientX - prevMouse.x;
         const dy = e.clientY - prevMouse.y;
         cameraTheta -= dx * 0.01;
@@ -1173,6 +1175,13 @@ export function initGame(THREE){
         updateCameraPos();
       }
       prevMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isRotatingView) {
+        isRotatingView = false;
+        document.body.style.cursor = '';
+      }
     });
 
     canvas.addEventListener('wheel', (e) => {
@@ -1185,33 +1194,112 @@ export function initGame(THREE){
     updateCameraPos();
     
     // Populate block palette
-    const blockSelect = document.getElementById("structureBlockSelect");
-    if (blockSelect) {
-      blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
+    const updateBlenderPalette = () => {
+      const palette = document.getElementById('blenderPalette');
+      const blockSelect = document.getElementById("structureBlockSelect");
+      if (!palette) return;
+      palette.innerHTML = '';
+      
+      const addPaletteItem = (id, name, textures) => {
+        const item = document.createElement('div');
+        item.className = 'palette-item';
+        item.title = name || id;
+        const canvas = document.createElement('canvas');
+        canvas.width = 16; canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        const tex = textures?.front || textures?.top || textures?.side;
+        if (tex) {
+          tex.forEach((c, i) => {
+            ctx.fillStyle = c;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+        }
+        item.appendChild(canvas);
+        item.onclick = () => {
+          if (blockSelect) blockSelect.value = id;
+          document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('active'));
+          item.classList.add('active');
+        };
+        palette.appendChild(item);
+      };
+
+      // Add eraser/air
+      const eraser = document.createElement('div');
+      eraser.className = 'palette-item eraser';
+      eraser.innerHTML = '✕';
+      eraser.style.display = 'flex';
+      eraser.style.justifyContent = 'center';
+      eraser.style.alignItems = 'center';
+      eraser.style.color = 'white';
+      eraser.onclick = () => {
+        if (blockSelect) blockSelect.value = '';
+        document.querySelectorAll('.palette-item').forEach(el => el.classList.remove('active'));
+        eraser.classList.add('active');
+      };
+      palette.appendChild(eraser);
+
       Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = blockTypes[id].name || id;
-        blockSelect.appendChild(opt);
+        addPaletteItem(id, blockTypes[id].name, blockTypes[id].textures);
       });
-    }
+    };
     
+    updateBlenderPalette();
     rebuildStructureGrid([]);
     animateStructureEditor();
     
-    // Mouse interaction for placing blocks
-    let isLeftMouseDown = false;
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
+    // Manual placement from ground up
+    const structureRaycaster = new THREE.Raycaster();
+    const structureMouse = new THREE.Vector2();
     
     canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0) {
-        isLeftMouseDown = true;
-        handleStructureClick(e);
+        const rect = canvas.getBoundingClientRect();
+        structureMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        structureMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+        structureRaycaster.setFromCamera(structureMouse, structureCamera);
+        
+        const meshes = structureBlocks.map(b => b.mesh);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const intersects = structureRaycaster.intersectObjects(meshes);
+        
+        let pos = new THREE.Vector3();
+        let normal = new THREE.Vector3(0, 1, 0);
+        
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          pos.copy(hit.object.position).add(hit.face.normal);
+          normal.copy(hit.face.normal);
+        } else {
+          const intersectPoint = new THREE.Vector3();
+          structureRaycaster.ray.intersectPlane(plane, intersectPoint);
+          pos.set(Math.round(intersectPoint.x), 0, Math.round(intersectPoint.z));
+        }
+
+        const blockName = document.getElementById("structureBlockSelect")?.value || "";
+        
+        if (blockName === "") {
+          // Erase
+          if (intersects.length > 0) {
+            const obj = intersects[0].object;
+            structureScene.remove(obj);
+            const idx = structureBlocks.findIndex(b => b.mesh === obj);
+            if (idx !== -1) structureBlocks.splice(idx, 1);
+          }
+        } else {
+          // Place
+          const mat = blockMaterials[blockName];
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+          mesh.position.copy(pos);
+          structureScene.add(mesh);
+          structureBlocks.push({ mesh, type: blockName, pos: { x: pos.x, y: pos.y, z: pos.z } });
+        }
       }
     });
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) isLeftMouseDown = false;
+      if (e.button === 0) {
+        isLeftMouseDown = false;
+      }
     });
     canvas.addEventListener('mousemove', (e) => {
       if (isLeftMouseDown) handleStructureClick(e);
