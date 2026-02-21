@@ -1635,7 +1635,7 @@ export function initGame(THREE){
       for(let z = -size; z < size; z++){
         const h = Math.floor(noise.noise2D(x/15, z/15) * 4) + 5;
         for(let y = 0; y < h; y++){
-          const type = (y === h-1) ? "grass" : "dirt";
+          const type = (y === 0) ? "bedrock" : (y >= h-1) ? "grass" : (y >= h-2) ? "dirt" : "dirt"; 
           const mat = blockMaterials[type];
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
           mesh.position.set(x, y, z);
