@@ -478,13 +478,74 @@ export function initGame(THREE){
 
   document.addEventListener("contextmenu", e => e.preventDefault());
 
-  // Game settings
-  const gameSettings = {
-    framerate: 60,
-    brightness: 100,
-    contrast: 100,
-    hideHand: false
-  };
+  const CHUNK_SIZE_XZ = 16;
+  const CHUNK_SIZE_Y = 40;
+  const RENDER_DISTANCE = 2; // 2 chunks in each direction
+  const chunks = {}; // Key: "x,z", Value: { mesh, blocks }
+  
+  const simplex = new SimplexNoise();
+
+  function getChunkKey(x, z) {
+    return `${Math.floor(x / CHUNK_SIZE_XZ)},${Math.floor(z / CHUNK_SIZE_XZ)}`;
+  }
+
+  function generateChunk(cx, cz) {
+    const key = `${cx},${cz}`;
+    if (chunks[key]) return;
+
+    const chunkBlocks = [];
+    const geometry = new THREE.BufferGeometry();
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+
+    for (let x = 0; x < CHUNK_SIZE_XZ; x++) {
+      for (let z = 0; z < CHUNK_SIZE_XZ; z++) {
+        const worldX = cx * CHUNK_SIZE_XZ + x;
+        const worldZ = cz * CHUNK_SIZE_XZ + z;
+        
+        // Terrain height
+        const h = Math.floor(simplex.noise2D(worldX / 50, worldZ / 50) * 5 + 20);
+        
+        for (let y = 0; y < CHUNK_SIZE_Y; y++) {
+          // Cave generation
+          const caveNoise = simplex.noise3D(worldX / 10, y / 10, worldZ / 10);
+          if (y < h && caveNoise < 0.3) {
+            let type = "stone";
+            if (y === h - 1) type = "grass";
+            else if (y > h - 4) type = "dirt";
+            if (y === 0) type = "bedrock";
+            
+            chunkBlocks.push({ x: worldX, y, z: worldZ, type });
+          }
+        }
+      }
+    }
+
+    // Meshing logic would go here (simplified for brevity in this snapshot)
+    // For now, let's just add them to blocks3D for compatibility with existing raycasting
+    chunkBlocks.forEach(b => {
+      const mat = blockMaterials[b.type] || blockMaterials.stone;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh.position.set(b.x, b.y, b.z);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type: b.type, pos: { x: b.x, y: b.y, z: b.z } });
+    });
+
+    chunks[key] = { blocks: chunkBlocks };
+  }
+
+  function updateChunks() {
+    const px = Math.floor(player.group.position.x / CHUNK_SIZE_XZ);
+    const pz = Math.floor(player.group.position.z / CHUNK_SIZE_XZ);
+
+    for (let x = -RENDER_DISTANCE; x <= RENDER_DISTANCE; x++) {
+      for (let z = -RENDER_DISTANCE; z <= RENDER_DISTANCE; z++) {
+        generateChunk(px + x, pz + z);
+      }
+    }
+  }
 
   function togglePauseMenu() {
     const pause = document.getElementById("pauseMenu");
@@ -2109,24 +2170,35 @@ export function initGame(THREE){
     }
 
     if (player.cameraMode === 0) {
-            // First Person: Camera follows head pitch and inherits group rotation
-            camera.rotation.set(player.pitch, 0, 0); 
-            camera.position.set(0, 1.6, 0); // Position relative to player group
-            player.model.visible = false;
-        } else if (player.cameraMode === 1) {
-            // Third Person Back
-            player.model.visible = true;
-            // Compute world position since camera is child of group
-            const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-            const worldPos = player.group.position.clone().add(offset);
-            
-            // To position a child in world space, we can use worldToLocal on the parent
-            camera.position.copy(player.group.worldToLocal(worldPos));
-            
-            const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-            camera.lookAt(targetPos);
-        } else if (player.cameraMode === 2) {
-            // Third Person Front
+      // First Person: Camera follows head pitch and inherits group rotation
+      camera.rotation.set(player.pitch, 0, 0); 
+      camera.position.set(0, 1.6, 0); // Position relative to player group
+      player.model.visible = false;
+    } else if (player.cameraMode === 1) {
+      // Third Person Back
+      player.model.visible = true;
+      // Compute world position since camera is child of group
+      const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+      const worldPos = player.group.position.clone().add(offset);
+      
+      // To position a child in world space, we can use worldToLocal on the parent
+      camera.position.copy(player.group.worldToLocal(worldPos));
+      
+      const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      camera.lookAt(targetPos);
+    } else if (player.cameraMode === 2) {
+      // Third Person Front
+      player.model.visible = true;
+      const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+      const worldPos = player.group.position.clone().add(offset);
+      camera.position.copy(player.group.worldToLocal(worldPos));
+      const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      camera.lookAt(targetPos);
+    }
+
+    updateChunks();
+    renderer.render(scene, camera);
+  }
             player.model.visible = true;
             const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
             const worldPos = player.group.position.clone().add(offset);
