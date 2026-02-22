@@ -662,6 +662,51 @@ export function initGame(THREE){
     }
   }
 
+  const exportNetBtn = document.getElementById("exportNetBtn");
+  if (exportNetBtn) {
+    exportNetBtn.onclick = () => {
+      const editBlockId = document.getElementById("editBlockId");
+      const blockName = editBlockId?.value;
+      if (!blockName || !blockTypes[blockName]) {
+        alert("Select a block first");
+        return;
+      }
+      const tex = blockTypes[blockName].textures;
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 48;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+
+      const sides = {
+        top: { x: 16, y: 0 },
+        bottom: { x: 16, y: 32 },
+        left: { x: 0, y: 16 },
+        front: { x: 16, y: 16 },
+        right: { x: 32, y: 16 },
+        back: { x: 48, y: 16 }
+      };
+
+      Object.entries(sides).forEach(([side, pos]) => {
+        const data = tex[side];
+        if (Array.isArray(data)) {
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(pos.x + (i % 16), pos.y + Math.floor(i / 16), 1, 1);
+          });
+        } else {
+          ctx.fillStyle = data || "#ffffff";
+          ctx.fillRect(pos.x, pos.y, 16, 16);
+        }
+      });
+
+      const link = document.createElement('a');
+      link.download = `${blockName}_net.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    };
+  }
+
   function updateBlockMaterials(name) {
     const tex = blockTypes[name]?.textures;
     if (!tex) return;
@@ -1116,7 +1161,21 @@ export function initGame(THREE){
   function initStructureEditor() {
     loadStructures();
     const canvas = document.getElementById("structureCanvas");
-    if (!canvas || structureRenderer) return;
+    if (!canvas) return;
+    if (structureRenderer) {
+      // Re-populate palette in case blockTypes changed
+      const blockSelect = document.getElementById("structureBlockSelect");
+      if (blockSelect) {
+        blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
+        Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = blockTypes[id].name || id;
+          blockSelect.appendChild(opt);
+        });
+      }
+      return;
+    }
 
     structureScene = new THREE.Scene();
     structureScene.background = new THREE.Color(0x050505);
