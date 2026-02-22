@@ -707,6 +707,80 @@ export function initGame(THREE){
     };
   }
 
+  const importNetBtn = document.getElementById("importNetBtn");
+  const netFileInput = document.getElementById("netFileInput");
+  if (importNetBtn && netFileInput) {
+    importNetBtn.onclick = () => netFileInput.click();
+    netFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const editBlockId = document.getElementById("editBlockId");
+          const blockName = editBlockId?.value;
+          if (!blockName || !blockTypes[blockName]) {
+            alert("Select a block first");
+            return;
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 48;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+
+          const sides = {
+            top: { x: 16, y: 0 },
+            bottom: { x: 16, y: 32 },
+            left: { x: 0, y: 16 },
+            front: { x: 16, y: 16 },
+            right: { x: 32, y: 16 },
+            back: { x: 48, y: 16 }
+          };
+
+          const newTextures = {};
+          Object.entries(sides).forEach(([side, pos]) => {
+            const sideData = ctx.getImageData(pos.x, pos.y, 16, 16).data;
+            const pixels = [];
+            for (let i = 0; i < 256; i++) {
+              const r = sideData[i * 4];
+              const g = sideData[i * 4 + 1];
+              const b = sideData[i * 4 + 2];
+              const a = sideData[i * 4 + 3];
+              // Convert to hex
+              const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+              pixels.push(hex);
+            }
+            newTextures[side] = pixels;
+          });
+
+          // Update server for each side
+          const promises = Object.entries(newTextures).map(([side, textureData]) => {
+            return fetch("/update-block", {
+              method: "POST",
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ blockName, side, textureData })
+            });
+          });
+
+          Promise.all(promises).then(() => {
+            blockTypes[blockName].textures = newTextures;
+            updateBlockMaterials(blockName);
+            // Refresh pixel grid if current side matches
+            const currentSide = document.getElementById("sideSelect")?.value || "front";
+            currentPixels = [...newTextures[currentSide]];
+            createPixelGrid();
+            alert("Net imported successfully!");
+          });
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
+  }
+
   function updateBlockMaterials(name) {
     const tex = blockTypes[name]?.textures;
     if (!tex) return;
