@@ -514,6 +514,21 @@ export function initGame(THREE){
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
 
       if (!checkCollision(newBlock.position)) {
+        // Set initial UVs from atlas for placed block
+        const uvAttribute = newBlock.geometry.attributes.uv;
+        const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+        sides.forEach((side, i) => {
+          const uvs = getUVsForSide(blockName, side);
+          if (uvs) {
+            const offset = i * 4;
+            uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
+            uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
+            uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
+            uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
+          }
+        });
+        uvAttribute.needsUpdate = true;
+
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
         slot.count--;
