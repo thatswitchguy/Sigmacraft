@@ -1,7 +1,102 @@
 export function initGame(THREE){
   let blockTypes = {};
   let blockMaterials = {};
-  let blockTiming = { default: 1.0 };
+  let atlasTexture = null;
+  let atlasMapping = {};
+  const tileSize = 16;
+
+  function loadAtlas() {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = `/atlas.png?t=${Date.now()}`;
+      img.onload = () => {
+        const tex = new THREE.Texture(img);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.needsUpdate = true;
+        atlasTexture = tex;
+        
+        fetch("/atlas-mapping")
+          .then(res => res.json())
+          .then(mapping => {
+            atlasMapping = mapping;
+            resolve();
+          });
+      };
+    });
+  }
+
+  function getUVsForSide(blockName, side) {
+    const blockIdx = atlasMapping[blockName];
+    if (blockIdx === undefined) return null;
+    
+    const sidesOrder = ["right", "left", "top", "bottom", "front", "back"];
+    const sideIdx = sidesOrder.indexOf(side);
+    
+    // Atlas is 6 tiles wide (96px) and N tiles high (N*16px)
+    const numBlocks = Object.keys(atlasMapping).length;
+    const atlasWidth = 6 * tileSize;
+    const atlasHeight = numBlocks * tileSize;
+    
+    const u0 = (sideIdx * tileSize) / atlasWidth;
+    const v0 = 1 - ((blockIdx + 1) * tileSize) / atlasHeight;
+    const u1 = ((sideIdx + 1) * tileSize) / atlasWidth;
+    const v1 = 1 - (blockIdx * tileSize) / atlasHeight;
+    
+    return [
+      new THREE.Vector2(u0, v1),
+      new THREE.Vector2(u0, v0),
+      new THREE.Vector2(u1, v1),
+      new THREE.Vector2(u1, v0)
+    ];
+  }
+
+  function updateBlockMaterials(name) {
+    if (!atlasTexture || atlasMapping[name] === undefined) return;
+    
+    const materials = [];
+    const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+    
+    sides.forEach(side => {
+      const mat = new THREE.MeshStandardMaterial({ map: atlasTexture });
+      materials.push(mat);
+    });
+    
+    blockMaterials[name] = materials;
+    
+    // Update existing blocks in scene
+    blocks3D.forEach(b => {
+      if (b.type === name) {
+        b.mesh.material = materials;
+        // Update UVs for each face
+        const geometry = b.mesh.geometry;
+        const uvAttribute = geometry.attributes.uv;
+        
+        sides.forEach((side, i) => {
+          const uvs = getUVsForSide(name, side);
+          if (uvs) {
+            // BoxGeometry groups: 0:right, 1:left, 2:top, 3:bottom, 4:front, 5:back
+            // Each face has 4 vertices
+            const offset = i * 4;
+            uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
+            uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
+            uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
+            uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
+          }
+        });
+        uvAttribute.needsUpdate = true;
+      }
+    });
+  }
+
+  async function refreshTextures() {
+    await loadAtlas();
+    Object.keys(blockTypes).forEach(name => {
+      if (!name.startsWith("_")) {
+        updateBlockMaterials(name);
+      }
+    });
+  }
   const blocks3D = [];
   
   let breakingBlock = null;
@@ -647,13 +742,11 @@ export function initGame(THREE){
             method: "POST",
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
-          }).then(res => res.json()).then(data => {
+          }).then(res => res.json()).then(async data => {
              console.log("Save response:", data);
-             // Update local block types to reflect change immediately
              if (blockTypes[blockName]) {
                  blockTypes[blockName].textures[side] = [...currentPixels];
-                 // Rebuild materials for this block
-                 updateBlockMaterials(blockName);
+                 await refreshTextures();
              }
           }).catch(err => console.error("Save failed:", err));
         }
@@ -1573,6 +1666,7 @@ export function initGame(THREE){
     
     const res = await fetch("/textures");
     blockTypes = await res.json();
+    await refreshTextures();
     
     const sideSelect = document.getElementById("sideSelect");
     if (sideSelect && !sideSelect.value) sideSelect.value = "front";
@@ -1588,33 +1682,6 @@ export function initGame(THREE){
     
     for(const name in blockTypes){
       if (name.startsWith('_')) continue;
-      const tex = blockTypes[name]?.textures;
-      if (!tex) continue;
-      
-      const materials = [];
-      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-      
-      sides.forEach(side => {
-        const data = tex[side];
-        if (Array.isArray(data)) {
-          const canvas = document.createElement('canvas');
-          canvas.width = 16;
-          canvas.height = 16;
-          const ctx = canvas.getContext('2d');
-          data.forEach((color, i) => {
-            ctx.fillStyle = color;
-            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-          });
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.magFilter = THREE.NearestFilter;
-          texture.minFilter = THREE.NearestFilter;
-          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
-        } else {
-          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
-        }
-      });
-      
-      blockMaterials[name] = materials;
       
       if (sel) {
         const opt = document.createElement("option");
@@ -1640,6 +1707,22 @@ export function initGame(THREE){
           const mat = blockMaterials[type];
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
           mesh.position.set(x, y, z);
+          
+          // Set initial UVs from atlas
+          const uvAttribute = mesh.geometry.attributes.uv;
+          const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+          sides.forEach((side, i) => {
+            const uvs = getUVsForSide(type, side);
+            if (uvs) {
+              const offset = i * 4;
+              uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
+              uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
+              uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
+              uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
+            }
+          });
+          uvAttribute.needsUpdate = true;
+
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
         }
