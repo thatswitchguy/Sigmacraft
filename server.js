@@ -1,7 +1,6 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { createCanvas } from "canvas";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -11,71 +10,6 @@ app.use(express.static(path.join(process.cwd(), "public")));
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
-
-function generateAtlas() {
-    try {
-        const data = JSON.parse(fs.readFileSync(BLOCK_FILE));
-        const blockNames = Object.keys(data).filter(k => !k.startsWith("_"));
-        const numBlocks = blockNames.length;
-        if (numBlocks === 0) return null;
-
-        const tileSize = 16;
-        const atlasWidth = tileSize * 6; // 6 sides per block
-        const atlasHeight = tileSize * numBlocks;
-
-        const canvas = createCanvas(atlasWidth, atlasHeight);
-        const ctx = canvas.getContext("2d");
-
-        const sidesOrder = ["right", "left", "top", "bottom", "front", "back"];
-
-        blockNames.forEach((name, blockIdx) => {
-            const block = data[name];
-            sidesOrder.forEach((side, sideIdx) => {
-                const pixels = block.textures[side];
-                if (Array.isArray(pixels)) {
-                    const xOffset = sideIdx * tileSize;
-                    const yOffset = blockIdx * tileSize;
-                    for (let i = 0; i < 256; i++) {
-                        const px = i % 16;
-                        const py = Math.floor(i / 16);
-                        ctx.fillStyle = pixels[i] || "#000000";
-                        ctx.fillRect(xOffset + px, yOffset + py, 1, 1);
-                    }
-                }
-            });
-        });
-
-        return {
-            buffer: canvas.toBuffer("image/png"),
-            mapping: blockNames.reduce((acc, name, idx) => {
-                acc[name] = idx;
-                return acc;
-            }, {})
-        };
-    } catch (e) {
-        console.error("Atlas generation failed:", e);
-        return null;
-    }
-}
-
-app.get("/atlas.png", (req, res) => {
-    const atlas = generateAtlas();
-    if (atlas) {
-        res.set("Content-Type", "image/png");
-        res.send(atlas.buffer);
-    } else {
-        res.status(404).send("Not found");
-    }
-});
-
-app.get("/atlas-mapping", (req, res) => {
-    const atlas = generateAtlas();
-    if (atlas) {
-        res.json(atlas.mapping);
-    } else {
-        res.status(404).json({});
-    }
-});
 
 app.get("/textures", (req, res) => {
     try {

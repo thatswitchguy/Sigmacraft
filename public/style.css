@@ -649,10 +649,11 @@ select, input[type="color"], button {
 .pixel-grid {
   display: grid;
   grid-template-columns: repeat(16, 1fr);
-  gap: 1px;
+  gap: 0;
   width: 320px;
   height: 320px;
   border: 1px solid #333;
+  image-rendering: pixelated;
 }
 
 .pixel {

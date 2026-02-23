@@ -1,103 +1,7 @@
 export function initGame(THREE){
   let blockTypes = {};
   let blockMaterials = {};
-  let atlasTexture = null;
-  let atlasMapping = {};
-  let blockTiming = {}
-  const tileSize = 16;
-
-  function loadAtlas() {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = `/atlas.png?t=${Date.now()}`;
-      img.onload = () => {
-        const tex = new THREE.Texture(img);
-        tex.magFilter = THREE.NearestFilter;
-        tex.minFilter = THREE.NearestFilter;
-        tex.needsUpdate = true;
-        atlasTexture = tex;
-        
-        fetch("/atlas-mapping")
-          .then(res => res.json())
-          .then(mapping => {
-            atlasMapping = mapping;
-            resolve();
-          });
-      };
-    });
-  }
-
-  function getUVsForSide(blockName, side) {
-    const blockIdx = atlasMapping[blockName];
-    if (blockIdx === undefined) return null;
-    
-    const sidesOrder = ["right", "left", "top", "bottom", "front", "back"];
-    const sideIdx = sidesOrder.indexOf(side);
-    
-    // Atlas is 6 tiles wide (96px) and N tiles high (N*16px)
-    const numBlocks = Object.keys(atlasMapping).length;
-    const atlasWidth = 6 * tileSize;
-    const atlasHeight = numBlocks * tileSize;
-    
-    const u0 = (sideIdx * tileSize) / atlasWidth;
-    const v0 = 1 - ((blockIdx + 1) * tileSize) / atlasHeight;
-    const u1 = ((sideIdx + 1) * tileSize) / atlasWidth;
-    const v1 = 1 - (blockIdx * tileSize) / atlasHeight;
-    
-    return [
-      new THREE.Vector2(u0, v1),
-      new THREE.Vector2(u0, v0),
-      new THREE.Vector2(u1, v1),
-      new THREE.Vector2(u1, v0)
-    ];
-  }
-
-  function updateBlockMaterials(name) {
-    if (!atlasTexture || atlasMapping[name] === undefined) return;
-    
-    const materials = [];
-    const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-    
-    sides.forEach(side => {
-      const mat = new THREE.MeshStandardMaterial({ map: atlasTexture });
-      materials.push(mat);
-    });
-    
-    blockMaterials[name] = materials;
-    
-    // Update existing blocks in scene
-    blocks3D.forEach(b => {
-      if (b.type === name) {
-        b.mesh.material = materials;
-        // Update UVs for each face
-        const geometry = b.mesh.geometry;
-        const uvAttribute = geometry.attributes.uv;
-        
-        sides.forEach((side, i) => {
-          const uvs = getUVsForSide(name, side);
-          if (uvs) {
-            // BoxGeometry groups: 0:right, 1:left, 2:top, 3:bottom, 4:front, 5:back
-            // Each face has 4 vertices
-            const offset = i * 4;
-            uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
-            uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
-            uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
-            uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
-          }
-        });
-        uvAttribute.needsUpdate = true;
-      }
-    });
-  }
-
-  async function refreshTextures() {
-    await loadAtlas();
-    Object.keys(blockTypes).forEach(name => {
-      if (!name.startsWith("_")) {
-        updateBlockMaterials(name);
-      }
-    });
-  }
+  let blockTiming = { default: 1.0 };
   const blocks3D = [];
   
   let breakingBlock = null;
@@ -515,21 +419,6 @@ export function initGame(THREE){
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
 
       if (!checkCollision(newBlock.position)) {
-        // Set initial UVs from atlas for placed block
-        const uvAttribute = newBlock.geometry.attributes.uv;
-        const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-        sides.forEach((side, i) => {
-          const uvs = getUVsForSide(blockName, side);
-          if (uvs) {
-            const offset = i * 4;
-            uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
-            uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
-            uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
-            uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
-          }
-        });
-        uvAttribute.needsUpdate = true;
-
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
         slot.count--;
@@ -758,17 +647,138 @@ export function initGame(THREE){
             method: "POST",
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
-          }).then(res => res.json()).then(async data => {
+          }).then(res => res.json()).then(data => {
              console.log("Save response:", data);
+             // Update local block types to reflect change immediately
              if (blockTypes[blockName]) {
                  blockTypes[blockName].textures[side] = [...currentPixels];
-                 await refreshTextures();
+                 // Rebuild materials for this block
+                 updateBlockMaterials(blockName);
              }
           }).catch(err => console.error("Save failed:", err));
         }
       };
       grid.appendChild(pixel);
     }
+  }
+
+  const exportNetBtn = document.getElementById("exportNetBtn");
+  if (exportNetBtn) {
+    exportNetBtn.onclick = () => {
+      const editBlockId = document.getElementById("editBlockId");
+      const blockName = editBlockId?.value;
+      if (!blockName || !blockTypes[blockName]) {
+        alert("Select a block first");
+        return;
+      }
+      const tex = blockTypes[blockName].textures;
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 48;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+
+      const sides = {
+        top: { x: 16, y: 0 },
+        bottom: { x: 16, y: 32 },
+        left: { x: 0, y: 16 },
+        front: { x: 16, y: 16 },
+        right: { x: 32, y: 16 },
+        back: { x: 48, y: 16 }
+      };
+
+      Object.entries(sides).forEach(([side, pos]) => {
+        const data = tex[side];
+        if (Array.isArray(data)) {
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(pos.x + (i % 16), pos.y + Math.floor(i / 16), 1, 1);
+          });
+        } else {
+          ctx.fillStyle = data || "#ffffff";
+          ctx.fillRect(pos.x, pos.y, 16, 16);
+        }
+      });
+
+      const link = document.createElement('a');
+      link.download = `${blockName}_net.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    };
+  }
+
+  const importNetBtn = document.getElementById("importNetBtn");
+  const netFileInput = document.getElementById("netFileInput");
+  if (importNetBtn && netFileInput) {
+    importNetBtn.onclick = () => netFileInput.click();
+    netFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const editBlockId = document.getElementById("editBlockId");
+          const blockName = editBlockId?.value;
+          if (!blockName || !blockTypes[blockName]) {
+            alert("Select a block first");
+            return;
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = 64;
+          canvas.height = 48;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+
+          const sides = {
+            top: { x: 16, y: 0 },
+            bottom: { x: 16, y: 32 },
+            left: { x: 0, y: 16 },
+            front: { x: 16, y: 16 },
+            right: { x: 32, y: 16 },
+            back: { x: 48, y: 16 }
+          };
+
+          const newTextures = {};
+          Object.entries(sides).forEach(([side, pos]) => {
+            const sideData = ctx.getImageData(pos.x, pos.y, 16, 16).data;
+            const pixels = [];
+            for (let i = 0; i < 256; i++) {
+              const r = sideData[i * 4];
+              const g = sideData[i * 4 + 1];
+              const b = sideData[i * 4 + 2];
+              const a = sideData[i * 4 + 3];
+              // Convert to hex
+              const hex = "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+              pixels.push(hex);
+            }
+            newTextures[side] = pixels;
+          });
+
+          // Update server for each side
+          const promises = Object.entries(newTextures).map(([side, textureData]) => {
+            return fetch("/update-block", {
+              method: "POST",
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ blockName, side, textureData })
+            });
+          });
+
+          Promise.all(promises).then(() => {
+            blockTypes[blockName].textures = newTextures;
+            updateBlockMaterials(blockName);
+            // Refresh pixel grid if current side matches
+            const currentSide = document.getElementById("sideSelect")?.value || "front";
+            currentPixels = [...newTextures[currentSide]];
+            createPixelGrid();
+            alert("Net imported successfully!");
+          });
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
   }
 
   function updateBlockMaterials(name) {
@@ -1225,7 +1235,21 @@ export function initGame(THREE){
   function initStructureEditor() {
     loadStructures();
     const canvas = document.getElementById("structureCanvas");
-    if (!canvas || structureRenderer) return;
+    if (!canvas) return;
+    if (structureRenderer) {
+      // Re-populate palette in case blockTypes changed
+      const blockSelect = document.getElementById("structureBlockSelect");
+      if (blockSelect) {
+        blockSelect.innerHTML = '<option value="">Air (Erase)</option>';
+        Object.keys(blockTypes).filter(id => !id.startsWith('_') && blockTypes[id]?.textures).forEach(id => {
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = blockTypes[id].name || id;
+          blockSelect.appendChild(opt);
+        });
+      }
+      return;
+    }
 
     structureScene = new THREE.Scene();
     structureScene.background = new THREE.Color(0x050505);
@@ -1682,7 +1706,6 @@ export function initGame(THREE){
     
     const res = await fetch("/textures");
     blockTypes = await res.json();
-    await refreshTextures();
     
     const sideSelect = document.getElementById("sideSelect");
     if (sideSelect && !sideSelect.value) sideSelect.value = "front";
@@ -1698,6 +1721,33 @@ export function initGame(THREE){
     
     for(const name in blockTypes){
       if (name.startsWith('_')) continue;
+      const tex = blockTypes[name]?.textures;
+      if (!tex) continue;
+      
+      const materials = [];
+      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+      
+      sides.forEach(side => {
+        const data = tex[side];
+        if (Array.isArray(data)) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 16;
+          canvas.height = 16;
+          const ctx = canvas.getContext('2d');
+          data.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.magFilter = THREE.NearestFilter;
+          texture.minFilter = THREE.NearestFilter;
+          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+        } else {
+          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+        }
+      });
+      
+      blockMaterials[name] = materials;
       
       if (sel) {
         const opt = document.createElement("option");
@@ -1723,22 +1773,6 @@ export function initGame(THREE){
           const mat = blockMaterials[type];
           const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
           mesh.position.set(x, y, z);
-          
-          // Set initial UVs from atlas
-          const uvAttribute = mesh.geometry.attributes.uv;
-          const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-          sides.forEach((side, i) => {
-            const uvs = getUVsForSide(type, side);
-            if (uvs) {
-              const offset = i * 4;
-              uvAttribute.setXY(offset, uvs[0].x, uvs[0].y);
-              uvAttribute.setXY(offset + 1, uvs[1].x, uvs[1].y);
-              uvAttribute.setXY(offset + 2, uvs[2].x, uvs[2].y);
-              uvAttribute.setXY(offset + 3, uvs[3].x, uvs[3].y);
-            }
-          });
-          uvAttribute.needsUpdate = true;
-
           scene.add(mesh);
           blocks3D.push({mesh, type, pos:{x,y,z}});
         }
