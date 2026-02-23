@@ -3,6 +3,7 @@ export function initGame(THREE){
   let blockMaterials = {};
   let atlasTexture = null;
   let atlasMapping = {};
+  let blockTiming = {}
   const tileSize = 16;
 
   function loadAtlas() {
