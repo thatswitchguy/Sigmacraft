@@ -20,6 +20,11 @@ if (!fs.existsSync(TEXTURE_DIR)) {
 function saveTextureAsImage(blockName, side, textureData) {
     if (!Array.isArray(textureData)) return null;
     
+    const blockDir = path.join(TEXTURE_DIR, blockName);
+    if (!fs.existsSync(blockDir)) {
+        fs.mkdirSync(blockDir, { recursive: true });
+    }
+    
     const canvas = createCanvas(16, 16);
     const ctx = canvas.getContext('2d');
     
@@ -30,11 +35,11 @@ function saveTextureAsImage(blockName, side, textureData) {
         ctx.fillRect(x, y, 1, 1);
     }
     
-    const fileName = `${blockName}_${side}.png`;
-    const filePath = path.join(TEXTURE_DIR, fileName);
+    const fileName = `${side}.png`;
+    const filePath = path.join(blockDir, fileName);
     const buffer = canvas.toBuffer('image/png');
     fs.writeFileSync(filePath, buffer);
-    return `/textures/${fileName}`;
+    return `/textures/${blockName}/${fileName}`;
 }
 
 app.get("/textures", (req, res) => {

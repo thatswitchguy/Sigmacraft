@@ -789,31 +789,19 @@ export function initGame(THREE){
     
     const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
     const materials = sides.map(side => {
-      if (data.imageUrls && data.imageUrls[side]) {
-        const texture = textureLoader.load(data.imageUrls[side] + '?t=' + Date.now());
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        return new THREE.MeshStandardMaterial({ map: texture });
-      } else {
-        const texData = data.textures[side];
-        const canvas = document.createElement('canvas');
-        canvas.width = 16;
-        canvas.height = 16;
-        const ctx = canvas.getContext('2d');
-        if (Array.isArray(texData)) {
-          texData.forEach((color, i) => {
-            ctx.fillStyle = color;
-            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-          });
-        } else {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, 16, 16);
-        }
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
-        return new THREE.MeshStandardMaterial({ map: texture });
-      }
+      // Priority 1: Check for folder-organized textures
+      const folderTextureUrl = `/textures/${name}/${side}.png`;
+      
+      // Use imageUrls if available (legacy support or specific overrides)
+      const imageUrl = (data.imageUrls && data.imageUrls[side]) || folderTextureUrl;
+
+      const texture = textureLoader.load(imageUrl + '?t=' + Date.now());
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      
+      // Fallback logic if image fails to load or for new blocks not yet saved
+      // THREE.js handles loading asynchronously, so we return the material immediately
+      return new THREE.MeshStandardMaterial({ map: texture });
     });
     
     blockMaterials[name] = materials;
