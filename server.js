@@ -1,15 +1,41 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import { createCanvas } from "canvas";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
+const TEXTURE_DIR = path.join(process.cwd(), "public", "textures");
+
+if (!fs.existsSync(TEXTURE_DIR)) {
+    fs.mkdirSync(TEXTURE_DIR, { recursive: true });
+}
+
+function saveTextureAsImage(blockName, side, textureData) {
+    if (!Array.isArray(textureData)) return null;
+    
+    const canvas = createCanvas(16, 16);
+    const ctx = canvas.getContext('2d');
+    
+    for (let i = 0; i < 256; i++) {
+        const x = i % 16;
+        const y = Math.floor(i / 16);
+        ctx.fillStyle = textureData[i] || "#ffffff";
+        ctx.fillRect(x, y, 1, 1);
+    }
+    
+    const fileName = `${blockName}_${side}.png`;
+    const filePath = path.join(TEXTURE_DIR, fileName);
+    const buffer = canvas.toBuffer('image/png');
+    fs.writeFileSync(filePath, buffer);
+    return `/textures/${fileName}`;
+}
 
 app.get("/textures", (req, res) => {
     try {
@@ -26,11 +52,21 @@ app.post("/update-block", (req, res) => {
     try {
         data = JSON.parse(fs.readFileSync(BLOCK_FILE));
     } catch (e) {}
+    
     if (!data[blockName]) data[blockName] = { name: blockName, textures: {} };
-    // textureData can be a hex string (legacy) or an array of 256 hex strings (new)
+    
+    // Save the image file
+    const imageUrl = saveTextureAsImage(blockName, side, textureData);
+    
+    // Update the JSON data
     data[blockName].textures[side] = textureData;
+    if (imageUrl) {
+        if (!data[blockName].imageUrls) data[blockName].imageUrls = {};
+        data[blockName].imageUrls[side] = imageUrl;
+    }
+    
     fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
-    res.json({ success: true });
+    res.json({ success: true, imageUrl });
 });
 
 app.get("/config", (req, res) => {
