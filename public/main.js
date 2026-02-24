@@ -781,30 +781,38 @@ export function initGame(THREE){
     };
   }
 
+  const textureLoader = new THREE.TextureLoader();
+
   function updateBlockMaterials(name) {
-    const tex = blockTypes[name]?.textures;
-    if (!tex) return;
+    const data = blockTypes[name];
+    if (!data) return;
     
-    const materials = [];
     const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-    
-    sides.forEach(side => {
-      const data = tex[side];
-      if (Array.isArray(data)) {
+    const materials = sides.map(side => {
+      if (data.imageUrls && data.imageUrls[side]) {
+        const texture = textureLoader.load(data.imageUrls[side] + '?t=' + Date.now());
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        return new THREE.MeshStandardMaterial({ map: texture });
+      } else {
+        const texData = data.textures[side];
         const canvas = document.createElement('canvas');
         canvas.width = 16;
         canvas.height = 16;
         const ctx = canvas.getContext('2d');
-        data.forEach((color, i) => {
-          ctx.fillStyle = color;
-          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-        });
+        if (Array.isArray(texData)) {
+          texData.forEach((color, i) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          });
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, 16, 16);
+        }
         const texture = new THREE.CanvasTexture(canvas);
         texture.magFilter = THREE.NearestFilter;
         texture.minFilter = THREE.NearestFilter;
-        materials.push(new THREE.MeshStandardMaterial({ map: texture }));
-      } else {
-        materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+        return new THREE.MeshStandardMaterial({ map: texture });
       }
     });
     
