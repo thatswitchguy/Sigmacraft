@@ -114,7 +114,7 @@ export function initGame(THREE){
     canvas.height = 64;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '40px Arial';
+    ctx.font = '25px Minecraftia';
     ctx.fillStyle = 'white';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
