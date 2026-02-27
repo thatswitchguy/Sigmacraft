@@ -110,21 +110,37 @@ export function initGame(THREE){
   function createNameTag(name) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    canvas.width = 256;
-    canvas.height = 64;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    canvas.width = 512;
+    canvas.height = 128;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '25px Minecraftia';
-    ctx.fillStyle = 'white';
+    
+    // Draw text with "render-like" style
+    ctx.font = 'bold 48px Minecraftia';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    
+    // Shadow for depth
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillText(name, canvas.width / 2 + 4, canvas.height / 2 + 4);
+    
+    ctx.fillStyle = 'white';
     ctx.fillText(name, canvas.width / 2, canvas.height / 2);
 
     const texture = new THREE.CanvasTexture(canvas);
-    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    
+    const spriteMaterial = new THREE.SpriteMaterial({ 
+      map: texture, 
+      transparent: true,
+      depthTest: false,
+      sizeAttenuation: true
+    });
     const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.scale.set(1.5, 0.375, 1);
+    sprite.scale.set(2, 0.5, 1);
     sprite.position.y = 2.2;
+    sprite.renderOrder = 999;
     return sprite;
   }
 
@@ -452,6 +468,10 @@ export function initGame(THREE){
         slot.count--;
         if (slot.count <= 0) slot.type = null;
         updateHotbarUI();
+
+        if (socket) {
+            socket.emit("blockPlace", { pos: newBlock.position, type: blockName });
+        }
       }
     }
   });
@@ -496,6 +516,10 @@ export function initGame(THREE){
       
       createBlockDrop(blockPos, blockType);
       
+      if (socket) {
+          socket.emit("blockBreak", { pos: blockPos });
+      }
+
       isBreaking = false;
       currentBreakTarget = null;
       breakingBlock = null;
@@ -577,14 +601,27 @@ export function initGame(THREE){
 
   // Handle Play Button and Username
   const playBtn = document.getElementById("playBtn");
+  const multiplayerBtn = document.getElementById("multiplayerBtn");
   const usernameOverlay = document.getElementById("usernameOverlay");
   const usernameInput = document.getElementById("usernameInput");
   const usernameSubmit = document.getElementById("usernameSubmit");
   const usernameCancel = document.getElementById("usernameCancel");
   const titleScreen = document.getElementById("titleScreen");
 
+  let isMultiplayer = false;
+  let socket = null;
+  const remotePlayers = {};
+
   if (playBtn) {
     playBtn.onclick = () => {
+      isMultiplayer = false;
+      usernameOverlay.style.display = "flex";
+    };
+  }
+
+  if (multiplayerBtn) {
+    multiplayerBtn.onclick = () => {
+      isMultiplayer = true;
       usernameOverlay.style.display = "flex";
     };
   }
@@ -593,6 +630,98 @@ export function initGame(THREE){
     usernameCancel.onclick = () => {
       usernameOverlay.style.display = "none";
     };
+  }
+
+  function setupMultiplayer() {
+    socket = io();
+    socket.emit("join", { 
+      username: player.username,
+      inventory: player.inventory,
+      selectedSlot: player.selectedSlot
+    });
+
+    socket.on("currentPlayers", (players) => {
+      Object.keys(players).forEach(id => {
+        if (id !== socket.id) {
+          createRemotePlayer(players[id]);
+        }
+      });
+    });
+
+    socket.on("playerJoined", (data) => {
+      createRemotePlayer(data);
+    });
+
+    socket.on("playerMoved", (data) => {
+      const p = remotePlayers[data.id];
+      if (p) {
+        p.group.position.copy(data.pos);
+        p.group.rotation.y = data.rot.y;
+        p.model.rotation.x = data.rot.pitch;
+      }
+    });
+
+    socket.on("playerLeft", (id) => {
+      if (remotePlayers[id]) {
+        scene.remove(remotePlayers[id].group);
+        delete remotePlayers[id];
+      }
+    });
+
+    socket.on("blockPlace", (data) => {
+        const mat = blockMaterials[data.type];
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        mesh.position.set(data.pos.x, data.pos.y, data.pos.z);
+        scene.add(mesh);
+        blocks3D.push({ mesh, type: data.type, pos: { ...data.pos } });
+    });
+
+    socket.on("blockBreak", (data) => {
+        const idx = blocks3D.findIndex(b => 
+            Math.round(b.mesh.position.x) === Math.round(data.pos.x) &&
+            Math.round(b.mesh.position.y) === Math.round(data.pos.y) &&
+            Math.round(b.mesh.position.z) === Math.round(data.pos.z)
+        );
+        if (idx !== -1) {
+            scene.remove(blocks3D[idx].mesh);
+            blocks3D.splice(idx, 1);
+        }
+    });
+  }
+
+  function createRemotePlayer(data) {
+    const group = new THREE.Group();
+    const model = new THREE.Group();
+    
+    // Basic remote player model
+    const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
+    const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); // Green for remote
+    const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
+    head.position.y = 1.6;
+    model.add(head);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
+    body.position.y = 1.1;
+    model.add(body);
+
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+    legL.position.set(-0.1, 0.5, 0);
+    model.add(legL);
+
+    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+    legR.position.set(0.1, 0.5, 0);
+    model.add(legR);
+
+    const nameTag = createNameTag(data.username);
+    model.add(nameTag);
+
+    group.add(model);
+    group.position.copy(data.pos);
+    scene.add(group);
+
+    remotePlayers[data.id] = { group, model, nameTag };
   }
 
   if (usernameSubmit) {
@@ -609,6 +738,10 @@ export function initGame(THREE){
       usernameOverlay.style.display = "none";
       titleScreen.style.display = "none";
       renderer.domElement.requestPointerLock();
+
+      if (isMultiplayer) {
+          setupMultiplayer();
+      }
     };
   }
 
@@ -680,6 +813,13 @@ export function initGame(THREE){
     
     // Apply horizontal rotation to the player group
     player.group.rotation.y = player.yaw;
+
+    if (socket) {
+        socket.emit("move", { 
+            pos: player.group.position, 
+            rot: { y: player.yaw, pitch: player.pitch } 
+        });
+    }
   });
 
   let currentPixels = Array(256).fill("#ffffff");

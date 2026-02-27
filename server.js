@@ -2,12 +2,57 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { createCanvas } from "canvas";
+import { Server } from "socket.io";
+import http from "http";
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const PORT = process.env.PORT || 5000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
+
+const players = {};
+
+io.on("connection", (socket) => {
+    console.log("Player connected:", socket.id);
+
+    socket.on("join", (data) => {
+        players[socket.id] = {
+            id: socket.id,
+            username: data.username,
+            pos: { x: 0, y: 10, z: 0 },
+            rot: { y: 0, pitch: 0 },
+            inventory: data.inventory || [],
+            selectedSlot: data.selectedSlot || 27
+        };
+        socket.broadcast.emit("playerJoined", players[socket.id]);
+        socket.emit("currentPlayers", players);
+    });
+
+    socket.on("move", (data) => {
+        if (players[socket.id]) {
+            players[socket.id].pos = data.pos;
+            players[socket.id].rot = data.rot;
+            socket.broadcast.emit("playerMoved", { id: socket.id, pos: data.pos, rot: data.rot });
+        }
+    });
+
+    socket.on("disconnect", () => {
+        console.log("Player disconnected:", socket.id);
+        delete players[socket.id];
+        io.emit("playerLeft", socket.id);
+    });
+
+    socket.on("blockPlace", (data) => {
+        socket.broadcast.emit("blockPlace", data);
+    });
+
+    socket.on("blockBreak", (data) => {
+        socket.broadcast.emit("blockBreak", data);
+    });
+});
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
@@ -184,4 +229,4 @@ app.post("/delete-structure", (req, res) => {
     res.json({ success: true });
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
