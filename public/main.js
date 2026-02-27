@@ -15,6 +15,8 @@ export function initGame(THREE){
     onGround: false, 
     yaw: 0, 
     pitch: 0,
+    username: "Player",
+    nameTag: null,
     cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front
     inventory: Array(36).fill(null).map(() => ({ type: null, count: 0 })), // 27 inventory + 9 hotbar
     selectedSlot: 27, // Start at first hotbar slot (27-35)
@@ -103,11 +105,37 @@ export function initGame(THREE){
   player.group.add(modelGroup);
   player.model = modelGroup;
   player.limbs = { armL, armR, legL, legR };
+
+  // Create Name Tag
+  function createNameTag(name) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 64;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.font = '40px Arial';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.scale.set(1.5, 0.375, 1);
+    sprite.position.y = 2.2;
+    return sprite;
+  }
+
   scene.add(player.group);
 
   camera.position.set(0, 1.6, 0);
   
   function updateCamera() {
+    if (player.nameTag) {
+      player.nameTag.visible = player.cameraMode !== 0;
+    }
     if (player.cameraMode === 0) {
       // First Person
       player.model.visible = false;
@@ -544,6 +572,43 @@ export function initGame(THREE){
     hideHandCheck.onchange = () => {
       gameSettings.hideHand = hideHandCheck.checked;
       applySettings();
+    };
+  }
+
+  // Handle Play Button and Username
+  const playBtn = document.getElementById("playBtn");
+  const usernameOverlay = document.getElementById("usernameOverlay");
+  const usernameInput = document.getElementById("usernameInput");
+  const usernameSubmit = document.getElementById("usernameSubmit");
+  const usernameCancel = document.getElementById("usernameCancel");
+  const titleScreen = document.getElementById("titleScreen");
+
+  if (playBtn) {
+    playBtn.onclick = () => {
+      usernameOverlay.style.display = "flex";
+    };
+  }
+
+  if (usernameCancel) {
+    usernameCancel.onclick = () => {
+      usernameOverlay.style.display = "none";
+    };
+  }
+
+  if (usernameSubmit) {
+    usernameSubmit.onclick = () => {
+      const name = usernameInput.value.trim() || "Player";
+      player.username = name;
+      
+      // Add name tag to model
+      if (player.nameTag) player.model.remove(player.nameTag);
+      player.nameTag = createNameTag(name);
+      player.model.add(player.nameTag);
+      player.nameTag.visible = false; // Hidden in first person by default
+
+      usernameOverlay.style.display = "none";
+      titleScreen.style.display = "none";
+      renderer.domElement.requestPointerLock();
     };
   }
 
@@ -1495,14 +1560,6 @@ export function initGame(THREE){
     } catch (e) {
       console.error("Failed to load config", e);
     }
-  }
-
-  const playBtn = document.getElementById("playBtn");
-  if (playBtn) {
-    playBtn.onclick = () => {
-      document.getElementById("titleScreen").style.display = "none";
-      renderer.domElement.requestPointerLock();
-    };
   }
 
   const devModeBtn = document.getElementById("devModeBtn");
