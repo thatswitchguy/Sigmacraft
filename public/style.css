@@ -3,7 +3,17 @@
   src: url('Minecraftia.ttf') format('truetype');
 }
 
-body { margin:0; overflow:hidden; font-family: 'Minecraftia', Verdana, Geneva, Tahoma; }
+* {
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body { 
+  margin:0; 
+  overflow:hidden; 
+  font-family: 'Minecraftia', 'Courier New', monospace; 
+}
 canvas { display:block; }
 
 #devPasswordOverlay {
@@ -35,6 +45,7 @@ canvas { display:block; }
   margin: 0;
   color: #fff;
   text-align: center;
+  font-family: 'Minecraftia', sans-serif;
 }
 
 #devPasswordInput {
@@ -43,6 +54,7 @@ canvas { display:block; }
   border: 1px solid #444;
   color: white;
   border-radius: 6px;
+  font-family: 'Minecraftia', sans-serif;
 }
 
 #titleScreen {
@@ -253,7 +265,7 @@ canvas { display:block; }
   border: 1px solid #555;
   color: #aaa;
   cursor: pointer;
-  font-family: 'Minecraftia', monospace;
+  font-family: 'Minecraftia', sans-serif;
   font-size: 14px;
   border-radius: 4px 4px 0 0;
 }
@@ -428,7 +440,7 @@ canvas { display:block; }
   border: 2px solid #000;
   padding: 10px 20px;
   cursor: pointer;
-  font-family: 'Minecraftia', monospace;
+  font-family: 'Minecraftia', sans-serif;
 }
 
 .danger-btn:hover {
@@ -462,7 +474,7 @@ canvas { display:block; }
 .dev-password-window h3 {
   margin: 0;
   color: #fff;
-  font-family: 'Minecraftia', monospace;
+  font-family: 'Minecraftia', sans-serif;
   text-align: center;
 }
 
@@ -472,7 +484,7 @@ canvas { display:block; }
   background: #222;
   color: #fff;
   border-radius: 4px;
-  font-family: 'Minecraftia', monospace;
+  font-family: 'Minecraftia', sans-serif;
 }
 
 .dev-header {
@@ -630,12 +642,13 @@ canvas { display:block; }
   align-items: center;
 }
 
-select, input[type="color"], button {
+select, input[type="color"], button, input {
   padding: 8px;
   border-radius: 6px;
   border: 1px solid #444;
   background: #2a2a2a;
   color: white;
+  font-family: 'Minecraftia', sans-serif;
 }
 
 .pixel-grid-container {
