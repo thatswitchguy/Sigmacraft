@@ -2103,12 +2103,26 @@ export function initGame(THREE){
   // ANIMATE
   let animationTime = 0;
   let lastTime = performance.now();
+  let frames = 0;
+  let fpsLastTime = performance.now();
+  const fpsElement = document.getElementById("fpsCounter");
+
   function animate() {
     requestAnimationFrame(animate);
     
     const now = performance.now();
     const delta = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
+
+    // FPS Counter logic
+    frames++;
+    if (now > fpsLastTime + 1000) {
+      if (fpsElement) {
+        fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
+      }
+      fpsLastTime = now;
+      frames = 0;
+    }
     
     updateBreaking();
     updateBlockDrops(delta);

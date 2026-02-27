@@ -860,6 +860,18 @@ select, input[type="color"], button {
   padding-top: 10px;
 }
 
+#fpsCounter {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: #fff;
+  font-family: 'Minecraftia', sans-serif;
+  font-size: 16px;
+  text-shadow: 2px 2px #000;
+  z-index: 1000;
+  pointer-events: none;
+}
+
 #pauseMenu {
   position: fixed;
   top: 0;
