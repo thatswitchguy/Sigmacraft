@@ -144,6 +144,27 @@ export function initGame(THREE){
     return sprite;
   }
 
+  // Apply Global Skin
+  fetch("/skin").then(r => r.json()).then(data => {
+    if (data.skin) {
+      const loader = new THREE.TextureLoader();
+      loader.load(data.skin, (tex) => {
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        const mat = new THREE.MeshStandardMaterial({ map: tex });
+        head.material = mat;
+        body.material = mat;
+        armL.material = mat;
+        armR.material = mat;
+        legL.material = mat;
+        legR.material = mat;
+        
+        // Also update FP hand
+        fpHand.material = mat;
+      });
+    }
+  });
+
   scene.add(player.group);
 
   camera.position.set(0, 1.6, 0);
@@ -568,6 +589,16 @@ export function initGame(THREE){
   const quitBtn = document.getElementById("quitBtn");
   if (quitBtn) {
     quitBtn.onclick = () => {
+      if (socket) {
+        socket.emit("leave");
+        socket.disconnect();
+        socket = null;
+      }
+      // Reset remote players
+      Object.keys(remotePlayers).forEach(id => {
+        scene.remove(remotePlayers[id].group);
+        delete remotePlayers[id];
+      });
       document.getElementById("pauseMenu").style.display = "none";
       document.getElementById("titleScreen").style.display = "flex";
     };
@@ -693,10 +724,75 @@ export function initGame(THREE){
     const group = new THREE.Group();
     const model = new THREE.Group();
     
-    // Basic remote player model
+    // Minecraft Player Model for Remote Players
     const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
     const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); // Green for remote
     const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
+
+    // Head
+    const h = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
+    head.position.y = 1.6;
+    model.add(head);
+
+    // Body
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
+    body.position.y = 1.1;
+    model.add(body);
+
+    // Arms
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+    armL.position.set(-0.3, 1.1, 0);
+    armL.geometry.translate(0, -0.3, 0);
+    armL.position.y += 0.3;
+    model.add(armL);
+
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
+    armR.position.set(0.3, 1.1, 0);
+    armR.geometry.translate(0, -0.3, 0);
+    armR.position.y += 0.3;
+    model.add(armR);
+
+    // Legs
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+    legL.position.set(-0.1, 0.5, 0);
+    legL.geometry.translate(0, -0.3, 0);
+    legL.position.y += 0.3;
+    model.add(legL);
+
+    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
+    legR.position.set(0.1, 0.5, 0);
+    legR.geometry.translate(0, -0.3, 0);
+    legR.position.y += 0.3;
+    model.add(legR);
+
+    group.add(model);
+    
+    const nameTag = createNameTag(data.username || "Player");
+    group.add(nameTag);
+    
+    group.position.copy(data.pos);
+    scene.add(group);
+    
+    remotePlayers[data.id] = { group, model, limbs: { armL, armR, legL, legR } };
+
+    // Apply skin if it exists
+    fetch("/skin").then(r => r.json()).then(res => {
+        if (res.skin) {
+            const loader = new THREE.TextureLoader();
+            loader.load(res.skin, (tex) => {
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                const mat = new THREE.MeshStandardMaterial({ map: tex });
+                head.material = mat;
+                body.material = mat;
+                armL.material = mat;
+                armR.material = mat;
+                legL.material = mat;
+                legR.material = mat;
+            });
+        }
+    });
+  }
 
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
     head.position.y = 1.6;

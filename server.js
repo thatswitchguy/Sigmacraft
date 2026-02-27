@@ -45,6 +45,12 @@ io.on("connection", (socket) => {
         io.emit("playerLeft", socket.id);
     });
 
+    socket.on("leave", () => {
+        console.log("Player left world:", socket.id);
+        delete players[socket.id];
+        io.emit("playerLeft", socket.id);
+    });
+
     socket.on("blockPlace", (data) => {
         socket.broadcast.emit("blockPlace", data);
     });
