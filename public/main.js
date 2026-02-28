@@ -763,11 +763,12 @@ export function initGame(THREE){
     });
 
     socket.on("playerMoved", (data) => {
+      if (!data || !data.id || !data.pos || !data.rot) return;
       const p = remotePlayers[data.id];
       if (p) {
         p.group.position.copy(data.pos);
         p.group.rotation.y = data.rot.y;
-        p.model.rotation.x = data.rot.pitch;
+        if (p.model) p.model.rotation.x = data.rot.pitch;
       }
     });
 
@@ -779,6 +780,7 @@ export function initGame(THREE){
     });
 
     socket.on("worldData", (blocks) => {
+        if (!blocks || !Array.isArray(blocks)) return;
         // Only load worldData if we don't have blocks yet, 
         // or if it's explicitly sent (e.g. after a clear)
         if (blocks.length === 0) {
@@ -788,6 +790,7 @@ export function initGame(THREE){
         }
 
         blocks.forEach(b => {
+            if (!b || !b.pos || !b.type) return;
             const mat = blockMaterials[b.type];
             if (mat) {
                 // Check if block already exists at this position to avoid duplicates
@@ -939,7 +942,9 @@ export function initGame(THREE){
       const slot = parseInt(e.code.replace("Digit", "")) - 1;
       if (slot >= 0 && slot < 9) {
         player.selectedSlot = 27 + slot;
-        updateHotbarUI();
+        if (typeof updateHotbarUI === 'function') {
+          updateHotbarUI();
+        }
       }
     }
 
@@ -2074,22 +2079,22 @@ export function initGame(THREE){
     const selectedItem = player.inventory[player.selectedSlot];
     const label = document.getElementById("hotbarLabel");
     
-    if (selectedItem && selectedItem.type) {
+    if (selectedItem && selectedItem.type && blockMaterials[selectedItem.type]) {
       player.fp.item.visible = player.cameraMode === 0;
       player.fp.hand.visible = false;
       player.tpItem.visible = true;
       
       const mat = blockMaterials[selectedItem.type];
       if (Array.isArray(mat)) {
-        player.fp.item.material = mat[4]; // Use front face for visual
-        player.tpItem.material = mat[4];
+        player.fp.item.material = mat[4] || mat[0]; // Use front face for visual
+        player.tpItem.material = mat[4] || mat[0];
       } else {
         player.fp.item.material = mat;
         player.tpItem.material = mat;
       }
 
       // Update hotbar label
-      if (label) {
+      if (label && blockTypes[selectedItem.type]) {
         label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
         label.style.opacity = 1;
         clearTimeout(window.labelTimeout);
@@ -2143,6 +2148,16 @@ export function initGame(THREE){
       console.error("Failed to parse textures JSON:", textData);
       blockTypes = {};
     }
+
+    // Ensure basic blocks exist if they aren't in blockTypes
+    const defaultBlocks = ["grass", "dirt", "stone"];
+    defaultBlocks.forEach(type => {
+      if (!blockTypes[type]) {
+        blockTypes[type] = { name: type.charAt(0).toUpperCase() + type.slice(1), textures: {
+          top: "#ffffff", bottom: "#ffffff", left: "#ffffff", right: "#ffffff", front: "#ffffff", back: "#ffffff"
+        }};
+      }
+    });
     
     const sideSelect = document.getElementById("sideSelect");
     if (sideSelect && !sideSelect.value) sideSelect.value = "front";
@@ -2215,7 +2230,11 @@ export function initGame(THREE){
         
         const item = player.inventory[inventoryIdx];
         if (item && item.type && blockTypes[item.type]) {
-          slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
+          slot.onmouseenter = (e) => {
+            if (blockTypes[item.type]) {
+              showTooltip(e, blockTypes[item.type].name || item.type);
+            }
+          };
           slot.onmouseleave = hideTooltip;
         }
         
@@ -2235,14 +2254,18 @@ export function initGame(THREE){
       const item = player.inventory[i];
       if (item && item.type) {
         const icon = createBlockIcon(item.type);
-        slot.appendChild(icon);
+        if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
           count.className = "item-count";
           count.textContent = item.count;
           slot.appendChild(count);
         }
-        slot.onmouseenter = (e) => showTooltip(e, blockTypes[item.type].name || item.type);
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
         slot.onmouseleave = hideTooltip;
       }
       slot.onclick = (e) => handleSlotClick(e, i);
