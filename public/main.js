@@ -726,13 +726,14 @@ export function initGame(THREE){
     
     // Minecraft Player Model for Remote Players
     const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
-    const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); // Green for remote
+    const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); 
+    // Green for remote
     const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
 
     // Head
-    const h = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
-    head.position.y = 1.6;
-    model.add(head);
+    const remotehead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
+    remotehead.position.y = 1.6;
+    model.add(remotehead);
 
     // Body
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
@@ -792,32 +793,6 @@ export function initGame(THREE){
             });
         }
     });
-  }
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
-    head.position.y = 1.6;
-    model.add(head);
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
-    body.position.y = 1.1;
-    model.add(body);
-
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-    legL.position.set(-0.1, 0.5, 0);
-    model.add(legL);
-
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-    legR.position.set(0.1, 0.5, 0);
-    model.add(legR);
-
-    const nameTag = createNameTag(data.username);
-    model.add(nameTag);
-
-    group.add(model);
-    group.position.copy(data.pos);
-    scene.add(group);
-
-    remotePlayers[data.id] = { group, model, nameTag };
   }
 
   if (usernameSubmit) {
