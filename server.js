@@ -15,6 +15,7 @@ app.use(express.static(path.join(process.cwd(), "public")));
 
 const players = {};
 let worldBlocks = []; // Store world state
+let worldSeed = Math.random(); // Initial random seed
 
 io.on("connection", (socket) => {
     console.log("Player connected:", socket.id);
@@ -30,11 +31,19 @@ io.on("connection", (socket) => {
         };
         socket.broadcast.emit("playerJoined", players[socket.id]);
         socket.emit("currentPlayers", players);
+        socket.emit("worldSeed", worldSeed);
         
         // Send existing world to new player
         if (worldBlocks.length > 0) {
             socket.emit("worldData", worldBlocks);
         }
+    });
+
+    socket.on("requestNewSeed", () => {
+        worldSeed = Math.random();
+        worldBlocks = []; // Clear current world edits for the new seed
+        io.emit("worldSeed", worldSeed);
+        io.emit("worldData", []); // Clear world for everyone
     });
 
     socket.on("worldData", (blocks) => {

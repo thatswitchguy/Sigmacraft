@@ -145,6 +145,31 @@ export function initGame(THREE){
   }
 
   // Apply Global Skin
+  function createSeedButton() {
+    const pauseMain = document.getElementById("pauseMain");
+    if (pauseMain) {
+      const btn = document.createElement("button");
+      btn.id = "newSeedBtn";
+      btn.className = "mc-btn";
+      btn.textContent = "Generate New Seed";
+      btn.style.marginTop = "10px";
+      btn.onclick = () => {
+        if (isMultiplayer && socket) {
+          socket.emit("requestNewSeed");
+        } else {
+          // Singleplayer
+          blocks3D.forEach(b => scene.remove(b.mesh));
+          blocks3D.length = 0;
+          generateWorld(Math.random());
+        }
+        togglePauseMenu();
+      };
+      const container = pauseMain.querySelector(".pause-buttons");
+      if (container) container.appendChild(btn);
+    }
+  }
+  createSeedButton();
+
   fetch("/skin").then(r => r.json()).then(data => {
     if (data.skin) {
       const loader = new THREE.TextureLoader();
@@ -192,6 +217,17 @@ export function initGame(THREE){
       camera.position.set(0, 2.5, -4);
       camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     }
+  }
+
+  function checkCollision(pos) {
+    for (const block of blocks3D) {
+      if (Math.abs(block.mesh.position.x - pos.x) < 0.6 &&
+          Math.abs(block.mesh.position.y - pos.y) < 0.6 &&
+          Math.abs(block.mesh.position.z - pos.z) < 0.6) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // RAYCAST
@@ -663,12 +699,55 @@ export function initGame(THREE){
     };
   }
 
+  function generateWorld(seed) {
+    console.log("Generating world with seed:", seed);
+    
+    // Clear existing blocks before generating new ones
+    blocks3D.forEach(b => scene.remove(b.mesh));
+    blocks3D.length = 0;
+
+    if (window.SimplexNoise) {
+      const simplex = new SimplexNoise(seed || Math.random());
+      const size = 24; // Slightly smaller for performance
+      for(let x = -size; x < size; x++) {
+        for(let z = -size; z < size; z++) {
+          const h = Math.floor(simplex.noise2D(x/16, z/16) * 4) + 5;
+          for(let y = 0; y < h; y++) {
+            let type = "stone";
+            if (y === h-1) type = "grass";
+            else if (y > h-3) type = "dirt";
+            
+            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            blocks3D.push({ mesh, type, pos: {x,y,z} });
+          }
+        }
+      }
+    } else {
+        console.warn("SimplexNoise not found, falling back to flat world");
+        for(let x = -10; x < 10; x++) {
+            for(let z = -10; z < 10; z++) {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), blockMaterials["grass"] || new THREE.MeshStandardMaterial({color: 0x00ff00}));
+                mesh.position.set(x, 0, z);
+                scene.add(mesh);
+                blocks3D.push({ mesh, type: "grass", pos: {x,0,z} });
+            }
+        }
+    }
+  }
+
   function setupMultiplayer() {
     socket = io();
     socket.emit("join", { 
       username: player.username,
       inventory: player.inventory,
       selectedSlot: player.selectedSlot
+    });
+
+    socket.on("worldSeed", (seed) => {
+        generateWorld(seed);
     });
 
     socket.on("currentPlayers", (players) => {
@@ -700,17 +779,29 @@ export function initGame(THREE){
     });
 
     socket.on("worldData", (blocks) => {
-        // Clear existing local blocks if any
-        blocks3D.forEach(b => scene.remove(b.mesh));
-        blocks3D.length = 0;
-        
+        // Only load worldData if we don't have blocks yet, 
+        // or if it's explicitly sent (e.g. after a clear)
+        if (blocks.length === 0) {
+          blocks3D.forEach(b => scene.remove(b.mesh));
+          blocks3D.length = 0;
+          return;
+        }
+
         blocks.forEach(b => {
             const mat = blockMaterials[b.type];
             if (mat) {
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-                mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
-                scene.add(mesh);
-                blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
+                // Check if block already exists at this position to avoid duplicates
+                const exists = blocks3D.some(existing => 
+                  Math.round(existing.pos.x) === Math.round(b.pos.x) &&
+                  Math.round(existing.pos.y) === Math.round(b.pos.y) &&
+                  Math.round(existing.pos.z) === Math.round(b.pos.z)
+                );
+                if (!exists) {
+                  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                  mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+                  scene.add(mesh);
+                  blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
+                }
             }
         });
     });
@@ -828,6 +919,8 @@ export function initGame(THREE){
 
       if (isMultiplayer) {
           setupMultiplayer();
+      } else {
+          generateWorld(Math.random());
       }
     };
   }
