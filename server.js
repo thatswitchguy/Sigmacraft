@@ -14,6 +14,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 const players = {};
+let worldBlocks = []; // Store world state
 
 io.on("connection", (socket) => {
     console.log("Player connected:", socket.id);
@@ -29,6 +30,18 @@ io.on("connection", (socket) => {
         };
         socket.broadcast.emit("playerJoined", players[socket.id]);
         socket.emit("currentPlayers", players);
+        
+        // Send existing world to new player
+        if (worldBlocks.length > 0) {
+            socket.emit("worldData", worldBlocks);
+        }
+    });
+
+    socket.on("worldData", (blocks) => {
+        // First player who generates world sends it to server
+        if (worldBlocks.length === 0) {
+            worldBlocks = blocks;
+        }
     });
 
     socket.on("move", (data) => {
@@ -43,6 +56,11 @@ io.on("connection", (socket) => {
         console.log("Player disconnected:", socket.id);
         delete players[socket.id];
         io.emit("playerLeft", socket.id);
+        if (Object.keys(players).length === 0) {
+            // Optional: clear world if no one is left? 
+            // Better to keep it for the session or save to file.
+            // For now, let's keep it in memory.
+        }
     });
 
     socket.on("leave", () => {
@@ -52,10 +70,16 @@ io.on("connection", (socket) => {
     });
 
     socket.on("blockPlace", (data) => {
+        worldBlocks.push(data);
         socket.broadcast.emit("blockPlace", data);
     });
 
     socket.on("blockBreak", (data) => {
+        worldBlocks = worldBlocks.filter(b => 
+            !(Math.round(b.pos.x) === Math.round(data.pos.x) && 
+              Math.round(b.pos.y) === Math.round(data.pos.y) && 
+              Math.round(b.pos.z) === Math.round(data.pos.z))
+        );
         socket.broadcast.emit("blockBreak", data);
     });
 });

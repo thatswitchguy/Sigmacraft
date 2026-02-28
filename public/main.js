@@ -699,6 +699,22 @@ export function initGame(THREE){
       }
     });
 
+    socket.on("worldData", (blocks) => {
+        // Clear existing local blocks if any
+        blocks3D.forEach(b => scene.remove(b.mesh));
+        blocks3D.length = 0;
+        
+        blocks.forEach(b => {
+            const mat = blockMaterials[b.type];
+            if (mat) {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+                scene.add(mesh);
+                blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
+            }
+        });
+    });
+
     socket.on("blockPlace", (data) => {
         const mat = blockMaterials[data.type];
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
@@ -2025,6 +2041,11 @@ export function initGame(THREE){
     setupInventoryUI();
     updateHotbarUI();
     
+  function generateWorld() {
+    // Clear existing
+    blocks3D.forEach(b => scene.remove(b.mesh));
+    blocks3D.length = 0;
+
     // GENERATE WORLD the first dirt
     const noise = new SimplexNoise();
     const size = 20;
@@ -2035,22 +2056,21 @@ export function initGame(THREE){
         for(let y = -4; y < h; y++){
           const type = (y === bottomY) ? "bedrock" : (y >= h-1) ? "grass" : (y <= h-3) ? "stone" : (y >= h-2) ? "dirt" : "dirt"; 
           const mat = blockMaterials[type];
-          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
-          mesh.position.set(x, y, z);
-          scene.add(mesh);
-          blocks3D.push({mesh, type, pos:{x,y,z}});
+          if (mat) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            blocks3D.push({mesh, type, pos:{x,y,z}});
+          }
         }
 
         // Structure generation check
         Object.keys(structures).forEach(id => {
           const s = structures[id];
           const rarity = s.rarity || 50;
-          // rarity 1 = 1/100 chance, rarity 100 = 1/10000 chance approx
-          // Let's use a simpler logic: Math.random() < 1 / (rarity * 10)
           if (Math.random() < 1 / (rarity * 20)) {
             const spawnY = h;
             if (spawnY >= (s.spawnHeight?.min || 0) && spawnY <= (s.spawnHeight?.max || 256)) {
-              // Check rules
               let canSpawn = true;
               if (s.rules?.onGround && h <= 0) canSpawn = false;
               
@@ -2074,12 +2094,47 @@ export function initGame(THREE){
         });
       }
     }
+    
+    if (isMultiplayer && socket) {
+      socket.emit("worldData", blocks3D.map(b => ({ pos: b.pos, type: b.type })));
+    }
     player.group.position.y = 15;
   }
 
+  // Handle Play Button and Username
+  const playBtn = document.getElementById("playBtn");
+  const multiplayerBtn = document.getElementById("multiplayerBtn");
+  const usernameOverlay = document.getElementById("usernameOverlay");
+  const usernameInput = document.getElementById("usernameInput");
+  const usernameSubmit = document.getElementById("usernameSubmit");
+  const usernameCancel = document.getElementById("usernameCancel");
+  const titleScreen = document.getElementById("titleScreen");
 
-  let labelTimeout;
-  function updateHotbarUI() {
+  const usernameSubmitAction = () => {
+    const user = usernameInput.value.trim();
+    if (user) {
+      player.username = user;
+      usernameOverlay.style.display = "none";
+      titleScreen.style.display = "none";
+      
+      if (isMultiplayer) {
+        setupMultiplayer();
+      } else {
+        generateWorld();
+      }
+      
+      renderer.domElement.requestPointerLock();
+    }
+  };
+
+  if (usernameSubmit) {
+    usernameSubmit.onclick = usernameSubmitAction;
+  }
+  if (usernameInput) {
+    usernameInput.onkeydown = (e) => {
+      if (e.key === "Enter") usernameSubmitAction();
+    };
+  }
     const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
     const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
     
@@ -2339,6 +2394,21 @@ export function initGame(THREE){
     const playerWidth = 0.3; // Half-width
     const playerHeight = 1.8;
 
+    document.addEventListener("pointerlockchange", () => {
+        if (document.pointerLockElement !== renderer.domElement) {
+            const inventoryVisible = document.getElementById("inventoryOverlay").style.display === "flex";
+            const devVisible = document.getElementById("devOverlay").style.display === "flex";
+            const passVisible = document.getElementById("devPasswordOverlay").style.display === "flex";
+            
+            if (!inventoryVisible && !devVisible && !passVisible) {
+                const pause = document.getElementById("pauseMenu");
+                if (pause.style.display === "none") {
+                    togglePauseMenu();
+                }
+            }
+        }
+    });
+
     function getPlayerAABB(pos) {
         return {
             minX: pos.x - playerWidth,
@@ -2375,14 +2445,31 @@ export function initGame(THREE){
   let fpsLastTime = performance.now();
   const fpsElement = document.getElementById("fpsCounter");
 
-  function animate() {
-    requestAnimationFrame(animate);
-    
-    const now = performance.now();
-    const delta = Math.min((now - lastTime) / 1000, 0.1);
-    lastTime = now;
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        const now = performance.now();
+        const delta = Math.min((now - lastTime) / 1000, 0.1);
+        lastTime = now;
 
-    // FPS Counter logic
+        // Render distance optimization
+        const renderDistSq = 10 * 10;
+        const playerPos = player.group.position;
+        const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+
+        blocks3D.forEach(b => {
+            const distSq = b.mesh.position.distanceToSquared(playerPos);
+            if (distSq < renderDistSq) {
+                b.mesh.visible = true;
+            } else {
+                // Check if in sight (simple dot product)
+                const toBlock = b.mesh.position.clone().sub(playerPos).normalize();
+                const dot = cameraDir.dot(toBlock);
+                b.mesh.visible = dot > 0.5; // Roughly 60 deg field of view
+            }
+        });
+
+        // FPS Counter logic
     frames++;
     if (now > fpsLastTime + 1000) {
       if (fpsElement) {
