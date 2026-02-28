@@ -721,7 +721,7 @@ export function initGame(THREE){
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
             mesh.position.set(x, y, z);
             scene.add(mesh);
-            blocks3D.push({ mesh, type, pos: {x,y,z} });
+            blocks3D.push({ mesh, type, pos: {x: x, y: y, z: z} });
           }
         }
       }
@@ -732,7 +732,7 @@ export function initGame(THREE){
                 const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), blockMaterials["grass"] || new THREE.MeshStandardMaterial({color: 0x00ff00}));
                 mesh.position.set(x, 0, z);
                 scene.add(mesh);
-                blocks3D.push({ mesh, type: "grass", pos: {x,0,z} });
+                blocks3D.push({ mesh, type: "grass", pos: {x: x, y: 0, z: z} });
             }
         }
     }
@@ -2067,6 +2067,64 @@ export function initGame(THREE){
     };
   }
 
+  function updateHotbarUI() {
+    const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
+    const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
+    
+    const selectedItem = player.inventory[player.selectedSlot];
+    const label = document.getElementById("hotbarLabel");
+    
+    if (selectedItem && selectedItem.type) {
+      player.fp.item.visible = player.cameraMode === 0;
+      player.fp.hand.visible = false;
+      player.tpItem.visible = true;
+      
+      const mat = blockMaterials[selectedItem.type];
+      if (Array.isArray(mat)) {
+        player.fp.item.material = mat[4]; // Use front face for visual
+        player.tpItem.material = mat[4];
+      } else {
+        player.fp.item.material = mat;
+        player.tpItem.material = mat;
+      }
+
+      // Update hotbar label
+      if (label) {
+        label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
+        label.style.opacity = 1;
+        clearTimeout(window.labelTimeout);
+        window.labelTimeout = setTimeout(() => {
+          label.style.opacity = 0;
+        }, 2000);
+      }
+    } else {
+      player.fp.item.visible = false;
+      player.fp.hand.visible = player.cameraMode === 0;
+      player.tpItem.visible = false;
+      if (label) label.style.opacity = 0;
+    }
+
+    const updateSlot = (slot, i) => {
+      const inventoryIdx = i + 27;
+      slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
+      slot.innerHTML = "";
+      const item = player.inventory[inventoryIdx];
+      if (item && item.type && blockTypes[item.type]) {
+        const icon = createBlockIcon(item.type);
+        slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+      }
+    };
+
+    mainHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
+    invHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
+  }
+
   async function loadBlocks(){
     await initTitle();
     const skinRes = await fetch("/skin");
@@ -2078,7 +2136,13 @@ export function initGame(THREE){
     Object.assign(structures, structData);
     
     const res = await fetch("/textures");
-    blockTypes = await res.json();
+    const textData = await res.text();
+    try {
+      blockTypes = JSON.parse(textData);
+    } catch (e) {
+      console.error("Failed to parse textures JSON:", textData);
+      blockTypes = {};
+    }
     
     const sideSelect = document.getElementById("sideSelect");
     if (sideSelect && !sideSelect.value) sideSelect.value = "front";
@@ -2132,157 +2196,9 @@ export function initGame(THREE){
     
     createPixelGrid();
     setupInventoryUI();
-    updateHotbarUI();
-    
-  function generateWorld() {
-    // Clear existing
-    blocks3D.forEach(b => scene.remove(b.mesh));
-    blocks3D.length = 0;
-
-    // GENERATE WORLD the first dirt
-    const noise = new SimplexNoise();
-    const size = 20;
-    for(let x = -size; x < size; x++){
-      for(let z = -size; z < size; z++){
-        const h = Math.floor(noise.noise2D(x/10, z/10) * 4) + 5;
-        const bottomY = -4;
-        for(let y = -4; y < h; y++){
-          const type = (y === bottomY) ? "bedrock" : (y >= h-1) ? "grass" : (y <= h-3) ? "stone" : (y >= h-2) ? "dirt" : "dirt"; 
-          const mat = blockMaterials[type];
-          if (mat) {
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            blocks3D.push({mesh, type, pos:{x,y,z}});
-          }
-        }
-
-        // Structure generation check
-        Object.keys(structures).forEach(id => {
-          const s = structures[id];
-          const rarity = s.rarity || 50;
-          if (Math.random() < 1 / (rarity * 20)) {
-            const spawnY = h;
-            if (spawnY >= (s.spawnHeight?.min || 0) && spawnY <= (s.spawnHeight?.max || 256)) {
-              let canSpawn = true;
-              if (s.rules?.onGround && h <= 0) canSpawn = false;
-              
-              if (canSpawn) {
-                s.blocks.forEach(b => {
-                  const bx = x + b.x - Math.floor(s.size.x / 2);
-                  const by = spawnY + b.y;
-                  const bz = z + b.z - Math.floor(s.size.z / 2);
-                  
-                  const bMat = blockMaterials[b.type];
-                  if (bMat) {
-                    const bMesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), bMat);
-                    bMesh.position.set(bx, by, bz);
-                    scene.add(bMesh);
-                    blocks3D.push({mesh: bMesh, type: b.type, pos: {x: bx, y: by, z: bz}});
-                  }
-                });
-              }
-            }
-          }
-        });
-      }
+    if (typeof updateHotbarUI === 'function') {
+      updateHotbarUI();
     }
-    
-    if (isMultiplayer && socket) {
-      socket.emit("worldData", blocks3D.map(b => ({ pos: b.pos, type: b.type })));
-    }
-    player.group.position.y = 15;
-  }
-
-  // Handle Play Button and Username
-  const playBtn = document.getElementById("playBtn");
-  const multiplayerBtn = document.getElementById("multiplayerBtn");
-  const usernameOverlay = document.getElementById("usernameOverlay");
-  const usernameInput = document.getElementById("usernameInput");
-  const usernameSubmit = document.getElementById("usernameSubmit");
-  const usernameCancel = document.getElementById("usernameCancel");
-  const titleScreen = document.getElementById("titleScreen");
-
-  const usernameSubmitAction = () => {
-    const user = usernameInput.value.trim();
-    if (user) {
-      player.username = user;
-      usernameOverlay.style.display = "none";
-      titleScreen.style.display = "none";
-      
-      if (isMultiplayer) {
-        setupMultiplayer();
-      } else {
-        generateWorld();
-      }
-      
-      renderer.domElement.requestPointerLock();
-    }
-  };
-
-  if (usernameSubmit) {
-    usernameSubmit.onclick = usernameSubmitAction;
-  }
-  if (usernameInput) {
-    usernameInput.onkeydown = (e) => {
-      if (e.key === "Enter") usernameSubmitAction();
-    };
-  }
-    const mainHotbarSlots = document.querySelectorAll("#hotbar .slot");
-    const invHotbarSlots = document.querySelectorAll("#hotbarSlots .slot");
-    
-    const selectedItem = player.inventory[player.selectedSlot];
-    const label = document.getElementById("hotbarLabel");
-    
-    if (selectedItem && selectedItem.type) {
-      player.fp.item.visible = player.cameraMode === 0;
-      player.fp.hand.visible = false;
-      player.tpItem.visible = true;
-      
-      const mat = blockMaterials[selectedItem.type];
-      if (Array.isArray(mat)) {
-        player.fp.item.material = mat[4]; // Use front face for visual
-        player.tpItem.material = mat[4];
-      } else {
-        player.fp.item.material = mat;
-        player.tpItem.material = mat;
-      }
-
-      // Update hotbar label
-      if (label) {
-        label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
-        label.style.opacity = 1;
-        clearTimeout(labelTimeout);
-        labelTimeout = setTimeout(() => {
-          label.style.opacity = 0;
-        }, 2000);
-      }
-    } else {
-      player.fp.item.visible = false;
-      player.fp.hand.visible = player.cameraMode === 0;
-      player.tpItem.visible = false;
-      if (label) label.style.opacity = 0;
-    }
-
-    const updateSlot = (slot, i) => {
-      const inventoryIdx = i + 27;
-      slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
-      slot.innerHTML = "";
-      const item = player.inventory[inventoryIdx];
-      if (item && item.type && blockTypes[item.type]) {
-        const icon = createBlockIcon(item.type);
-        slot.appendChild(icon);
-        if (item.count > 1) {
-          const count = document.createElement("div");
-          count.className = "item-count";
-          count.textContent = item.count;
-          slot.appendChild(count);
-        }
-      }
-    };
-
-    mainHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
-    invHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
   }
 
   function setupInventoryUI() {
