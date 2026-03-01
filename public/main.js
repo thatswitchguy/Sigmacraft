@@ -176,7 +176,78 @@ export function initGame(THREE){
       loader.load(data.skin, (tex) => {
         tex.magFilter = THREE.NearestFilter;
         tex.minFilter = THREE.NearestFilter;
-        const mat = new THREE.MeshStandardMaterial({ map: tex });
+        const mat = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide });
+        head.material = [
+          new THREE.MeshStandardMaterial({ map: tex }), // right
+          new THREE.MeshStandardMaterial({ map: tex }), // left
+          new THREE.MeshStandardMaterial({ map: tex }), // top
+          new THREE.MeshStandardMaterial({ map: tex }), // bottom
+          new THREE.MeshStandardMaterial({ map: tex }), // front
+          new THREE.MeshStandardMaterial({ map: tex })  // back
+        ];
+
+        // Standard Steve skin layout (64x64)
+        // Head: Top (8,0)-(16,8), Bottom (16,0)-(24,8), Right (0,8)-(8,16), Front (8,8)-(16,16), Left (16,8)-(24,16), Back (24,8)-(32,16)
+        const uv = (x, y, w, h) => {
+          const u1 = x / 64;
+          const v1 = 1 - (y + h) / 64;
+          const u2 = (x + w) / 64;
+          const v2 = 1 - y / 64;
+          return [u1, v2, u2, v2, u1, v1, u2, v1];
+        };
+
+        const setUVs = (mesh, uvs) => {
+          const attr = mesh.geometry.attributes.position;
+          const uvAttr = new Float32Array(uvs.flat());
+          mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvAttr, 2));
+        };
+
+        // Head UVs
+        const headUVs = [
+          uv(0, 8, 8, 8),   // Right
+          uv(16, 8, 8, 8),  // Left
+          uv(8, 0, 8, 8),   // Top
+          uv(16, 0, 8, 8),  // Bottom
+          uv(8, 8, 8, 8),   // Front
+          uv(24, 8, 8, 8)   // Back
+        ];
+        setUVs(head, headUVs);
+
+        // Body UVs (20,20) size 8x12x4
+        const bodyUVs = [
+          uv(16, 20, 4, 12), // Right
+          uv(28, 20, 4, 12), // Left
+          uv(20, 16, 8, 4),  // Top
+          uv(28, 16, 8, 4),  // Bottom
+          uv(20, 20, 8, 12), // Front
+          uv(32, 20, 8, 12)  // Back
+        ];
+        setUVs(body, bodyUVs);
+
+        // Arms (44,20) size 4x12x4
+        const armUVs = [
+          uv(40, 20, 4, 12), // Right
+          uv(48, 20, 4, 12), // Left
+          uv(44, 16, 4, 4),  // Top
+          uv(48, 16, 4, 4),  // Bottom
+          uv(44, 20, 4, 12), // Front
+          uv(52, 20, 4, 12)  // Back
+        ];
+        setUVs(armL, armUVs);
+        setUVs(armR, armUVs);
+
+        // Legs (4,20) size 4x12x4
+        const legUVs = [
+          uv(0, 20, 4, 12),  // Right
+          uv(8, 20, 4, 12),  // Left
+          uv(4, 16, 4, 4),   // Top
+          uv(12, 16, 4, 4),  // Bottom
+          uv(4, 20, 4, 12),  // Front
+          uv(12, 20, 4, 12)  // Back
+        ];
+        setUVs(legL, legUVs);
+        setUVs(legR, legUVs);
+
         head.material = mat;
         body.material = mat;
         armL.material = mat;
@@ -186,6 +257,26 @@ export function initGame(THREE){
         
         // Also update FP hand
         fpHand.material = mat;
+        setUVs(fpHand, armUVs);
+
+        // Update existing remote players if any
+        Object.values(remotePlayers).forEach(p => {
+          if (p.model) {
+            p.model.traverse(child => {
+              if (child.isMesh) child.material = mat;
+            });
+            // Apply UVs to remote player parts
+            // Assuming remote player parts are named similarly or stored in limbs
+            if (p.limbs) {
+              setUVs(p.limbs.head, headUVs);
+              setUVs(p.limbs.body, bodyUVs);
+              setUVs(p.limbs.armL, armUVs);
+              setUVs(p.limbs.armR, armUVs);
+              setUVs(p.limbs.legL, legUVs);
+              setUVs(p.limbs.legR, legUVs);
+            }
+          }
+        });
       });
     }
   });
@@ -203,7 +294,7 @@ export function initGame(THREE){
       player.model.visible = false;
       player.fp.handGroup.visible = true;
       camera.position.set(0, 1.6, 0);
-      camera.rotation.y = Math.PI; // Face forward
+      camera.rotation.y = 0; // Fixed: Remove Math.PI rotation
     } else if (player.cameraMode === 1) {
       // Third Person Back
       player.model.visible = true;
@@ -595,19 +686,19 @@ export function initGame(THREE){
     hideHand: false
   };
 
-  function togglePauseMenu() {
-    const pause = document.getElementById("pauseMenu");
-    if (pause.style.display === "none") {
-      pause.style.display = "flex";
-      document.getElementById("pauseMain").style.display = "block";
-      document.getElementById("pauseVideo").style.display = "none";
-      document.getElementById("pauseGame").style.display = "none";
-      document.exitPointerLock();
-    } else {
-      pause.style.display = "none";
-      renderer.domElement.requestPointerLock();
+    function togglePauseMenu() {
+        const pause = document.getElementById("pauseMenu");
+        if (pause.style.display === "none") {
+            pause.style.display = "flex";
+            document.getElementById("pauseMain").style.display = "block";
+            document.getElementById("pauseVideo").style.display = "none";
+            // Removed: Game option
+            document.exitPointerLock();
+        } else {
+            pause.style.display = "none";
+            renderer.domElement.requestPointerLock();
+        }
     }
-  }
 
   function applySettings() {
     document.body.style.filter = `brightness(${gameSettings.brightness}%) contrast(${gameSettings.contrast}%)`;
@@ -936,7 +1027,33 @@ export function initGame(THREE){
     group.position.copy(data.pos);
     scene.add(group);
     
-    remotePlayers[data.id] = { group, model, limbs: { armL, armR, legL, legR } };
+    // Standard Steve skin layout (64x64)
+    const uv = (x, y, w, h) => {
+      const u1 = x / 64;
+      const v1 = 1 - (y + h) / 64;
+      const u2 = (x + w) / 64;
+      const v2 = 1 - y / 64;
+      return [u1, v2, u2, v2, u1, v1, u2, v1];
+    };
+
+    const setUVs = (mesh, uvs) => {
+      const uvAttr = new Float32Array(uvs.flat());
+      mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvAttr, 2));
+    };
+
+    const headUVs = [uv(0, 8, 8, 8), uv(16, 8, 8, 8), uv(8, 0, 8, 8), uv(16, 0, 8, 8), uv(8, 8, 8, 8), uv(24, 8, 8, 8)];
+    const bodyUVs = [uv(16, 20, 4, 12), uv(28, 20, 4, 12), uv(20, 16, 8, 4), uv(28, 16, 8, 4), uv(20, 20, 8, 12), uv(32, 20, 8, 12)];
+    const armUVs = [uv(40, 20, 4, 12), uv(48, 20, 4, 12), uv(44, 16, 4, 4), uv(48, 16, 4, 4), uv(44, 20, 4, 12), uv(52, 20, 4, 12)];
+    const legUVs = [uv(0, 20, 4, 12), uv(8, 20, 4, 12), uv(4, 16, 4, 4), uv(12, 16, 4, 4), uv(4, 20, 4, 12), uv(12, 20, 4, 12)];
+
+    setUVs(remotehead, headUVs);
+    setUVs(body, bodyUVs);
+    setUVs(armL, armUVs);
+    setUVs(armR, armUVs);
+    setUVs(legL, legUVs);
+    setUVs(legR, legUVs);
+
+    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR } };
 
     // Apply skin if it exists
     fetch("/skin").then(r => r.json()).then(res => {
@@ -945,8 +1062,8 @@ export function initGame(THREE){
             loader.load(res.skin, (tex) => {
                 tex.magFilter = THREE.NearestFilter;
                 tex.minFilter = THREE.NearestFilter;
-                const mat = new THREE.MeshStandardMaterial({ map: tex });
-                head.material = mat;
+                const mat = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide });
+                remotehead.material = mat;
                 body.material = mat;
                 armL.material = mat;
                 armR.material = mat;
@@ -2536,78 +2653,95 @@ export function initGame(THREE){
         const delta = Math.min((now - lastTime) / 1000, 0.1);
         lastTime = now;
 
-        // Render distance optimization
+        // Render distance and sight optimization
         const renderDistSq = 10 * 10;
         const playerPos = player.group.position;
+        // camera.getWorldDirection(viewDir) is better, but let's use the existing pattern
         const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
 
         blocks3D.forEach(b => {
-            const distSq = b.mesh.position.distanceToSquared(playerPos);
-            if (distSq < renderDistSq) {
-                b.mesh.visible = true;
+            const toBlock = b.mesh.position.clone().sub(playerPos);
+            const distSq = toBlock.lengthSq();
+            
+            if (distSq > renderDistSq) {
+                b.mesh.visible = false;
             } else {
-                // Check if in sight (simple dot product)
-                const toBlock = b.mesh.position.clone().sub(playerPos).normalize();
-                const dot = cameraDir.dot(toBlock);
-                b.mesh.visible = dot > 0.5; // Roughly 60 deg field of view
+                const dot = cameraDir.dot(toBlock.normalize());
+                b.mesh.visible = dot > -0.2; // roughly 180 degrees + margin
+            }
+        });
+
+        // Apply same to remote players
+        Object.values(remotePlayers).forEach(p => {
+            const toRemote = p.group.position.clone().sub(playerPos);
+            const distSq = toRemote.lengthSq();
+            if (distSq > renderDistSq) {
+                p.group.visible = false;
+            } else {
+                const dot = cameraDir.dot(toRemote.normalize());
+                p.group.visible = dot > -0.2;
             }
         });
 
         // FPS Counter logic
-    frames++;
-    if (now > fpsLastTime + 1000) {
-      if (fpsElement) {
-        fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
-      }
-      fpsLastTime = now;
-      frames = 0;
-    }
-    
-    updateBreaking();
-    updateBlockDrops(delta);
+        frames++;
+        if (now > fpsLastTime + 1000) {
+            if (fpsElement) {
+                fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
+            }
+            fpsLastTime = now;
+            frames = 0;
+        }
+        
+        updateBreaking();
+        updateBlockDrops(delta);
 
-    player.group.rotation.y = player.yaw;
-    
-    if (isSwinging) {
-      swingTime += 0.25;
-      const swingAngle = Math.sin(swingTime) * 0.8;
-      
-      // First Person: Bob and Swing
-      player.fp.handGroup.rotation.x = -swingAngle;
-      player.fp.handGroup.rotation.y = swingAngle * 0.3;
-      player.fp.handGroup.position.z = (swingAngle * 0.2);
-      
-      // Third Person Arm
-      player.limbs.armR.rotation.x = -0.5 - swingAngle;
+        player.group.rotation.y = player.yaw;
+        
+        if (isSwinging) {
+            swingTime += 0.25;
+            const swingAngle = Math.sin(swingTime) * 0.8;
+            
+            // First Person: Bob and Swing
+            player.fp.handGroup.rotation.x = -swingAngle;
+            player.fp.handGroup.rotation.y = swingAngle * 0.3;
+            player.fp.handGroup.position.z = (swingAngle * 0.2);
+            
+            // Third Person Arm
+            player.limbs.armR.rotation.x = -0.5 - swingAngle;
 
-      if (swingTime > Math.PI) {
-        isSwinging = false;
-        player.fp.handGroup.rotation.set(0, 0, 0);
-        player.fp.handGroup.position.set(0, 0, 0);
-        player.limbs.armR.rotation.x = 0;
-      }
-    }
+            if (swingTime > Math.PI) {
+                isSwinging = false;
+                player.fp.handGroup.rotation.set(0, 0, 0);
+                player.fp.handGroup.position.set(0, 0, 0);
+                player.limbs.armR.rotation.x = 0;
+            }
+        }
 
-    const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
-    if (isMoving && player.onGround) {
-      animationTime += 0.15;
-      const angle = Math.sin(animationTime) * 0.5;
-      player.limbs.legL.rotation.x = angle;
-      player.limbs.legR.rotation.x = -angle;
-      player.limbs.armL.rotation.x = -angle;
-      player.limbs.armR.rotation.x = angle;
-    } else {
-      player.limbs.legL.rotation.x = 0;
-      player.limbs.legR.rotation.x = 0;
-      player.limbs.armL.rotation.x = 0;
-      player.limbs.armR.rotation.x = 0;
-    }
+        const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
+        if (isMoving && player.onGround) {
+            animationTime += 0.15;
+            const angle = Math.sin(animationTime) * 0.5;
+            player.limbs.legL.rotation.x = angle;
+            player.limbs.legR.rotation.x = -angle;
+            player.limbs.armL.rotation.x = -angle;
+            player.limbs.armR.rotation.x = angle;
+        } else {
+            player.limbs.legL.rotation.x = 0;
+            player.limbs.legR.rotation.x = 0;
+            player.limbs.armL.rotation.x = 0;
+            player.limbs.armR.rotation.x = 0;
+        }
 
-    if (player.cameraMode === 0) {
+        if (player.cameraMode === 0) {
             // First Person: Camera follows head pitch and inherits group rotation
             camera.rotation.set(player.pitch, 0, 0); 
             camera.position.set(0, 1.6, 0); // Position relative to player group
             player.model.visible = false;
+            // Ensure first person hand is visible and positioned correctly
+            if (player.fp && player.fp.handGroup) {
+                player.fp.handGroup.visible = true;
+            }
         } else if (player.cameraMode === 1) {
             // Third Person Back
             player.model.visible = true;
