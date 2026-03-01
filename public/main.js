@@ -701,43 +701,95 @@ export function initGame(THREE){
 
   function generateWorld(seed) {
     console.log("Generating world with seed:", seed);
-    
-    // Clear existing blocks before generating new ones
-    blocks3D.forEach(b => scene.remove(b.mesh));
-    blocks3D.length = 0;
+
+    let spawnHeight = 2; // fallback spawn height
+    let simplex = null;
 
     if (window.SimplexNoise) {
-      const simplex = new SimplexNoise(seed || Math.random());
-      const size = 24; // Slightly smaller for performance
-      for(let x = -size; x < size; x++) {
-        for(let z = -size; z < size; z++) {
-          const h = Math.floor(simplex.noise2D(x/16, z/16) * 4) + 5;
-          for(let y = 0; y < h; y++) {
-            let type = "stone";
-            if (y === h-1) type = "grass";
-            else if (y > h-3) type = "dirt";
-            
+
+      simplex = new SimplexNoise(seed || Math.random());
+      const size = 24;
+
+      for (let x = -size; x < size; x++) {
+        for (let z = -size; z < size; z++) {
+
+          const h = Math.floor(simplex.noise2D(x/16, z/16) * 4) + 10;
+
+          // Save spawn height at center
+          if (x === 0 && z === 0) {
+            spawnHeight = h;
+          }
+
+          for (let y = 0; y < h; y++) {
+
+            let type = "bedrock";
+
+            if (y === 0)
+              type = "bedrock";
+            else if (y === h-1)
+              type = "grass";
+            else if (y >= h-3)
+              type = "dirt";
+            else
+              type = "stone";
+
             const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mat);
+
+            const mesh = new THREE.Mesh(
+              new THREE.BoxGeometry(1,1,1),
+              mat
+            );
+
             mesh.position.set(x, y, z);
+
             scene.add(mesh);
-            blocks3D.push({ mesh, type, pos: {x: x, y: y, z: z} });
+
+            blocks3D.push({
+              mesh,
+              type,
+              pos: {x, y, z}
+            });
+
           }
         }
       }
-    } else {
-        console.warn("SimplexNoise not found, falling back to flat world");
-        for(let x = -10; x < 10; x++) {
-            for(let z = -10; z < 10; z++) {
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), blockMaterials["grass"] || new THREE.MeshStandardMaterial({color: 0x00ff00}));
-                mesh.position.set(x, 0, z);
-                scene.add(mesh);
-                blocks3D.push({ mesh, type: "grass", pos: {x: x, y: 0, z: z} });
-            }
-        }
-    }
-  }
 
+    } else {
+
+      console.warn("SimplexNoise not found, falling back to flat world");
+
+      spawnHeight = 0;
+
+      for (let x = -10; x < 10; x++) {
+        for (let z = -10; z < 10; z++) {
+
+          const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(1,1,1),
+            blockMaterials["grass"] || new THREE.MeshStandardMaterial({color: 0x00ff00})
+          );
+
+          mesh.position.set(x, 0, z);
+
+          scene.add(mesh);
+
+          blocks3D.push({
+            mesh,
+            type: "grass",
+            pos: {x, y: 0, z}
+          });
+
+        }
+      }
+    }
+
+    // ✅ FIX: spawn player ABOVE ground
+    if (player && player.group) {
+      player.group.position.set(0, spawnHeight + 2, 0);
+      player.velocity.y = 0;
+    }
+
+  }
+  
   function setupMultiplayer() {
     socket = io();
     socket.emit("join", { 
