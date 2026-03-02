@@ -196,7 +196,7 @@ app.post("/update-skin", (req, res) => {
     } catch (e) {}
     if (!data._config) data._config = {};
     data._config.skin = skin;
-    fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
+    fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 6));
     res.json({ success: true });
 });
 

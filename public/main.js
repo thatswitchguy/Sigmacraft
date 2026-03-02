@@ -189,10 +189,10 @@ export function initGame(THREE){
         // Standard Steve skin layout (64x64)
         // Head: Top (8,0)-(16,8), Bottom (16,0)-(24,8), Right (0,8)-(8,16), Front (8,8)-(16,16), Left (16,8)-(24,16), Back (24,8)-(32,16)
         const uv = (x, y, w, h) => {
-          const u1 = x / 64;
-          const v1 = 1 - (y + h) / 64;
-          const u2 = (x + w) / 64;
-          const v2 = 1 - y / 64;
+          const u1 = x / 128;
+          const v1 = 1 - (y + h) / 128;
+          const u2 = (x + w) / 128;
+          const v2 = 1 - y / 128;
           return [u1, v2, u2, v2, u1, v1, u2, v1];
         };
 
@@ -799,7 +799,7 @@ export function initGame(THREE){
     if (window.SimplexNoise) {
 
       simplex = new SimplexNoise(seed || Math.random());
-      const size = 24;
+      const size = 50;
 
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
@@ -819,7 +819,7 @@ export function initGame(THREE){
               type = "bedrock";
             else if (y === h-1)
               type = "grass";
-            else if (y >= h-3)
+            else if (y >= h-2)
               type = "dirt";
             else
               type = "stone";
@@ -2657,7 +2657,7 @@ export function initGame(THREE){
         const renderDistSq = 10 * 10;
         const playerPos = player.group.position;
         // camera.getWorldDirection(viewDir) is better, but let's use the existing pattern
-        const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+        const cameraDir = new THREE.Vector3(0, 0, -2).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
 
         blocks3D.forEach(b => {
             const toBlock = b.mesh.position.clone().sub(playerPos);
