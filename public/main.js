@@ -2202,12 +2202,12 @@ export function initGame(THREE){
       } : legRightUV;
       
       const modelParts = player.model.children;
-      if (modelParts[0]) modelParts[0].material = createBoxMaterials(headUV);
-      if (modelParts[1]) modelParts[1].material = createBoxMaterials(bodyUV);
-      if (modelParts[2]) modelParts[2].material = createBoxMaterials(armLeftUV);
-      if (modelParts[3]) modelParts[3].material = createBoxMaterials(armRightUV);
-      if (modelParts[4]) modelParts[4].material = createBoxMaterials(legLeftUV);
-      if (modelParts[5]) modelParts[5].material = createBoxMaterials(legRightUV);
+      if (modelParts[0]) modelParts[0].materials = createBoxMaterials(headUV);
+      if (modelParts[1]) modelParts[1].materials = createBoxMaterials(bodyUV);
+      if (modelParts[2]) modelParts[2].materials = createBoxMaterials(armLeftUV);
+      if (modelParts[3]) modelParts[3].materials = createBoxMaterials(armRightUV);
+      if (modelParts[4]) modelParts[4].materials = createBoxMaterials(legLeftUV);
+      if (modelParts[5]) modelParts[5].materials = createBoxMaterials(legRightUV);
       
       player.fp.hand.material = extractPart(44, 20, 4, 12);
     };
