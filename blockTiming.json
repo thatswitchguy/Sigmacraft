@@ -1,0 +1,19 @@
+{
+  "default": 1.0,
+  "dirt": 0.5,
+  "grass": 0.6,
+  "stone": 1.5,
+  "cobblestone": 2.0,
+  "wood": 2.0,
+  "planks": 1.5,
+  "sand": 0.5,
+  "gravel": 0.6,
+  "glass": 0.3,
+  "leaves": 0.2,
+  "bedrock": -1,
+  "iron_ore": 3.0,
+  "gold_ore": 3.0,
+  "diamond_ore": 5.0,
+  "coal_ore": 3.0,
+  "obsidian": 10.0
+}
