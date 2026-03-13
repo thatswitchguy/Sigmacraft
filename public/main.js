@@ -2561,10 +2561,15 @@ export function initGame(THREE){
         const offViewDistSq = 3 * 3;      // max render distance when outside FOV
         const playerPos = player.group.position;
         const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-        // FOV threshold: cos of half the camera FOV (plus a small margin for edge blocks)
-        // camera.fov is vertical FOV in degrees; use it to derive the dot-product threshold
-        const fovHalfRad = (camera.fov / 2 + 10) * (Math.PI / 180);
-        const fovThreshold = Math.cos(fovHalfRad); // blocks with dot > threshold are in view
+        // Derive the view cone from the actual window dimensions.
+        // camera.fov is the vertical FOV; use the aspect ratio to get horizontal FOV,
+        // then combine into a diagonal half-angle that covers the screen corners.
+        const vHalfRad = (camera.fov / 2) * (Math.PI / 180);
+        const aspect = window.innerWidth / window.innerHeight;
+        const hHalfRad = Math.atan(Math.tan(vHalfRad) * aspect);
+        // Diagonal half-angle covers every visible corner of the window
+        const diagHalfRad = Math.atan(Math.sqrt(Math.tan(vHalfRad) ** 2 + Math.tan(hHalfRad) ** 2));
+        const fovThreshold = Math.cos(diagHalfRad); // blocks with dot > threshold are in view
 
         blocks3D.forEach(b => {
             const toBlock = b.mesh.position.clone().sub(playerPos);
