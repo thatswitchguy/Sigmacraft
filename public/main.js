@@ -170,118 +170,7 @@ export function initGame(THREE){
   }
   createSeedButton();
 
-  fetch("/skin").then(r => r.json()).then(data => {
-    if (data.skin) {
-      const loader = new THREE.TextureLoader();
-      loader.load(data.skin, (tex) => {
-        tex.magFilter = THREE.NearestFilter;
-        tex.minFilter = THREE.NearestFilter;
-        const mat = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide });
-        head.material = [
-          new THREE.MeshStandardMaterial({ map: tex }), // right
-          new THREE.MeshStandardMaterial({ map: tex }), // left
-          new THREE.MeshStandardMaterial({ map: tex }), // top
-          new THREE.MeshStandardMaterial({ map: tex }), // bottom
-          new THREE.MeshStandardMaterial({ map: tex }), // front
-          new THREE.MeshStandardMaterial({ map: tex })  // back
-        ];
-
-        // Standard Steve skin layout (64x64)
-        // Head: Top (8,0)-(16,8), Bottom (16,0)-(24,8), Right (0,8)-(8,16), Front (8,8)-(16,16), Left (16,8)-(24,16), Back (24,8)-(32,16)
-        const skinW = tex.image.width || 64;
-        const skinH = tex.image.height || 64;
-        const uv = (x, y, w, h) => {
-          const u1 = x / skinW;
-          const v1 = 1 - (y + h) / skinH;
-          const u2 = (x + w) / skinW;
-          const v2 = 1 - y / skinH;
-          return [u1, v2, u2, v2, u1, v1, u2, v1];
-        };
-
-        const setUVs = (mesh, uvs) => {
-          const attr = mesh.geometry.attributes.position;
-          const uvAttr = new Float32Array(uvs.flat());
-          mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvAttr, 2));
-        };
-
-        // Head UVs
-        const headUVs = [
-          uv(0, 8, 8, 8),   // Right
-          uv(16, 8, 8, 8),  // Left
-          uv(8, 0, 8, 8),   // Top
-          uv(16, 0, 8, 8),  // Bottom
-          uv(8, 8, 8, 8),   // Front
-          uv(24, 8, 8, 8)   // Back
-        ];
-        setUVs(head, headUVs);
-
-        // Body UVs (20,20) size 8x12x4
-        const bodyUVs = [
-          uv(16, 20, 4, 12), // Right
-          uv(28, 20, 4, 12), // Left
-          uv(20, 16, 8, 4),  // Top
-          uv(28, 16, 8, 4),  // Bottom
-          uv(20, 20, 8, 12), // Front
-          uv(32, 20, 8, 12)  // Back
-        ];
-        setUVs(body, bodyUVs);
-
-        // Arms (44,20) size 4x12x4
-        const armUVs = [
-          uv(40, 20, 4, 12), // Right
-          uv(48, 20, 4, 12), // Left
-          uv(44, 16, 4, 4),  // Top
-          uv(48, 16, 4, 4),  // Bottom
-          uv(44, 20, 4, 12), // Front
-          uv(52, 20, 4, 12)  // Back
-        ];
-        setUVs(armL, armUVs);
-        setUVs(armR, armUVs);
-
-        // Legs (4,20) size 4x12x4
-        const legUVs = [
-          uv(0, 20, 4, 12),  // Right
-          uv(8, 20, 4, 12),  // Left
-          uv(4, 16, 4, 4),   // Top
-          uv(12, 16, 4, 4),  // Bottom
-          uv(4, 20, 4, 12),  // Front
-          uv(12, 20, 4, 12)  // Back
-        ];
-        setUVs(legL, legUVs);
-        setUVs(legR, legUVs);
-
-        head.material = mat;
-        body.material = mat;
-        armL.material = mat;
-        armR.material = mat;
-        legL.material = mat;
-        legR.material = mat;
-        
-        // Also update FP hand
-        fpHand.material = mat;
-        setUVs(fpHand, armUVs);
-
-        // Update existing remote players if any
-        Object.values(remotePlayers).forEach(p => {
-          if (p.model) {
-            p.model.traverse(child => {
-              if (child.isMesh) child.material = mat;
-            });
-            // Apply UVs to remote player parts
-            // Assuming remote player parts are named similarly or stored in limbs
-            if (p.limbs) {
-              setUVs(p.limbs.head, headUVs);
-              setUVs(p.limbs.body, bodyUVs);
-              setUVs(p.limbs.armL, armUVs);
-              setUVs(p.limbs.armR, armUVs);
-              setUVs(p.limbs.legL, legUVs);
-              setUVs(p.limbs.legR, legUVs);
-            }
-          }
-        });
-      });
-    }
-  });
+  // Skin is applied via applySkin() called from loadBlocks() below.
 
   scene.add(player.group);
 
@@ -2145,13 +2034,19 @@ export function initGame(THREE){
       }
       
       function createBoxMaterials(uvs) {
+        // Three.js BoxGeometry material order: +X(0), -X(1), +Y(2), -Y(3), +Z(4), -Z(5)
+        // The player model faces toward -Z (camera default look direction).
+        //   +X face (index 0) = player's right side (visible from +X)  → skin right
+        //   -X face (index 1) = player's left side  (visible from -X)  → skin left
+        //   +Z face (index 4) = player's game BACK  (visible from +Z)  → skin back
+        //   -Z face (index 5) = player's game FRONT (visible from -Z)  → skin front
         return [
-          extractPart(uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
-          extractPart(uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
-          extractPart(uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
-          extractPart(uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
-          extractPart(uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h),
-          extractPart(uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h)
+          extractPart(uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),  // +X = right
+          extractPart(uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),      // -X = left
+          extractPart(uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),          // +Y = top
+          extractPart(uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h), // -Y = bottom
+          extractPart(uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),      // +Z = game BACK
+          extractPart(uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)   // -Z = game FRONT
         ];
       }
       
@@ -2663,19 +2558,25 @@ export function initGame(THREE){
 
         // Render distance and sight optimization
         const renderDistSq = 10 * 10;
+        const behindCullDistSq = 3 * 3; // hide blocks behind player if more than 3 away
         const playerPos = player.group.position;
-        // camera.getWorldDirection(viewDir) is better, but let's use the existing pattern
-        const cameraDir = new THREE.Vector3(0, 0, -2).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+        const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
 
         blocks3D.forEach(b => {
             const toBlock = b.mesh.position.clone().sub(playerPos);
             const distSq = toBlock.lengthSq();
-            
+
             if (distSq > renderDistSq) {
                 b.mesh.visible = false;
             } else {
                 const dot = cameraDir.dot(toBlock.normalize());
-                b.mesh.visible = dot > -0.2; // roughly 180 degrees + margin
+                const isBehind = dot < 0;
+                // Hide blocks that are behind the player AND more than 3 blocks away
+                if (isBehind && distSq > behindCullDistSq) {
+                    b.mesh.visible = false;
+                } else {
+                    b.mesh.visible = true;
+                }
             }
         });
 
