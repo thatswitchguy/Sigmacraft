@@ -456,7 +456,9 @@ export function initGame(THREE){
   function createBlockDrop(position, blockType) {
     const originalMat = blockMaterials[blockType];
     let mat;
-    if (Array.isArray(originalMat)) {
+    if (!originalMat) {
+      mat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+    } else if (Array.isArray(originalMat)) {
       mat = originalMat.map(m => m.clone());
     } else {
       mat = originalMat.clone();
@@ -1920,7 +1922,11 @@ export function initGame(THREE){
         if (selectedBlock) {
           block.userData.blockType = selectedBlock;
           const mats = blockMaterials[selectedBlock];
-          block.material = Array.isArray(mats) ? mats.map(m => m.clone()) : mats.clone();
+          if (!mats) {
+            block.material = new THREE.MeshStandardMaterial({ color: 0x888888 });
+          } else {
+            block.material = Array.isArray(mats) ? mats.map(m => m.clone()) : mats.clone();
+          }
           block.visible = true;
         } else {
           block.userData.blockType = null;
