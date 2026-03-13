@@ -188,11 +188,13 @@ export function initGame(THREE){
 
         // Standard Steve skin layout (64x64)
         // Head: Top (8,0)-(16,8), Bottom (16,0)-(24,8), Right (0,8)-(8,16), Front (8,8)-(16,16), Left (16,8)-(24,16), Back (24,8)-(32,16)
+        const skinW = tex.image.width || 64;
+        const skinH = tex.image.height || 64;
         const uv = (x, y, w, h) => {
-          const u1 = x / 128;
-          const v1 = 1 - (y + h) / 128;
-          const u2 = (x + w) / 128;
-          const v2 = 1 - y / 128;
+          const u1 = x / skinW;
+          const v1 = 1 - (y + h) / skinH;
+          const u2 = (x + w) / skinW;
+          const v2 = 1 - y / skinH;
           return [u1, v2, u2, v2, u1, v1, u2, v1];
         };
 
@@ -1107,7 +1109,7 @@ export function initGame(THREE){
     }
 
     // Inventory slots 1-9
-    if (e.code.startsWith("Digit") && e.code !== "Digit0") {
+    if (e.code && e.code.startsWith("Digit") && e.code !== "Digit0") {
       const slot = parseInt(e.code.replace("Digit", "")) - 1;
       if (slot >= 0 && slot < 9) {
         player.selectedSlot = 27 + slot;
@@ -2202,12 +2204,12 @@ export function initGame(THREE){
       } : legRightUV;
       
       const modelParts = player.model.children;
-      if (modelParts[0]) modelParts[0].materials = createBoxMaterials(headUV);
-      if (modelParts[1]) modelParts[1].materials = createBoxMaterials(bodyUV);
-      if (modelParts[2]) modelParts[2].materials = createBoxMaterials(armLeftUV);
-      if (modelParts[3]) modelParts[3].materials = createBoxMaterials(armRightUV);
-      if (modelParts[4]) modelParts[4].materials = createBoxMaterials(legLeftUV);
-      if (modelParts[5]) modelParts[5].materials = createBoxMaterials(legRightUV);
+      if (modelParts[0]) modelParts[0].material = createBoxMaterials(headUV);
+      if (modelParts[1]) modelParts[1].material = createBoxMaterials(bodyUV);
+      if (modelParts[2]) modelParts[2].material = createBoxMaterials(armLeftUV);
+      if (modelParts[3]) modelParts[3].material = createBoxMaterials(armRightUV);
+      if (modelParts[4]) modelParts[4].material = createBoxMaterials(legLeftUV);
+      if (modelParts[5]) modelParts[5].material = createBoxMaterials(legRightUV);
       
       player.fp.hand.material = extractPart(44, 20, 4, 12);
     };
