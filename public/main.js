@@ -2557,10 +2557,14 @@ export function initGame(THREE){
         lastTime = now;
 
         // Render distance and sight optimization
-        const renderDistSq = 10 * 10;
-        const behindCullDistSq = 3 * 3; // hide blocks behind player if more than 3 away
+        const renderDistSq = 10 * 10;     // max render distance when in view
+        const offViewDistSq = 3 * 3;      // max render distance when outside FOV
         const playerPos = player.group.position;
         const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
+        // FOV threshold: cos of half the camera FOV (plus a small margin for edge blocks)
+        // camera.fov is vertical FOV in degrees; use it to derive the dot-product threshold
+        const fovHalfRad = (camera.fov / 2 + 10) * (Math.PI / 180);
+        const fovThreshold = Math.cos(fovHalfRad); // blocks with dot > threshold are in view
 
         blocks3D.forEach(b => {
             const toBlock = b.mesh.position.clone().sub(playerPos);
@@ -2570,9 +2574,9 @@ export function initGame(THREE){
                 b.mesh.visible = false;
             } else {
                 const dot = cameraDir.dot(toBlock.normalize());
-                const isBehind = dot < 0;
-                // Hide blocks that are behind the player AND more than 3 blocks away
-                if (isBehind && distSq > behindCullDistSq) {
+                const inView = dot > fovThreshold;
+                if (!inView && distSq > offViewDistSq) {
+                    // Outside player's field of view — only render within 3 blocks
                     b.mesh.visible = false;
                 } else {
                     b.mesh.visible = true;
