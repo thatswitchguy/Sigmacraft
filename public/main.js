@@ -818,7 +818,7 @@ export function initGame(THREE){
       };
 
       const seededRand = (x, z) => {
-        const n = Math.sin(x * 127.1 + z * 311.7 + (seed || 1) * 99.9) * 43758.5453;
+        const n = Math.sin(x * 127.1 + z * 311.7 + (seed || 1) * 75) * 43758.5453;
         return n - Math.floor(n);
       };
 
