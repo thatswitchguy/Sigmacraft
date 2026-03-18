@@ -14,7 +14,8 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 const players = {};
-let worldBlocks = []; // Store world state
+let worldBlocks = []; // Store player-placed blocks
+let worldBreaks = []; // Store positions of broken world blocks
 let worldSeed = Math.random(); // Initial random seed
 
 io.on("connection", (socket) => {
@@ -33,17 +34,18 @@ io.on("connection", (socket) => {
         socket.emit("currentPlayers", players);
         socket.emit("worldSeed", worldSeed);
         
-        // Send existing world to new player
-        if (worldBlocks.length > 0) {
-            socket.emit("worldData", worldBlocks);
-        }
+        // Send existing world modifications to new player (in order)
+        socket.emit("worldData", worldBlocks);
+        socket.emit("worldBreaks", worldBreaks);
     });
 
     socket.on("requestNewSeed", () => {
         worldSeed = Math.random();
-        worldBlocks = []; // Clear current world edits for the new seed
+        worldBlocks = [];
+        worldBreaks = [];
         io.emit("worldSeed", worldSeed);
-        io.emit("worldData", []); // Clear world for everyone
+        io.emit("worldData", []);
+        io.emit("worldBreaks", []);
     });
 
     socket.on("worldData", (blocks) => {
@@ -84,11 +86,20 @@ io.on("connection", (socket) => {
     });
 
     socket.on("blockBreak", (data) => {
-        worldBlocks = worldBlocks.filter(b => 
-            !(Math.round(b.pos.x) === Math.round(data.pos.x) && 
-              Math.round(b.pos.y) === Math.round(data.pos.y) && 
+        const wasPlaced = worldBlocks.some(b =>
+            Math.round(b.pos.x) === Math.round(data.pos.x) &&
+            Math.round(b.pos.y) === Math.round(data.pos.y) &&
+            Math.round(b.pos.z) === Math.round(data.pos.z)
+        );
+        worldBlocks = worldBlocks.filter(b =>
+            !(Math.round(b.pos.x) === Math.round(data.pos.x) &&
+              Math.round(b.pos.y) === Math.round(data.pos.y) &&
               Math.round(b.pos.z) === Math.round(data.pos.z))
         );
+        if (!wasPlaced) {
+            // This was a world-generated block; track its removal so new players don't see it
+            worldBreaks.push(data.pos);
+        }
         socket.broadcast.emit("blockBreak", data);
     });
 });

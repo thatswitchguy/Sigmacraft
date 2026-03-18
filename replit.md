@@ -11,7 +11,10 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Frontend Architecture
-- **Rendering Engine**: Three.js (v0.153.0) loaded via CDN for WebGL-based 3D graphics
+- **Rendering Engine**: Three.js (v0.176.0) with WebGPU renderer — uses Vulkan/Metal/D3D12 on supported hardware, falls back to WebGL2 automatically
+- **Culling System**:
+  - **Frustum culling**: AABB-based (Box3) — renders any block with even a pixel in view
+  - **Occlusion culling**: blocks with all 6 neighbors filled are skipped entirely
 - **Terrain Generation**: Simplex noise library for procedural world generation
 - **Module System**: ES modules with dynamic imports from CDN
 - **Player Controls**: First-person camera with pointer lock API for mouse look, keyboard input for movement
@@ -70,7 +73,7 @@ Preferred communication style: Simple, everyday language.
 - **express** (^4.18.2) - Web server framework for API and static file serving
 
 ### CDN Dependencies
-- **Three.js** (v0.153.0) - 3D rendering library loaded as ES module
+- **Three.js** (v0.176.0) - 3D rendering library with WebGPU renderer (`three.webgpu.js`)
 - **simplex-noise** (v2.4.0) - Procedural noise generation for terrain
 
 ### Runtime Requirements

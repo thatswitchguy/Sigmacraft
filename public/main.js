@@ -3,6 +3,22 @@ export function initGame(THREE){
   let blockMaterials = {};
   let blockTiming = { default: 1.0 };
   const blocks3D = [];
+  let occlusionDirty = true;
+  let blockPositionSet = new Set();
+  const viewFrustum = new THREE.Frustum();
+  const projScreenMatrix = new THREE.Matrix4();
+  const tempBox = new THREE.Box3();
+
+  function rebuildBlockSet() {
+    blockPositionSet.clear();
+    blocks3D.forEach(b => {
+      const x = Math.round(b.mesh.position.x);
+      const y = Math.round(b.mesh.position.y);
+      const z = Math.round(b.mesh.position.z);
+      blockPositionSet.add(`${x},${y},${z}`);
+    });
+    occlusionDirty = false;
+  }
   
   let breakingBlock = null;
   let breakingProgress = 0;
@@ -51,7 +67,8 @@ export function initGame(THREE){
   camera.add(fpHandGroup);
   player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem };
 
-  const renderer = new THREE.WebGLRenderer({antialias:true});
+  const RendererClass = THREE.WebGPURenderer || THREE.WebGLRenderer;
+  const renderer = new RendererClass({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
@@ -506,6 +523,7 @@ export function initGame(THREE){
       if (!checkCollision(newBlock.position)) {
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
+        occlusionDirty = true;
         slot.count--;
         if (slot.count <= 0) slot.type = null;
         updateHotbarUI();
@@ -553,7 +571,7 @@ export function initGame(THREE){
       const blockPos = obj.position.clone();
       scene.remove(obj);
       const idx = blocks3D.findIndex(b => b.mesh === obj);
-      if (idx !== -1) blocks3D.splice(idx, 1);
+      if (idx !== -1) { blocks3D.splice(idx, 1); occlusionDirty = true; }
       
       createBlockDrop(blockPos, blockType);
       
@@ -692,12 +710,12 @@ export function initGame(THREE){
     if (window.SimplexNoise) {
 
       simplex = new SimplexNoise(seed || Math.random());
-      const size = 50;
+      const size = 30;
 
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
 
-          const h = Math.floor(simplex.noise2D(x/16, z/16) * 4) + 10;
+          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 10;
 
           // Save spawn height at center
           if (x === 0 && z === 0) {
@@ -772,6 +790,7 @@ export function initGame(THREE){
       player.velocity.y = 0;
     }
 
+    occlusionDirty = true;
   }
   
   function setupMultiplayer() {
@@ -817,11 +836,10 @@ export function initGame(THREE){
 
     socket.on("worldData", (blocks) => {
         if (!blocks || !Array.isArray(blocks)) return;
-        // Only load worldData if we don't have blocks yet, 
-        // or if it's explicitly sent (e.g. after a clear)
         if (blocks.length === 0) {
           blocks3D.forEach(b => scene.remove(b.mesh));
           blocks3D.length = 0;
+          occlusionDirty = true;
           return;
         }
 
@@ -829,7 +847,6 @@ export function initGame(THREE){
             if (!b || !b.pos || !b.type) return;
             const mat = blockMaterials[b.type];
             if (mat) {
-                // Check if block already exists at this position to avoid duplicates
                 const exists = blocks3D.some(existing => 
                   Math.round(existing.pos.x) === Math.round(b.pos.x) &&
                   Math.round(existing.pos.y) === Math.round(b.pos.y) &&
@@ -843,6 +860,23 @@ export function initGame(THREE){
                 }
             }
         });
+        occlusionDirty = true;
+    });
+
+    socket.on("worldBreaks", (breaks) => {
+        if (!breaks || !Array.isArray(breaks)) return;
+        breaks.forEach(pos => {
+            const idx = blocks3D.findIndex(b =>
+                Math.round(b.mesh.position.x) === Math.round(pos.x) &&
+                Math.round(b.mesh.position.y) === Math.round(pos.y) &&
+                Math.round(b.mesh.position.z) === Math.round(pos.z)
+            );
+            if (idx !== -1) {
+                scene.remove(blocks3D[idx].mesh);
+                blocks3D.splice(idx, 1);
+            }
+        });
+        occlusionDirty = true;
     });
 
     socket.on("blockPlace", (data) => {
@@ -851,6 +885,7 @@ export function initGame(THREE){
         mesh.position.set(data.pos.x, data.pos.y, data.pos.z);
         scene.add(mesh);
         blocks3D.push({ mesh, type: data.type, pos: { ...data.pos } });
+        occlusionDirty = true;
     });
 
     socket.on("blockBreak", (data) => {
@@ -862,6 +897,7 @@ export function initGame(THREE){
         if (idx !== -1) {
             scene.remove(blocks3D[idx].mesh);
             blocks3D.splice(idx, 1);
+            occlusionDirty = true;
         }
     });
   }
@@ -2556,37 +2592,47 @@ export function initGame(THREE){
         const delta = Math.min((now - lastTime) / 1000, 0.1);
         lastTime = now;
 
-        // Render distance and sight optimization
-        const renderDistSq = 10 * 10;     // max render distance when in view
-        const offViewDistSq = 3 * 3;      // max render distance when outside FOV
+        // Rebuild occlusion set when world changes
+        if (occlusionDirty) rebuildBlockSet();
+
+        // Update camera frustum for this frame
+        camera.updateMatrixWorld();
+        projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        viewFrustum.setFromProjectionMatrix(projScreenMatrix);
+
+        const renderDistSq = 10 * 10;
         const playerPos = player.group.position;
-        const cameraDir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion()));
-        // Derive the view cone from the actual window dimensions.
-        // camera.fov is the vertical FOV; use the aspect ratio to get horizontal FOV,
-        // then combine into a diagonal half-angle that covers the screen corners.
-        const vHalfRad = (camera.fov / 2) * (Math.PI / 180);
-        const aspect = window.innerWidth / window.innerHeight;
-        const hHalfRad = Math.atan(Math.tan(vHalfRad) * aspect);
-        // Diagonal half-angle covers every visible corner of the window
-        const diagHalfRad = Math.atan(Math.sqrt(Math.tan(vHalfRad) ** 2 + Math.tan(hHalfRad) ** 2));
-        const fovThreshold = Math.cos(diagHalfRad); // blocks with dot > threshold are in view
 
         blocks3D.forEach(b => {
-            const toBlock = b.mesh.position.clone().sub(playerPos);
-            const distSq = toBlock.lengthSq();
+            const distSq = b.mesh.position.distanceToSquared(playerPos);
 
             if (distSq > renderDistSq) {
                 b.mesh.visible = false;
-            } else {
-                const dot = cameraDir.dot(toBlock.normalize());
-                const inView = dot > fovThreshold;
-                if (!inView && distSq > offViewDistSq) {
-                    // Outside player's field of view — only render within 3 blocks
-                    b.mesh.visible = false;
-                } else {
-                    b.mesh.visible = true;
-                }
+                return;
             }
+
+            // Occlusion culling: fully surrounded blocks are never visible
+            const bx = Math.round(b.mesh.position.x);
+            const by = Math.round(b.mesh.position.y);
+            const bz = Math.round(b.mesh.position.z);
+            const fullyOccluded =
+                blockPositionSet.has(`${bx+1},${by},${bz}`) &&
+                blockPositionSet.has(`${bx-1},${by},${bz}`) &&
+                blockPositionSet.has(`${bx},${by+1},${bz}`) &&
+                blockPositionSet.has(`${bx},${by-1},${bz}`) &&
+                blockPositionSet.has(`${bx},${by},${bz+1}`) &&
+                blockPositionSet.has(`${bx},${by},${bz-1}`);
+
+            if (fullyOccluded) {
+                b.mesh.visible = false;
+                return;
+            }
+
+            // Frustum culling using AABB — render if ANY part of block is in view
+            const p = b.mesh.position;
+            tempBox.min.set(p.x - 0.5, p.y - 0.5, p.z - 0.5);
+            tempBox.max.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+            b.mesh.visible = viewFrustum.intersectsBox(tempBox);
         });
 
         // Apply same to remote players
@@ -2727,7 +2773,8 @@ export function initGame(THREE){
         renderer.render(scene, camera);
     }
 
-  loadBlocks().then(()=>animate());
+  const initRenderer = renderer.init ? renderer.init() : Promise.resolve();
+  initRenderer.then(() => loadBlocks().then(()=>animate()));
 
   window.addEventListener("resize", ()=>{
     camera.aspect = window.innerWidth/window.innerHeight;
