@@ -35,7 +35,9 @@ io.on("connection", (socket) => {
         socket.emit("worldSeed", worldSeed);
         
         // Send existing world modifications to new player (in order)
-        socket.emit("worldData", worldBlocks);
+        if (worldBlocks.length > 0) {
+            socket.emit("worldData", worldBlocks);
+        }
         socket.emit("worldBreaks", worldBreaks);
     });
 
@@ -276,6 +278,59 @@ app.post("/delete-structure", (req, res) => {
         delete data[id];
         saveStructures(data);
     }
+    res.json({ success: true });
+});
+
+const TOOL_FILE = path.join(process.cwd(), "toolData.json");
+const CRAFTING_FILE = path.join(process.cwd(), "craftingRecipes.json");
+
+function loadTools() {
+    try { return JSON.parse(fs.readFileSync(TOOL_FILE)); } catch(e) { return {}; }
+}
+function saveToolData(data) {
+    fs.writeFileSync(TOOL_FILE, JSON.stringify(data, null, 2));
+}
+
+app.get("/tools", (req, res) => res.json(loadTools()));
+
+app.post("/update-tool", (req, res) => {
+    const { toolId, toolName, textureData, breakMultipliers } = req.body;
+    const data = loadTools();
+    if (!data[toolId]) data[toolId] = {};
+    data[toolId].name = toolName;
+    data[toolId].texture = textureData;
+    data[toolId].breakMultipliers = breakMultipliers || {};
+    saveToolData(data);
+    res.json({ success: true });
+});
+
+app.post("/delete-tool", (req, res) => {
+    const { toolId } = req.body;
+    const data = loadTools();
+    if (data[toolId]) { delete data[toolId]; saveToolData(data); }
+    res.json({ success: true });
+});
+
+function loadRecipes() {
+    try { return JSON.parse(fs.readFileSync(CRAFTING_FILE)); } catch(e) { return []; }
+}
+
+app.get("/crafting-recipes", (req, res) => res.json(loadRecipes()));
+
+app.post("/save-recipe", (req, res) => {
+    const { id, recipe } = req.body;
+    const data = loadRecipes();
+    const idx = data.findIndex(r => r.id === id);
+    if (idx !== -1) data[idx] = { id, ...recipe };
+    else data.push({ id, ...recipe });
+    fs.writeFileSync(CRAFTING_FILE, JSON.stringify(data, null, 2));
+    res.json({ success: true });
+});
+
+app.post("/delete-recipe", (req, res) => {
+    const { id } = req.body;
+    const data = loadRecipes().filter(r => r.id !== id);
+    fs.writeFileSync(CRAFTING_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
 });
 

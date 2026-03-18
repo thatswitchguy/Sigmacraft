@@ -18,7 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **Terrain Generation**: Simplex noise library for procedural world generation
 - **Module System**: ES modules with dynamic imports from CDN
 - **Player Controls**: First-person camera with pointer lock API for mouse look, keyboard input for movement
-- **Dev Tools**: Password-protected overlay (">", password: "Banana@123") with tabs for block textures and structure editing
+- **Dev Tools**: Password-protected overlay (">", password: "Banana@123") with tabs for blocks, structures, tools, and crafting recipes
 - **Skin System**: Upload Minecraft skins (PNG) with proper UV mapping for head, body, arms, and legs
 
 ### Backend Architecture
@@ -33,6 +33,12 @@ Preferred communication style: Simple, everyday language.
   - `POST /delete-structure` - Deletes a structure
   - `GET /skin` - Returns saved player skin
   - `POST /update-skin` - Updates player skin
+  - `GET /tools` - Returns all tool definitions
+  - `POST /update-tool` - Saves or updates a tool
+  - `POST /delete-tool` - Deletes a tool
+  - `GET /crafting-recipes` - Returns all crafting recipes
+  - `POST /save-recipe` - Saves or updates a recipe
+  - `POST /delete-recipe` - Deletes a recipe
 
 ### Data Storage
 - **Block Data**: Stored in `blockData.json` at the project root
@@ -55,6 +61,22 @@ Preferred communication style: Simple, everyday language.
   - Rarity slider (1-100, higher = rarer)
   - Spawn height range settings
   - Spawn rules: on ground, flat area, no water, no trees
+
+- **Tools Tab**:
+  - Create custom tools with pixel-art textures (16x16 grid editor)
+  - Per-block break multipliers (e.g. pickaxe breaks stone faster)
+  - Sidebar for selecting/deleting tools
+  - Tools appear in inventory and hotbar alongside blocks
+
+- **Crafting Tab**:
+  - Define 4x4 crafting recipes with ingredient/output selectors
+  - Sidebar list of all saved recipes with load/delete
+  - In-game 4x4 crafting grid in the inventory overlay
+  - Recipe matching checks all 16 grid slots for exact ingredient patterns
+  - Craft button consumes one of each ingredient and gives output item
+
+- **World Brightness**: AmbientLight 1.0, DirectionalLight 1.2 for a brighter daytime look
+- **Tree Generation**: Procedural oak trees (wood trunk + leaf canopy) generated from the world seed on simplex terrain
 
 ### Block Material System
 - Each block type has 6 faces with independent 16x16 pixel textures
@@ -90,3 +112,5 @@ Preferred communication style: Simple, everyday language.
 - `blockData.json` - Block definitions and textures
 - `structures.json` - Custom structure definitions
 - `blockTiming.json` - Block break timing settings
+- `toolData.json` - Tool definitions (name, 16x16 texture, break multipliers)
+- `craftingRecipes.json` - Crafting recipe definitions (pattern, output, count)

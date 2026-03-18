@@ -9,6 +9,18 @@ export function initGame(THREE){
   const projScreenMatrix = new THREE.Matrix4();
   const tempBox = new THREE.Box3();
 
+  // Tool data
+  let toolTypes = {};
+  let currentToolPixels = Array(256).fill("#8B4513");
+  let editingToolId = null;
+
+  // Crafting
+  let craftingGridState = Array(16).fill(null); // 4x4 grid items (block/tool id strings or null)
+  let craftingRecipes = [];
+  let craftingOutput = null;
+  let currentCraftingRecipeId = null;
+  let recipePattern = Array(16).fill(null);
+
   function rebuildBlockSet() {
     blockPositionSet.clear();
     blocks3D.forEach(b => {
@@ -72,9 +84,9 @@ export function initGame(THREE){
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  scene.add(new THREE.AmbientLight(0xffffff,0.4));
-  const sun = new THREE.DirectionalLight(0xffffff,0.8);
-  sun.position.set(50,100,50);
+  scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  sun.position.set(50, 100, 50);
   scene.add(sun);
 
   // Build Minecraft Player Model
@@ -480,8 +492,14 @@ export function initGame(THREE){
   }
 
   function getBreakTime(blockType) {
-    if (blockTiming[blockType] !== undefined) return blockTiming[blockType];
-    return blockTiming.default || 1.0;
+    const base = blockTiming[blockType] !== undefined ? blockTiming[blockType] : (blockTiming.default || 1.0);
+    // Check if held item is a tool with a break multiplier
+    const heldItem = player?.inventory?.[player?.selectedSlot];
+    if (heldItem?.type && toolTypes[heldItem.type]) {
+      const mult = toolTypes[heldItem.type].breakMultipliers?.[blockType];
+      if (mult !== undefined) return base / mult;
+    }
+    return base;
   }
 
   window.addEventListener("mousedown", e => {
@@ -715,7 +733,7 @@ export function initGame(THREE){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
 
-          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 10;
+          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 5;
 
           // Save spawn height at center
           if (x === 0 && z === 0) {
@@ -780,6 +798,48 @@ export function initGame(THREE){
             pos: {x, y: 0, z}
           });
 
+        }
+      }
+    }
+
+    // Tree generation pass (after terrain)
+    if (simplex) {
+      const size = 30;
+      const existingPositions = new Set(blocks3D.map(b => `${b.pos.x},${b.pos.y},${b.pos.z}`));
+      const addBlock3D = (x, y, z, type) => {
+        const key = `${x},${y},${z}`;
+        if (existingPositions.has(key)) return;
+        existingPositions.add(key);
+        const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: type === "wood" ? 0x6b3c11 : 0x2d6e1a });
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        mesh.position.set(x, y, z);
+        scene.add(mesh);
+        blocks3D.push({ mesh, type, pos: { x, y, z } });
+      };
+
+      const seededRand = (x, z) => {
+        const n = Math.sin(x * 127.1 + z * 311.7 + (seed || 1) * 99.9) * 43758.5453;
+        return n - Math.floor(n);
+      };
+
+      for (let x = -size; x < size; x++) {
+        for (let z = -size; z < size; z++) {
+          if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
+          if (seededRand(x, z) > 0.96) { // ~4% chance
+            const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 10;
+            const topY = h; // one above the top grass block
+            const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 3);
+            for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
+            // Leaf canopy
+            for (let lx = -2; lx <= 2; lx++) {
+              for (let lz = -2; lz <= 2; lz++) {
+                for (let ly = 0; ly <= 2; ly++) {
+                  if (lx === 0 && lz === 0 && ly < 2) continue;
+                  addBlock3D(x + lx, topY + trunkH + ly - 1, z + lz, "leaves");
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -1607,9 +1667,9 @@ export function initGame(THREE){
       tab.classList.add('active');
       const tabName = tab.dataset.tab;
       document.getElementById(tabName + 'Tab').classList.add('active');
-      if (tabName === 'structures') {
-        initStructureEditor();
-      }
+      if (tabName === 'structures') initStructureEditor();
+      if (tabName === 'tools') initToolUI();
+      if (tabName === 'crafting') initCraftingUI();
     };
   });
 
@@ -2238,6 +2298,407 @@ export function initGame(THREE){
     invHotbarSlots.forEach((slot, i) => updateSlot(slot, i));
   }
 
+  // ─── TOOL UI ───────────────────────────────────────────────────────────────
+  function createToolIcon(id) {
+    const cvs = document.createElement("canvas");
+    cvs.width = 16; cvs.height = 16;
+    const ctx = cvs.getContext("2d");
+    const tex = toolTypes[id]?.texture;
+    if (Array.isArray(tex)) {
+      tex.forEach((color, i) => { ctx.fillStyle = color; ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1); });
+    } else { ctx.fillStyle = "#8B4513"; ctx.fillRect(0, 0, 16, 16); }
+    return cvs;
+  }
+
+  function updateToolSidebar() {
+    const list = document.getElementById("toolSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(toolTypes).forEach(id => {
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      item.appendChild(createToolIcon(id));
+      const lbl = document.createElement("span");
+      lbl.textContent = toolTypes[id].name || id;
+      lbl.style.flex = "1";
+      item.appendChild(lbl);
+      const del = document.createElement("button");
+      del.innerHTML = "&times;"; del.className = "small-btn";
+      del.style.cssText = "background:transparent;border:none;color:#f44";
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete tool ${id}?`)) return;
+        await fetch("/delete-tool", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ toolId: id }) });
+        delete toolTypes[id];
+        updateToolSidebar();
+      };
+      item.appendChild(del);
+      item.onclick = () => loadToolEditor(id);
+      list.appendChild(item);
+    });
+  }
+
+  function loadToolEditor(id) {
+    editingToolId = id;
+    const tool = toolTypes[id];
+    const idEl = document.getElementById("editToolId");
+    const nameEl = document.getElementById("editToolName");
+    if (idEl) idEl.value = id;
+    if (nameEl) nameEl.value = tool.name || id;
+    currentToolPixels = Array.isArray(tool.texture) ? [...tool.texture] : Array(256).fill(tool.texture || "#8B4513");
+    createToolPixelGrid();
+    // Populate break multipliers
+    const container = document.getElementById("toolBreakMultipliers");
+    if (container) {
+      container.innerHTML = "";
+      Object.keys(blockTypes).filter(k => !k.startsWith("_")).forEach(blockId => {
+        const row = document.createElement("div");
+        row.className = "tool-break-row";
+        const lbl = document.createElement("span");
+        lbl.textContent = (blockTypes[blockId].name || blockId) + ":";
+        lbl.style.flex = "1";
+        const inp = document.createElement("input");
+        inp.type = "number"; inp.min = "0.1"; inp.max = "10"; inp.step = "0.1";
+        inp.value = (tool.breakMultipliers?.[blockId] ?? 1.0).toFixed(1);
+        inp.dataset.blockId = blockId;
+        row.appendChild(lbl); row.appendChild(inp);
+        container.appendChild(row);
+      });
+    }
+  }
+
+  function createToolPixelGrid() {
+    const grid = document.getElementById("toolPixelGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 256; i++) {
+      const px = document.createElement("div");
+      px.className = "pixel";
+      px.style.backgroundColor = currentToolPixels[i];
+      px.onclick = () => {
+        const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
+        currentToolPixels[i] = color;
+        px.style.backgroundColor = color;
+      };
+      grid.appendChild(px);
+    }
+  }
+
+  function initToolUI() {
+    updateToolSidebar();
+    createToolPixelGrid();
+
+    const addBtn = document.getElementById("addToolBtn");
+    if (addBtn && !addBtn._initDone) {
+      addBtn._initDone = true;
+      addBtn.onclick = () => { document.getElementById("newToolOverlay").style.display = "flex"; };
+    }
+
+    const newToolSubmit = document.getElementById("newToolSubmit");
+    if (newToolSubmit && !newToolSubmit._initDone) {
+      newToolSubmit._initDone = true;
+      newToolSubmit.onclick = async () => {
+        const id = document.getElementById("newToolId").value.trim().toLowerCase().replace(/\s+/g, "_");
+        const name = document.getElementById("newToolName").value.trim();
+        if (!id || !name) return alert("Enter ID and Name");
+        if (toolTypes[id]) return alert("Tool ID already exists");
+        toolTypes[id] = { name, texture: Array(256).fill("#8B4513"), breakMultipliers: {} };
+        await fetch("/update-tool", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toolId: id, toolName: name, textureData: toolTypes[id].texture, breakMultipliers: {} }) });
+        document.getElementById("newToolOverlay").style.display = "none";
+        document.getElementById("newToolId").value = "";
+        document.getElementById("newToolName").value = "";
+        updateToolSidebar();
+        setupInventoryUI();
+      };
+    }
+
+    const newToolCancel = document.getElementById("newToolCancel");
+    if (newToolCancel && !newToolCancel._initDone) {
+      newToolCancel._initDone = true;
+      newToolCancel.onclick = () => { document.getElementById("newToolOverlay").style.display = "none"; };
+    }
+
+    const fillBtn = document.getElementById("toolFillButton");
+    if (fillBtn && !fillBtn._initDone) {
+      fillBtn._initDone = true;
+      fillBtn.onclick = () => {
+        const color = document.getElementById("toolColorPicker").value;
+        currentToolPixels = Array(256).fill(color);
+        document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
+      };
+    }
+
+    const saveBtn = document.getElementById("saveToolBtn");
+    if (saveBtn && !saveBtn._initDone) {
+      saveBtn._initDone = true;
+      saveBtn.onclick = async () => {
+        if (!editingToolId) return alert("Select a tool first");
+        const name = document.getElementById("editToolName").value.trim();
+        const multipliers = {};
+        document.querySelectorAll("#toolBreakMultipliers input[data-block-id]").forEach(inp => {
+          multipliers[inp.dataset.blockId] = parseFloat(inp.value) || 1.0;
+        });
+        toolTypes[editingToolId].name = name;
+        toolTypes[editingToolId].texture = [...currentToolPixels];
+        toolTypes[editingToolId].breakMultipliers = multipliers;
+        await fetch("/update-tool", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toolId: editingToolId, toolName: name, textureData: currentToolPixels, breakMultipliers: multipliers }) });
+        updateToolSidebar();
+        setupInventoryUI();
+        alert("Tool saved!");
+      };
+    }
+
+    const delBtn = document.getElementById("deleteToolBtn");
+    if (delBtn && !delBtn._initDone) {
+      delBtn._initDone = true;
+      delBtn.onclick = async () => {
+        if (!editingToolId) return;
+        if (!confirm(`Delete tool ${editingToolId}?`)) return;
+        await fetch("/delete-tool", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ toolId: editingToolId }) });
+        delete toolTypes[editingToolId];
+        editingToolId = null;
+        updateToolSidebar();
+        setupInventoryUI();
+      };
+    }
+  }
+
+  // ─── CRAFTING UI ────────────────────────────────────────────────────────────
+  function getAllItemIds() {
+    return [...Object.keys(blockTypes).filter(k => !k.startsWith("_")), ...Object.keys(toolTypes)];
+  }
+
+  function getItemName(id) {
+    return blockTypes[id]?.name || toolTypes[id]?.name || id;
+  }
+
+  function renderItemIcon(id, slot) {
+    slot.innerHTML = "";
+    if (!id) return;
+    if (blockTypes[id]) {
+      slot.appendChild(createBlockIcon(id));
+    } else if (toolTypes[id]) {
+      slot.appendChild(createToolIcon(id));
+    }
+    const lbl = document.createElement("div");
+    lbl.className = "item-count";
+    lbl.style.cssText = "font-size:8px;bottom:0;left:0;right:0;text-align:center;";
+    lbl.textContent = (getItemName(id) || "").slice(0, 4);
+    slot.appendChild(lbl);
+  }
+
+  function matchRecipe(grid) {
+    for (const recipe of craftingRecipes) {
+      if (!recipe.pattern || !recipe.output) continue;
+      let match = true;
+      for (let i = 0; i < 16; i++) {
+        const rp = recipe.pattern[i] || null;
+        const gp = grid[i] || null;
+        if (rp !== gp) { match = false; break; }
+      }
+      if (match) return recipe;
+    }
+    return null;
+  }
+
+  function updateCraftingOutput() {
+    const recipe = matchRecipe(craftingGridState);
+    craftingOutput = recipe ? { type: recipe.output, count: recipe.outputCount || 1 } : null;
+    const outputSlot = document.getElementById("craftingOutput");
+    if (!outputSlot) return;
+    outputSlot.innerHTML = "";
+    if (craftingOutput) {
+      renderItemIcon(craftingOutput.type, outputSlot);
+      if (craftingOutput.count > 1) {
+        const cnt = document.createElement("div");
+        cnt.className = "item-count";
+        cnt.textContent = craftingOutput.count;
+        outputSlot.appendChild(cnt);
+      }
+    }
+  }
+
+  function renderCraftingGrid() {
+    const grid = document.getElementById("craftingGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 16; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const itemId = craftingGridState[i];
+      if (itemId) renderItemIcon(itemId, slot);
+      slot.onclick = () => {
+        // Cycle through held item, or clear
+        const held = player.inventory[player.selectedSlot];
+        if (craftingGridState[i]) {
+          craftingGridState[i] = null;
+        } else if (held && held.type) {
+          craftingGridState[i] = held.type;
+        }
+        renderCraftingGrid();
+        updateCraftingOutput();
+      };
+      grid.appendChild(slot);
+    }
+    updateCraftingOutput();
+  }
+
+  function initCraftingUI() {
+    // Populate recipe ingredient and output selects
+    const ingredientSel = document.getElementById("recipeIngredientSelect");
+    const outputSel = document.getElementById("recipeOutput");
+    if (ingredientSel) {
+      ingredientSel.innerHTML = '<option value="">Air / Empty</option>';
+      getAllItemIds().forEach(id => {
+        const opt = document.createElement("option"); opt.value = id; opt.textContent = getItemName(id);
+        ingredientSel.appendChild(opt);
+      });
+    }
+    if (outputSel) {
+      outputSel.innerHTML = '<option value="">-- Select output --</option>';
+      getAllItemIds().forEach(id => {
+        const opt = document.createElement("option"); opt.value = id; opt.textContent = getItemName(id);
+        outputSel.appendChild(opt);
+      });
+    }
+    renderRecipePatternGrid();
+    updateRecipeSidebar();
+
+    const addBtn = document.getElementById("addRecipeBtn");
+    if (addBtn && !addBtn._initDone) {
+      addBtn._initDone = true;
+      addBtn.onclick = () => {
+        currentCraftingRecipeId = null;
+        recipePattern = Array(16).fill(null);
+        const nameEl = document.getElementById("editRecipeName");
+        if (nameEl) nameEl.value = "";
+        if (outputSel) outputSel.value = "";
+        const cntEl = document.getElementById("recipeOutputCount");
+        if (cntEl) cntEl.value = "1";
+        renderRecipePatternGrid();
+      };
+    }
+
+    const saveBtn = document.getElementById("saveRecipeBtn");
+    if (saveBtn && !saveBtn._initDone) {
+      saveBtn._initDone = true;
+      saveBtn.onclick = async () => {
+        const name = document.getElementById("editRecipeName").value.trim();
+        const output = document.getElementById("recipeOutput").value;
+        const count = parseInt(document.getElementById("recipeOutputCount").value) || 1;
+        if (!name || !output) return alert("Set recipe name and output");
+        const id = currentCraftingRecipeId || name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
+        const recipe = { name, pattern: [...recipePattern], output, outputCount: count };
+        await fetch("/save-recipe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, recipe }) });
+        const existing = craftingRecipes.findIndex(r => r.id === id);
+        if (existing !== -1) craftingRecipes[existing] = { id, ...recipe };
+        else craftingRecipes.push({ id, ...recipe });
+        currentCraftingRecipeId = id;
+        updateRecipeSidebar();
+        alert("Recipe saved!");
+      };
+    }
+
+    const delBtn = document.getElementById("deleteRecipeBtn");
+    if (delBtn && !delBtn._initDone) {
+      delBtn._initDone = true;
+      delBtn.onclick = async () => {
+        if (!currentCraftingRecipeId) return;
+        if (!confirm("Delete this recipe?")) return;
+        await fetch("/delete-recipe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: currentCraftingRecipeId }) });
+        craftingRecipes = craftingRecipes.filter(r => r.id !== currentCraftingRecipeId);
+        currentCraftingRecipeId = null;
+        recipePattern = Array(16).fill(null);
+        updateRecipeSidebar();
+        renderRecipePatternGrid();
+      };
+    }
+
+    const craftBtn = document.getElementById("craftBtn");
+    if (craftBtn && !craftBtn._initDone) {
+      craftBtn._initDone = true;
+      craftBtn.onclick = () => {
+        if (!craftingOutput) return;
+        // Add result to inventory
+        let placed = false;
+        for (let i = 0; i < 36; i++) {
+          if (player.inventory[i].type === craftingOutput.type && player.inventory[i].count < 64) {
+            player.inventory[i].count += craftingOutput.count; placed = true; break;
+          }
+        }
+        if (!placed) {
+          for (let i = 0; i < 36; i++) {
+            if (!player.inventory[i].type || player.inventory[i].count === 0) {
+              player.inventory[i] = { type: craftingOutput.type, count: craftingOutput.count }; placed = true; break;
+            }
+          }
+        }
+        // Consume ingredients (1 of each used slot)
+        for (let i = 0; i < 16; i++) {
+          if (craftingGridState[i]) {
+            for (let j = 0; j < 36; j++) {
+              if (player.inventory[j].type === craftingGridState[i] && player.inventory[j].count > 0) {
+                player.inventory[j].count--;
+                if (player.inventory[j].count <= 0) player.inventory[j] = { type: null, count: 0 };
+                break;
+              }
+            }
+          }
+        }
+        craftingGridState = Array(16).fill(null);
+        renderCraftingGrid();
+        renderInventoryGrid();
+        updateHotbarUI();
+      };
+    }
+  }
+
+  function renderRecipePatternGrid() {
+    const grid = document.getElementById("recipePatternGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 16; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const itemId = recipePattern[i];
+      if (itemId) renderItemIcon(itemId, slot);
+      slot.onclick = () => {
+        const sel = document.getElementById("recipeIngredientSelect");
+        recipePattern[i] = sel?.value || null;
+        renderRecipePatternGrid();
+      };
+      grid.appendChild(slot);
+    }
+  }
+
+  function updateRecipeSidebar() {
+    const list = document.getElementById("recipeSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    craftingRecipes.forEach(recipe => {
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      const lbl = document.createElement("span");
+      lbl.textContent = recipe.name || recipe.id;
+      lbl.style.flex = "1";
+      item.appendChild(lbl);
+      item.onclick = () => {
+        currentCraftingRecipeId = recipe.id;
+        recipePattern = [...(recipe.pattern || Array(16).fill(null))];
+        const nameEl = document.getElementById("editRecipeName");
+        if (nameEl) nameEl.value = recipe.name || "";
+        const outputSel = document.getElementById("recipeOutput");
+        if (outputSel) outputSel.value = recipe.output || "";
+        const cntEl = document.getElementById("recipeOutputCount");
+        if (cntEl) cntEl.value = recipe.outputCount || 1;
+        renderRecipePatternGrid();
+      };
+      list.appendChild(item);
+    });
+  }
+
   async function loadBlocks(){
     await initTitle();
     const skinRes = await fetch("/skin");
@@ -2258,11 +2719,13 @@ export function initGame(THREE){
     }
 
     // Ensure basic blocks exist if they aren't in blockTypes
-    const defaultBlocks = ["grass", "dirt", "stone"];
+    const defaultColors = { grass: "#4a8a2a", dirt: "#8b6340", stone: "#888888", bedrock: "#333333", wood: "#6b3c11", leaves: "#2d6e1a" };
+    const defaultBlocks = ["grass", "dirt", "stone", "bedrock", "wood", "leaves"];
     defaultBlocks.forEach(type => {
       if (!blockTypes[type]) {
+        const col = defaultColors[type] || "#888888";
         blockTypes[type] = { name: type.charAt(0).toUpperCase() + type.slice(1), textures: {
-          top: "#ffffff", bottom: "#ffffff", left: "#ffffff", right: "#ffffff", front: "#ffffff", back: "#ffffff"
+          top: col, bottom: col, left: col, right: col, front: col, back: col
         }};
       }
     });
@@ -2317,6 +2780,20 @@ export function initGame(THREE){
       }
     }
     
+    // Load tools
+    try {
+      const toolRes = await fetch("/tools");
+      toolTypes = await toolRes.json();
+      initToolUI();
+    } catch(e) { toolTypes = {}; }
+
+    // Load crafting recipes
+    try {
+      const recipeRes = await fetch("/crafting-recipes");
+      craftingRecipes = await recipeRes.json();
+      initCraftingUI();
+    } catch(e) { craftingRecipes = []; }
+
     createPixelGrid();
     setupInventoryUI();
     if (typeof updateHotbarUI === 'function') {
@@ -2326,6 +2803,7 @@ export function initGame(THREE){
 
   function setupInventoryUI() {
     renderInventoryGrid();
+    renderCraftingGrid();
 
     // Setup hotbar link in inventory
     const hotbarGrid = document.getElementById("hotbarSlots");

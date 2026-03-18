@@ -56,6 +56,8 @@
     <div class="dev-tabs">
       <button class="dev-tab active" data-tab="blocks">Blocks</button>
       <button class="dev-tab" data-tab="structures">Structures</button>
+      <button class="dev-tab" data-tab="tools">Tools</button>
+      <button class="dev-tab" data-tab="crafting">Crafting</button>
       <button id="fullScreenEditorBtn" class="dev-tab">Blender Mode</button>
     </div>
 
@@ -196,6 +198,105 @@
           </div>
         </div>
       </div>
+      <div id="toolsTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Tools</h4>
+              <button id="addToolBtn" class="small-btn">+</button>
+            </div>
+            <div id="toolSidebarList" class="sidebar-list"></div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Tool ID</label>
+                <input type="text" id="editToolId" readonly>
+              </div>
+              <div class="control-group">
+                <label>Tool Name</label>
+                <input type="text" id="editToolName" placeholder="e.g. Pickaxe">
+              </div>
+              <div class="control-group">
+                <label>Texture Color</label>
+                <div class="tool-buttons">
+                  <input type="color" id="toolColorPicker" value="#8B4513">
+                  <button id="toolFillButton">Fill All</button>
+                </div>
+              </div>
+              <details open>
+                <summary>Break Time Multipliers per Block</summary>
+                <div id="toolBreakMultipliers" class="tool-break-multipliers"></div>
+              </details>
+            </div>
+            <div class="pixel-grid-container">
+              <div id="toolPixelGrid" class="pixel-grid"></div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveToolBtn" class="primary-btn">Save Tool</button>
+              <button id="deleteToolBtn" class="danger-btn">Delete Tool</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="craftingTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Recipes</h4>
+              <button id="addRecipeBtn" class="small-btn">+</button>
+            </div>
+            <div id="recipeSidebarList" class="sidebar-list"></div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Recipe Name</label>
+                <input type="text" id="editRecipeName" placeholder="e.g. Wooden Pickaxe">
+              </div>
+              <div class="control-group">
+                <label>Ingredient Palette (click to select)</label>
+                <select id="recipeIngredientSelect">
+                  <option value="">Air / Empty</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>4x4 Crafting Pattern (click grid to set ingredient)</label>
+                <div id="recipePatternGrid" class="crafting-recipe-grid"></div>
+              </div>
+              <div class="control-group">
+                <label>Output Item</label>
+                <select id="recipeOutput"></select>
+                <input type="number" id="recipeOutputCount" value="1" min="1" max="64" style="width:60px;margin-left:8px;">
+              </div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveRecipeBtn" class="primary-btn">Save Recipe</button>
+              <button id="deleteRecipeBtn" class="danger-btn">Delete Recipe</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="newToolOverlay" style="display:none;">
+    <div class="options-window">
+      <h2>New Tool</h2>
+      <div class="control-group">
+        <label>Tool ID (lowercase, no spaces)</label>
+        <input type="text" id="newToolId" placeholder="e.g. pickaxe">
+      </div>
+      <div class="control-group">
+        <label>Tool Name</label>
+        <input type="text" id="newToolName" placeholder="e.g. Pickaxe">
+      </div>
+      <div class="options-footer">
+        <button id="newToolCancel" class="mc-btn">Cancel</button>
+        <button id="newToolSubmit" class="mc-btn">Create</button>
+      </div>
     </div>
   </div>
 
@@ -251,13 +352,28 @@
       <h3>Inventory</h3>
       <button id="closeInventory">&times;</button>
     </div>
-    <div class="inventory-section">
-      <h4>Blocks</h4>
-      <div id="inventoryGrid" class="inventory-grid"></div>
-    </div>
-    <div id="inventoryHotbar" class="inventory-section">
-      <h4>Hotbar</h4>
-      <div id="hotbarSlots" class="inventory-grid"></div>
+    <div class="inventory-crafting-row">
+      <div class="inventory-left">
+        <div class="inventory-section">
+          <h4>Inventory</h4>
+          <div id="inventoryGrid" class="inventory-grid"></div>
+        </div>
+        <div id="inventoryHotbar" class="inventory-section">
+          <h4>Hotbar</h4>
+          <div id="hotbarSlots" class="inventory-grid"></div>
+        </div>
+      </div>
+      <div class="inventory-crafting-panel">
+        <h4>Crafting</h4>
+        <div class="crafting-layout">
+          <div id="craftingGrid" class="crafting-grid-ui"></div>
+          <div class="crafting-arrow-col">
+            <span class="crafting-arrow">&#10145;</span>
+            <div id="craftingOutput" class="slot crafting-output-slot"></div>
+            <button id="craftBtn" class="small-btn">Craft</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
