@@ -1,0 +1,26 @@
+[
+  {
+    "id": "banana_1773855243412",
+    "name": "Banana",
+    "pattern": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      "grass",
+      "grass",
+      null,
+      null,
+      "grass",
+      "grass",
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": "banana",
+    "outputCount": 1
+  }
+]

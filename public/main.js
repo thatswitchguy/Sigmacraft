@@ -826,8 +826,8 @@ export function initGame(THREE){
         for (let z = -size; z < size; z++) {
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
           if (seededRand(x, z) > 0.96) { // ~4% chance
-            const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 10;
-            const topY = h; // one above the top grass block
+            const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
+            const topY = h; // trunk starts directly above the top grass block (grass is at y = h-1)
             const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 3);
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
             // Leaf canopy
@@ -2529,15 +2529,40 @@ export function initGame(THREE){
       slot.className = "slot";
       const itemId = craftingGridState[i];
       if (itemId) renderItemIcon(itemId, slot);
-      slot.onclick = () => {
-        // Cycle through held item, or clear
-        const held = player.inventory[player.selectedSlot];
-        if (craftingGridState[i]) {
+      slot.onclick = (e) => {
+        if (player.draggedItem) {
+          // Place dragged item into this crafting slot
+          const prev = craftingGridState[i];
+          craftingGridState[i] = player.draggedItem.type;
+          player.draggedItem = null;
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl) dragEl.remove();
+          // If there was already something here, try to put it back
+          if (prev) {
+            let placed = false;
+            for (let j = 0; j < 36; j++) {
+              if (!player.inventory[j].type) {
+                player.inventory[j] = { type: prev, count: 1 };
+                placed = true;
+                break;
+              }
+            }
+          }
+        } else if (craftingGridState[i]) {
+          // Pick up item from crafting slot into drag
+          const itemType = craftingGridState[i];
           craftingGridState[i] = null;
-        } else if (held && held.type) {
-          craftingGridState[i] = held.type;
+          player.draggedItem = { type: itemType, count: 1, sourceIdx: -1 };
+          const dragEl = document.createElement("div");
+          dragEl.id = "dragged-item";
+          const icon = createBlockIcon(itemType) || createToolIcon(itemType);
+          if (icon) dragEl.appendChild(icon);
+          document.body.appendChild(dragEl);
+          updateDragPos(e);
         }
         renderCraftingGrid();
+        renderInventoryGrid();
+        updateHotbarUI();
         updateCraftingOutput();
       };
       grid.appendChild(slot);
