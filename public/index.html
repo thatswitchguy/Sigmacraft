@@ -11,7 +11,7 @@
 <div id="titleScreen">
   <div class="title-container">
     <h1 class="minecraft-title">Sigmacraft</h1>
-    <div id="splashText" class="splash">Welcome!</div>
+    <div id="splashText" class="splash">If this is the splash, it didn't work.</div>
     <div class="title-buttons">
       <button id="playBtn" class="mc-btn">Singleplayer</button>
       <button id="multiplayerBtn" class="mc-btn">Multiplayer</button>
@@ -372,6 +372,25 @@
             <div id="craftingOutput" class="slot crafting-output-slot"></div>
             <button id="craftBtn" class="small-btn">Craft</button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="craftingTableOverlay" style="display:none;">
+  <div class="inventory-window">
+    <div class="inventory-header">
+      <h3>Crafting Table</h3>
+      <button id="closeCraftingTable">&times;</button>
+    </div>
+    <div class="crafting-table-body">
+      <div class="crafting-layout">
+        <div id="craftingTableGrid" class="crafting-table-grid-ui"></div>
+        <div class="crafting-arrow-col">
+          <span class="crafting-arrow">&#10145;</span>
+          <div id="craftingTableOutput" class="slot crafting-output-slot"></div>
+          <button id="craftTableBtn" class="small-btn">Craft</button>
         </div>
       </div>
     </div>

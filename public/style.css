@@ -1002,7 +1002,7 @@ select, input[type="color"], button, input {
 
 .crafting-grid-ui {
   display: grid;
-  grid-template-columns: repeat(4, 44px);
+  grid-template-columns: repeat(2, 44px);
   gap: 3px;
 }
 
@@ -1016,6 +1016,42 @@ select, input[type="color"], button, input {
   justify-content: center;
   align-items: center;
   position: relative;
+}
+
+.crafting-table-grid-ui {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  gap: 3px;
+}
+
+.crafting-table-grid-ui .slot {
+  width: 44px;
+  height: 44px;
+  background: rgba(100, 100, 100, 0.5);
+  border: 2px solid #555;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+.crafting-table-body {
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#craftingTableOverlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 3000;
 }
 
 .crafting-arrow-col {
@@ -1067,7 +1103,7 @@ select, input[type="color"], button, input {
 /* ─── Crafting recipe grid in dev mode ─── */
 .crafting-recipe-grid {
   display: grid;
-  grid-template-columns: repeat(4, 40px);
+  grid-template-columns: repeat(3, 40px);
   gap: 3px;
   margin-top: 6px;
 }

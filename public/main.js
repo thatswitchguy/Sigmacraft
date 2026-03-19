@@ -15,11 +15,14 @@ export function initGame(THREE){
   let editingToolId = null;
 
   // Crafting
-  let craftingGridState = Array(9).fill(null); // 4x4 grid items (block/tool id strings or null)
+  let craftingGridState = Array(4).fill(null); // 2x2 inventory crafting grid
+  let craftingTableGridState = Array(9).fill(null); // 3x3 crafting table grid
   let craftingRecipes = [];
   let craftingOutput = null;
+  let craftingTableOutput = null;
   let currentCraftingRecipeId = null;
-  let recipePattern = Array(16).fill(null);
+  let recipePattern = Array(9).fill(null);
+  let playerSpawnHeight = 2;
 
   function rebuildBlockSet() {
     blockPositionSet.clear();
@@ -403,15 +406,18 @@ export function initGame(THREE){
     return drop;
   }
 
-  function getGroundHeight(x, z) {
-    let maxY = 0;
+  function getGroundHeight(x, z, belowY) {
+    let foundY = -Infinity;
     for (const block of blocks3D) {
       if (Math.abs(block.mesh.position.x - x) < 0.5 && 
           Math.abs(block.mesh.position.z - z) < 0.5) {
-        maxY = Math.max(maxY, block.mesh.position.y + 0.5);
+        const by = block.mesh.position.y;
+        if (by - 0.5 <= belowY && by > foundY) {
+          foundY = by;
+        }
       }
     }
-    return maxY;
+    return foundY === -Infinity ? -100 : foundY + 0.5;
   }
 
   function updateBlockDrops(delta) {
@@ -427,7 +433,7 @@ export function initGame(THREE){
         drop.velocity.y -= gravity * delta;
         drop.mesh.position.add(drop.velocity.clone().multiplyScalar(delta));
         
-        const groundY = getGroundHeight(drop.mesh.position.x, drop.mesh.position.z) + 0.2;
+        const groundY = getGroundHeight(drop.mesh.position.x, drop.mesh.position.z, drop.mesh.position.y);
         if (drop.mesh.position.y <= groundY) {
           drop.mesh.position.y = groundY;
           drop.grounded = true;
@@ -529,6 +535,16 @@ export function initGame(THREE){
       }
     } else if (e.button === 2 && intersects.length > 0) {
       const hit = intersects[0];
+      const hitBlock = blocks3D.find(b => b.mesh === hit.object);
+      if (hitBlock && hitBlock.type === "crafting_table") {
+        document.exitPointerLock();
+        const overlay = document.getElementById("craftingTableOverlay");
+        if (overlay) {
+          overlay.style.display = "flex";
+          initCraftingTableUI();
+        }
+        return;
+      }
       const slot = player.inventory[player.selectedSlot];
       if (!slot || !slot.type || slot.count <= 0) return;
       
@@ -825,7 +841,7 @@ export function initGame(THREE){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
-          if (seededRand(x, z) > 0.96) { // ~4% chance
+          if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
             const topY = h; // trunk starts directly above the top grass block (grass is at y = h-1)
             const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 3);
@@ -845,6 +861,7 @@ export function initGame(THREE){
     }
 
     // ✅ FIX: spawn player ABOVE ground
+    playerSpawnHeight = spawnHeight;
     if (player && player.group) {
       player.group.position.set(0, spawnHeight + 2, 0);
       player.velocity.y = 0;
@@ -2490,10 +2507,12 @@ export function initGame(THREE){
   }
 
   function matchRecipe(grid) {
+    const size = grid.length;
     for (const recipe of craftingRecipes) {
       if (!recipe.pattern || !recipe.output) continue;
+      if (recipe.pattern.length !== size) continue;
       let match = true;
-      for (let i = 0; i < 16; i++) {
+      for (let i = 0; i < size; i++) {
         const rp = recipe.pattern[i] || null;
         const gp = grid[i] || null;
         if (rp !== gp) { match = false; break; }
@@ -2524,7 +2543,7 @@ export function initGame(THREE){
     const grid = document.getElementById("craftingGrid");
     if (!grid) return;
     grid.innerHTML = "";
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 4; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
       const itemId = craftingGridState[i];
@@ -2596,7 +2615,7 @@ export function initGame(THREE){
       addBtn._initDone = true;
       addBtn.onclick = () => {
         currentCraftingRecipeId = null;
-        recipePattern = Array(16).fill(null);
+        recipePattern = Array(9).fill(null);
         const nameEl = document.getElementById("editRecipeName");
         if (nameEl) nameEl.value = "";
         if (outputSel) outputSel.value = "";
@@ -2635,7 +2654,7 @@ export function initGame(THREE){
         await fetch("/delete-recipe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: currentCraftingRecipeId }) });
         craftingRecipes = craftingRecipes.filter(r => r.id !== currentCraftingRecipeId);
         currentCraftingRecipeId = null;
-        recipePattern = Array(16).fill(null);
+        recipePattern = Array(9).fill(null);
         updateRecipeSidebar();
         renderRecipePatternGrid();
       };
@@ -2661,7 +2680,7 @@ export function initGame(THREE){
           }
         }
         // Consume ingredients (1 of each used slot)
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 4; i++) {
           if (craftingGridState[i]) {
             for (let j = 0; j < 36; j++) {
               if (player.inventory[j].type === craftingGridState[i] && player.inventory[j].count > 0) {
@@ -2672,10 +2691,141 @@ export function initGame(THREE){
             }
           }
         }
-        craftingGridState = Array(16).fill(null);
+        craftingGridState = Array(4).fill(null);
         renderCraftingGrid();
         renderInventoryGrid();
         updateHotbarUI();
+      };
+    }
+
+    // Also allow clicking the output slot to craft
+    const outputSlot = document.getElementById("craftingOutput");
+    if (outputSlot && !outputSlot._initDone) {
+      outputSlot._initDone = true;
+      outputSlot.onclick = () => {
+        const craftBtn = document.getElementById("craftBtn");
+        if (craftBtn) craftBtn.click();
+      };
+    }
+  }
+
+  // ─── CRAFTING TABLE (3x3) ──────────────────────────────────────────────────
+  function updateCraftingTableOutput() {
+    const recipe = matchRecipe(craftingTableGridState);
+    craftingTableOutput = recipe ? { type: recipe.output, count: recipe.outputCount || 1 } : null;
+    const outputSlot = document.getElementById("craftingTableOutput");
+    if (!outputSlot) return;
+    outputSlot.innerHTML = "";
+    if (craftingTableOutput) {
+      renderItemIcon(craftingTableOutput.type, outputSlot);
+      if (craftingTableOutput.count > 1) {
+        const cnt = document.createElement("div");
+        cnt.className = "item-count";
+        cnt.textContent = craftingTableOutput.count;
+        outputSlot.appendChild(cnt);
+      }
+    }
+  }
+
+  function renderCraftingTableGrid() {
+    const grid = document.getElementById("craftingTableGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 9; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const itemId = craftingTableGridState[i];
+      if (itemId) renderItemIcon(itemId, slot);
+      slot.onclick = (e) => {
+        if (player.draggedItem) {
+          const prev = craftingTableGridState[i];
+          craftingTableGridState[i] = player.draggedItem.type;
+          player.draggedItem = null;
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl) dragEl.remove();
+          if (prev) {
+            for (let j = 0; j < 36; j++) {
+              if (!player.inventory[j].type) {
+                player.inventory[j] = { type: prev, count: 1 };
+                break;
+              }
+            }
+          }
+        } else if (craftingTableGridState[i]) {
+          const itemType = craftingTableGridState[i];
+          craftingTableGridState[i] = null;
+          player.draggedItem = { type: itemType, count: 1, sourceIdx: -1 };
+          const dragEl = document.createElement("div");
+          dragEl.id = "dragged-item";
+          const icon = createBlockIcon(itemType) || createToolIcon(itemType);
+          if (icon) dragEl.appendChild(icon);
+          document.body.appendChild(dragEl);
+          updateDragPos(e);
+        }
+        renderCraftingTableGrid();
+        renderInventoryGrid();
+        updateHotbarUI();
+        updateCraftingTableOutput();
+      };
+      grid.appendChild(slot);
+    }
+    updateCraftingTableOutput();
+  }
+
+  function initCraftingTableUI() {
+    renderCraftingTableGrid();
+
+    const craftTableBtn = document.getElementById("craftTableBtn");
+    if (craftTableBtn && !craftTableBtn._initDone) {
+      craftTableBtn._initDone = true;
+      craftTableBtn.onclick = () => {
+        if (!craftingTableOutput) return;
+        let placed = false;
+        for (let i = 0; i < 36; i++) {
+          if (player.inventory[i].type === craftingTableOutput.type && player.inventory[i].count < 64) {
+            player.inventory[i].count += craftingTableOutput.count; placed = true; break;
+          }
+        }
+        if (!placed) {
+          for (let i = 0; i < 36; i++) {
+            if (!player.inventory[i].type || player.inventory[i].count === 0) {
+              player.inventory[i] = { type: craftingTableOutput.type, count: craftingTableOutput.count }; placed = true; break;
+            }
+          }
+        }
+        for (let i = 0; i < 9; i++) {
+          if (craftingTableGridState[i]) {
+            for (let j = 0; j < 36; j++) {
+              if (player.inventory[j].type === craftingTableGridState[i] && player.inventory[j].count > 0) {
+                player.inventory[j].count--;
+                if (player.inventory[j].count <= 0) player.inventory[j] = { type: null, count: 0 };
+                break;
+              }
+            }
+          }
+        }
+        craftingTableGridState = Array(9).fill(null);
+        renderCraftingTableGrid();
+        renderInventoryGrid();
+        updateHotbarUI();
+      };
+    }
+
+    const tableOutputSlot = document.getElementById("craftingTableOutput");
+    if (tableOutputSlot && !tableOutputSlot._initDone) {
+      tableOutputSlot._initDone = true;
+      tableOutputSlot.onclick = () => {
+        const craftTableBtn = document.getElementById("craftTableBtn");
+        if (craftTableBtn) craftTableBtn.click();
+      };
+    }
+
+    const closeBtn = document.getElementById("closeCraftingTable");
+    if (closeBtn && !closeBtn._initDone) {
+      closeBtn._initDone = true;
+      closeBtn.onclick = () => {
+        document.getElementById("craftingTableOverlay").style.display = "none";
+        renderer.domElement.requestPointerLock();
       };
     }
   }
@@ -2684,7 +2834,7 @@ export function initGame(THREE){
     const grid = document.getElementById("recipePatternGrid");
     if (!grid) return;
     grid.innerHTML = "";
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 9; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
       const itemId = recipePattern[i];
@@ -2711,7 +2861,7 @@ export function initGame(THREE){
       item.appendChild(lbl);
       item.onclick = () => {
         currentCraftingRecipeId = recipe.id;
-        recipePattern = [...(recipe.pattern || Array(16).fill(null))];
+        recipePattern = [...(recipe.pattern || Array(9).fill(null))].slice(0, 9);
         const nameEl = document.getElementById("editRecipeName");
         if (nameEl) nameEl.value = recipe.name || "";
         const outputSel = document.getElementById("recipeOutput");
@@ -3042,8 +3192,9 @@ export function initGame(THREE){
             const inventoryVisible = document.getElementById("inventoryOverlay").style.display === "flex";
             const devVisible = document.getElementById("devOverlay").style.display === "flex";
             const passVisible = document.getElementById("devPasswordOverlay").style.display === "flex";
+            const craftTableVisible = document.getElementById("craftingTableOverlay")?.style.display === "flex";
             
-            if (!inventoryVisible && !devVisible && !passVisible) {
+            if (!inventoryVisible && !devVisible && !passVisible && !craftTableVisible) {
                 const pause = document.getElementById("pauseMenu");
                 if (pause.style.display === "none") {
                     togglePauseMenu();
@@ -3271,6 +3422,12 @@ export function initGame(THREE){
         if (keys["Space"] && player.onGround) {
             player.velocity.y = JUMP;
             player.onGround = false;
+        }
+
+        // Respawn if player falls below y = -7
+        if (player.group.position.y < -7) {
+            player.group.position.set(0, playerSpawnHeight + 2, 0);
+            player.velocity.y = 0;
         }
 
         renderer.render(scene, camera);

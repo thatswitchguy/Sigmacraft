@@ -3,24 +3,24 @@
     "id": "banana_1773855243412",
     "name": "Banana",
     "pattern": [
-      null,
-      null,
-      null,
-      null,
-      null,
       "grass",
       "grass",
-      null,
-      null,
       "grass",
-      "grass",
-      null,
-      null,
-      null,
-      null,
-      null
+      "grass"
     ],
     "output": "banana",
+    "outputCount": 1
+  },
+  {
+    "id": "crafting_table_recipe",
+    "name": "Crafting Table",
+    "pattern": [
+      "wood",
+      "wood",
+      "wood",
+      "wood"
+    ],
+    "output": "crafting_table",
     "outputCount": 1
   }
 ]

@@ -9368,5 +9368,16 @@
       "front": "/textures/leaves/front.png",
       "back": "/textures/leaves/back.png"
     }
+  },
+  "crafting_table": {
+    "name": "Crafting Table",
+    "textures": {
+      "top": "#8B5E3C",
+      "bottom": "#6b3c11",
+      "front": "#8B5E3C",
+      "back": "#8B5E3C",
+      "left": "#8B5E3C",
+      "right": "#8B5E3C"
+    }
   }
 }
