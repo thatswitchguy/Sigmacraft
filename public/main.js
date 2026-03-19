@@ -749,7 +749,7 @@ export function initGame(THREE){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
 
-          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 5;
+          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 7;
 
           // Save spawn height at center
           if (x === 0 && z === 0) {
