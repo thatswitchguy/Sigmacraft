@@ -51,7 +51,11 @@ export function initGame(THREE){
     cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front
     inventory: Array(36).fill(null).map(() => ({ type: null, count: 0 })), // 27 inventory + 9 hotbar
     selectedSlot: 27, // Start at first hotbar slot (27-35)
-    draggedItem: null
+    draggedItem: null,
+    health: 20,
+    maxHealth: 20,
+    fallY: null,
+    invincibleTime: 0
   };
 
   const scene = new THREE.Scene();
