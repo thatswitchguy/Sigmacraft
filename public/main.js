@@ -15,7 +15,7 @@ export function initGame(THREE){
   let editingToolId = null;
 
   // Crafting
-  let craftingGridState = Array(16).fill(null); // 4x4 grid items (block/tool id strings or null)
+  let craftingGridState = Array(9).fill(null); // 4x4 grid items (block/tool id strings or null)
   let craftingRecipes = [];
   let craftingOutput = null;
   let currentCraftingRecipeId = null;
