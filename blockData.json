@@ -3113,9 +3113,9 @@
       ]
     },
     "imageUrls": {
-      "top": "/textures/grass_top.png",
-      "bottom": "/textures/grass_bottom.png",
-      "left": "/textures/grass_left.png",
+      "top": "/textures/grass/top.png",
+      "bottom": "/textures/grass/bottom.png",
+      "left": "/textures/grass/left.png",
       "right": "/textures/grass_right.png",
       "back": "/textures/grass_back.png",
       "front": "/textures/grass_front.png"
