@@ -221,7 +221,7 @@ export function initGame(THREE){
       player.model.visible = false;
       player.fp.handGroup.visible = true;
       camera.position.set(0, 1.6, 0);
-      camera.rotation.y = 0; // Fixed: Remove Math.PI rotation
+      camera.rotation.y = 0;
     } else if (player.cameraMode === 1) {
       // Third Person Back
       player.model.visible = true;
@@ -234,6 +234,15 @@ export function initGame(THREE){
       player.fp.handGroup.visible = false;
       camera.position.set(0, 2.5, -4);
       camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
+    }
+    // Sync hand/item visibility with the new camera mode
+    const heldItem = player.inventory[player.selectedSlot];
+    if (heldItem && heldItem.type && blockMaterials[heldItem.type]) {
+      player.fp.item.visible = player.cameraMode === 0;
+      player.fp.hand.visible = false;
+    } else {
+      player.fp.item.visible = false;
+      player.fp.hand.visible = player.cameraMode === 0;
     }
   }
 
