@@ -3094,24 +3094,45 @@ export function initGame(THREE){
       if (player.inventory[idx].type) {
         player.draggedItem = { ...player.inventory[idx], sourceIdx: idx };
         player.inventory[idx] = { type: null, count: 0 };
-        // Create visual drag element
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
         dragEl.appendChild(createBlockIcon(player.draggedItem.type));
         document.body.appendChild(dragEl);
         updateDragPos(e);
       }
+    } else if (e.shiftKey && player.draggedItem.count > 1) {
+      // Shift+click while holding a stack: place exactly 1 item, keep the rest held
+      const target = player.inventory[idx];
+      if (!target.type || target.type === player.draggedItem.type) {
+        if (!target.type) {
+          player.inventory[idx] = { type: player.draggedItem.type, count: 1 };
+        } else {
+          target.count += 1;
+        }
+        player.draggedItem.count -= 1;
+        // Refresh the drag visual to show the new count
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) {
+          dragEl.innerHTML = "";
+          const icon = createBlockIcon(player.draggedItem.type);
+          if (icon) dragEl.appendChild(icon);
+          if (player.draggedItem.count > 1) {
+            const countEl = document.createElement("div");
+            countEl.className = "item-count";
+            countEl.textContent = player.draggedItem.count;
+            dragEl.appendChild(countEl);
+          }
+        }
+      }
     } else {
-      // Swap or place
+      // Normal click: place full stack or swap
       const target = player.inventory[idx];
       if (target.type === player.draggedItem.type) {
         target.count += player.draggedItem.count;
       } else {
         player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
         if (target.type) {
-           // Swap back if target was not empty? 
-           // For simplicity, let's just place and if target existed, put it back in source or just swap
-           player.inventory[player.draggedItem.sourceIdx] = target;
+          player.inventory[player.draggedItem.sourceIdx] = target;
         }
       }
       player.draggedItem = null;
