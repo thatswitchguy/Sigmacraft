@@ -3042,6 +3042,7 @@ export function initGame(THREE){
   }
 
   function renderInventoryGrid() {
+    hideTooltip();
     const grid = document.getElementById("inventoryGrid");
     if (!grid) return;
     grid.innerHTML = "";
