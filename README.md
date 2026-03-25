@@ -1,6 +1,7 @@
 This is a small Minecraft-inspired game with not much to it
 
 __**Consists of:**__
+
 Inventory
 Developer mode (accessible with password)
 Crafting (currently doesnt give you the output)
