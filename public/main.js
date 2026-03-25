@@ -521,26 +521,36 @@ export function initGame(THREE){
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
     
-    if (e.button === 0) {
+    if (e.button === 0 && !e.shiftKey) {
       if (intersects.length > 0) {
         const hit = intersects[0];
         const blockData = blocks3D.find(b => b.mesh === hit.object);
-        if (blockData) {
+        if (blockData && blockData !== currentBreakTarget) {
           const breakTime = getBreakTime(blockData.type);
           if (breakTime < 0) return;
           
+          if (isBreaking) {
+            removeBreakingOverlay();
+          }
           isBreaking = true;
           breakStartTime = performance.now();
           currentBreakTarget = blockData;
           breakingBlock = blockData;
           breakingProgress = 0;
           breakingOverlay = createBreakingOverlay(blockData.mesh);
+        } else if (blockData && blockData === currentBreakTarget && !isBreaking) {
+          const breakTime = getBreakTime(blockData.type);
+          if (breakTime < 0) return;
+          isBreaking = true;
+          breakStartTime = performance.now();
+          breakingProgress = 0;
+          breakingOverlay = createBreakingOverlay(blockData.mesh);
         }
       }
-    } else if (e.button === 2 && intersects.length > 0) {
+    } else if ((e.button === 2 || (e.button === 0 && e.shiftKey)) && intersects.length > 0) {
       const hit = intersects[0];
       const hitBlock = blocks3D.find(b => b.mesh === hit.object);
-      if (hitBlock && hitBlock.type === "crafting_table") {
+      if (hitBlock && hitBlock.type === "crafting_table" && e.button === 2) {
         document.exitPointerLock();
         const overlay = document.getElementById("craftingTableOverlay");
         if (overlay) {
@@ -554,6 +564,7 @@ export function initGame(THREE){
       
       const blockName = slot.type;
       const mat = blockMaterials[blockName];
+      if (!mat) return;
       const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
       const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
@@ -607,6 +618,14 @@ export function initGame(THREE){
       const obj = currentBreakTarget.mesh;
       const blockType = currentBreakTarget.type;
       const blockPos = obj.position.clone();
+      
+      isBreaking = false;
+      currentBreakTarget = null;
+      breakingBlock = null;
+      breakingProgress = 0;
+      removeBreakingOverlay();
+
+      obj.visible = false;
       scene.remove(obj);
       const idx = blocks3D.findIndex(b => b.mesh === obj);
       if (idx !== -1) { blocks3D.splice(idx, 1); occlusionDirty = true; }
@@ -616,12 +635,6 @@ export function initGame(THREE){
       if (socket) {
           socket.emit("blockBreak", { pos: blockPos });
       }
-
-      isBreaking = false;
-      currentBreakTarget = null;
-      breakingBlock = null;
-      breakingProgress = 0;
-      removeBreakingOverlay();
     }
   }
 
@@ -847,15 +860,25 @@ export function initGame(THREE){
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
           if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
-            const topY = h; // trunk starts directly above the top grass block (grass is at y = h-1)
-            const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 3);
+            const topY = h;
+            const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 2);
+            // Place trunk
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
-            // Leaf canopy
-            for (let lx = -2; lx <= 2; lx++) {
-              for (let lz = -2; lz <= 2; lz++) {
-                for (let ly = 0; ly <= 2; ly++) {
-                  if (lx === 0 && lz === 0 && ly < 2) continue;
-                  addBlock3D(x + lx, topY + trunkH + ly - 1, z + lz, "leaves");
+            // Minecraft-style oak canopy:
+            // Layer -1 (trunkH-2): 5x5 minus corners
+            // Layer 0  (trunkH-1): 5x5 minus corners
+            // Layer 1  (trunkH  ): 3x3
+            // Layer 2  (trunkH+1): 3x3 (top cap, may skip corners)
+            const leafBase = topY + trunkH - 2;
+            for (let ly = 0; ly <= 3; ly++) {
+              const radius = ly <= 1 ? 2 : 1;
+              for (let lx = -radius; lx <= radius; lx++) {
+                for (let lz = -radius; lz <= radius; lz++) {
+                  // Skip corners on wide layers for rounded look
+                  if (radius === 2 && Math.abs(lx) === 2 && Math.abs(lz) === 2) continue;
+                  // Skip corners on top cap
+                  if (ly === 3 && Math.abs(lx) === 1 && Math.abs(lz) === 1 && seededRand(x+lx+ly, z+lz) > 0.5) continue;
+                  addBlock3D(x + lx, leafBase + ly, z + lz, "leaves");
                 }
               }
             }
