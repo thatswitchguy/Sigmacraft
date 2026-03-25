@@ -870,7 +870,7 @@ export function initGame(THREE){
           if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
             const topY = h;
-            const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 2);
+            const trunkH = 6 + Math.floor(seededRand(x + 1, z) * 2);
             // Place trunk
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
             // Minecraft-style oak canopy:

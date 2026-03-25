@@ -6248,7 +6248,7 @@
     }
   },
   "wood": {
-    "name": "wood",
+    "name": "Wood",
     "textures": {
       "top": [
         "#813b09",
@@ -7809,7 +7809,7 @@
     }
   },
   "leaves": {
-    "name": "leaves",
+    "name": "Leaves",
     "textures": {
       "top": [
         "#2d6e1a",
