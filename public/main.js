@@ -3375,8 +3375,10 @@ export function initGame(THREE){
             if (distSq > renderDistSq) {
                 p.group.visible = false;
             } else {
-                const dot = cameraDir.dot(toRemote.normalize());
-                p.group.visible = dot > -0.2;
+                const pp = p.group.position;
+                tempBox.min.set(pp.x - 0.5, pp.y, pp.z - 0.5);
+                tempBox.max.set(pp.x + 0.5, pp.y + 2, pp.z + 0.5);
+                p.group.visible = viewFrustum.intersectsBox(tempBox);
             }
         });
 
