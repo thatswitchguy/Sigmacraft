@@ -694,6 +694,24 @@ select, input[type="color"], button, input {
 }
 .primary-btn:hover { background: #357abd; }
 
+#healthCanvas {
+  position: absolute;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  image-rendering: pixelated;
+  z-index: 100;
+}
+
+#damageFlash {
+  position: fixed;
+  inset: 0;
+  background: rgba(200, 0, 0, 0);
+  pointer-events: none;
+  z-index: 99;
+  transition: background 0.15s ease-out;
+}
+
 #hotbar {
   position: absolute;
   bottom: 20px;
