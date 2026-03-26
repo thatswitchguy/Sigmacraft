@@ -934,9 +934,31 @@ export function initGame(THREE){
       if (!data || !data.id || !data.pos || !data.rot) return;
       const p = remotePlayers[data.id];
       if (p) {
+        p.prevPos = p.prevPos || p.group.position.clone();
+        const moved = p.group.position.distanceTo(data.pos) > 0.01;
+        if (moved) {
+          p.walkTime = (p.walkTime || 0) + 0.3;
+          const angle = Math.sin(p.walkTime) * 0.5;
+          if (p.limbs) {
+            p.limbs.legL.rotation.x = angle;
+            p.limbs.legR.rotation.x = -angle;
+            p.limbs.armL.rotation.x = -angle;
+            p.limbs.armR.rotation.x = angle;
+          }
+        } else {
+          p.walkTime = 0;
+          if (p.limbs) {
+            p.limbs.legL.rotation.x = 0;
+            p.limbs.legR.rotation.x = 0;
+            p.limbs.armL.rotation.x = 0;
+            p.limbs.armR.rotation.x = 0;
+          }
+        }
         p.group.position.copy(data.pos);
         p.group.rotation.y = data.rot.y;
-        if (p.model) p.model.rotation.x = data.rot.pitch;
+        if (p.limbs && p.limbs.head) {
+          p.limbs.head.rotation.x = data.rot.pitch;
+        }
       }
     });
 
