@@ -1,3 +1,4 @@
+/* This is a test comment */
 @font-face {
   font-family: 'Minecraftia';
   src: url('Minecraftia.ttf') format('truetype');
@@ -694,13 +695,15 @@ select, input[type="color"], button, input {
 }
 .primary-btn:hover { background: #357abd; }
 
-#healthCanvas {
+#hotbar #healthCanvas {
   position: absolute;
-  bottom: 90px;
-  left: 50%;
-  transform: translateX(-50%);
-  image-rendering: pixelated;
-  z-index: 100;
+  bottom: calc(100% + 6px);
+  left: 6px;
+  transform: none;
+  z-index: 101;
+  background: transparent;
+  image-rendering: auto; /* allow smoothing for scaled hearts */
+  pointer-events: none;
 }
 
 #damageFlash {
@@ -1003,7 +1006,7 @@ select, input[type="color"], button, input {
   border: 2px solid #555;
   border-radius: 6px;
   padding: 12px;
-  min-width: 200px;
+  min-width: 180px;
 }
 
 .inventory-crafting-panel h4 {
@@ -1057,8 +1060,27 @@ select, input[type="color"], button, input {
 .crafting-table-body {
   padding: 16px;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.crafting-table-inventory {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.crafting-table-inventory .inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 4px;
+  background: #8b8b8b;
+  padding: 4px;
+  border: 2px solid #373737;
 }
 
 #craftingTableOverlay {
@@ -1154,4 +1176,42 @@ select, input[type="color"], button, input {
   cursor: pointer;
   font-size: 12px;
   color: #aaa;
+}
+
+/* Death Screen Styling */
+.death-screen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.death-screen-container {
+  text-align: center;
+  background: rgba(0, 0, 0, 0.9);
+  padding: 40px;
+  border: 4px solid #888;
+  border-radius: 8px;
+  max-width: 400px;
+}
+
+.death-screen-title {
+  color: #ff4444;
+  font-size: 48px;
+  font-weight: bold;
+  font-family: "Minecraft", Arial, sans-serif;
+  margin: 0 0 30px 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.death-screen-btn {
+  font-size: 18px;
+  padding: 12px 30px;
+  margin-top: 20px;
 }

@@ -1,26 +1,33 @@
 [
   {
-    "id": "banana_1773855243412",
-    "name": "Banana",
+    "id": "crafting_table_t3st_1775773280316",
+    "name": "Crafting table t3st",
+    "type": "2x2",
     "pattern": [
       "grass",
       "grass",
       "grass",
       "grass"
     ],
-    "output": "banana",
+    "output": "crafting_table",
     "outputCount": 1
   },
   {
-    "id": "crafting_table_recipe",
-    "name": "Crafting Table",
+    "id": "the_pebble_1775774665286",
+    "name": "The Pebble",
+    "type": "3x3",
     "pattern": [
-      "wood",
-      "wood",
-      "wood",
-      "wood"
+      "stone",
+      "stone",
+      null,
+      "stone",
+      "stone",
+      null,
+      null,
+      null,
+      "stone"
     ],
-    "output": "crafting_table",
+    "output": "the_pebble",
     "outputCount": 1
   }
 ]

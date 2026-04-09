@@ -8,7 +8,7 @@ import http from "http";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const PORT = process.env.PORT || 5000;
+const PORT = 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -28,7 +28,9 @@ io.on("connection", (socket) => {
             pos: { x: 0, y: 10, z: 0 },
             rot: { y: 0, pitch: 0 },
             inventory: data.inventory || [],
-            selectedSlot: data.selectedSlot || 27
+            selectedSlot: data.selectedSlot || 27,
+            health: 20,
+            maxHealth: 20
         };
         socket.broadcast.emit("playerJoined", players[socket.id]);
         socket.emit("currentPlayers", players);
@@ -103,6 +105,28 @@ io.on("connection", (socket) => {
             worldBreaks.push(data.pos);
         }
         socket.broadcast.emit("blockBreak", data);
+    });
+
+    socket.on("playerAttack", (targetId) => {
+        if (players[targetId]) {
+            // Deal 0.5 hearts (half heart) = 1 damage point as per Minecraft
+            players[targetId].health = Math.max(0, players[targetId].health - 1);
+            io.emit("playerHealth", { id: targetId, health: players[targetId].health });
+        }
+    });
+
+    socket.on("playerFallDamage", (damage) => {
+        if (players[socket.id]) {
+            players[socket.id].health = Math.max(0, players[socket.id].health - damage);
+            io.emit("playerHealth", { id: socket.id, health: players[socket.id].health });
+        }
+    });
+
+    socket.on("playerHeal", (amount) => {
+        if (players[socket.id]) {
+            players[socket.id].health = Math.min(players[socket.id].maxHealth, players[socket.id].health + amount);
+            io.emit("playerHealth", { id: socket.id, health: players[socket.id].health });
+        }
     });
 });
 

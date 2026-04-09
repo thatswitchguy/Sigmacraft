@@ -15,13 +15,14 @@ export function initGame(THREE){
   let editingToolId = null;
 
   // Crafting
-  let craftingGridState = Array(4).fill(null); // 2x2 inventory crafting grid
-  let craftingTableGridState = Array(9).fill(null); // 3x3 crafting table grid
+  let craftingGridState = Array(4).fill(null).map(() => ({ type: null, count: 0 })); // 2x2 inventory crafting grid with stacking
+  let craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 })); // 3x3 crafting table grid with stacking
   let craftingRecipes = [];
   let craftingOutput = null;
   let craftingTableOutput = null;
   let currentCraftingRecipeId = null;
-  let recipePattern = Array(9).fill(null);
+  let recipePattern = Array(9).fill(null); // Default to 3x3
+  let currentRecipeType = "3x3"; // Track whether editing 2x2 or 3x3
   let playerSpawnHeight = 2;
 
   function rebuildBlockSet() {
@@ -54,7 +55,7 @@ export function initGame(THREE){
     draggedItem: null,
     health: 20,
     maxHealth: 20,
-    fallY: null,
+    peakY: null,
     invincibleTime: 0
   };
 
@@ -247,12 +248,39 @@ export function initGame(THREE){
   }
 
   function checkCollision(pos) {
+    // Check collision with blocks - only exact position matches
+    const roundX = Math.round(pos.x);
+    const roundY = Math.round(pos.y);
+    const roundZ = Math.round(pos.z);
+    
     for (const block of blocks3D) {
-      if (Math.abs(block.mesh.position.x - pos.x) < 0.6 &&
-          Math.abs(block.mesh.position.y - pos.y) < 0.6 &&
-          Math.abs(block.mesh.position.z - pos.z) < 0.6) {
-        return true;
+      const blockX = Math.round(block.mesh.position.x);
+      const blockY = Math.round(block.mesh.position.y);
+      const blockZ = Math.round(block.mesh.position.z);
+      if (blockX === roundX && blockY === roundY && blockZ === roundZ) {
+        return true; // Block already exists at this position
       }
+    }
+    
+    // Check collision with player position
+    const playerPos = player.group.position;
+    
+    // Allow placing blocks directly beneath if there's >0.5 blocks of space
+    const yDiff = playerPos.y - pos.y;
+    const playerRadius = 0.4; // Player hitbox horizontal radius
+    const isDirectlyBelow = Math.abs(playerPos.x - pos.x) < playerRadius && 
+                           Math.abs(playerPos.z - pos.z) < playerRadius;
+    
+    if (isDirectlyBelow && yDiff > 0.5) {
+      // Allow placement directly below with sufficient gap
+      return false;
+    }
+    
+    // Standard collision check
+    if (Math.abs(playerPos.x - pos.x) < 1.5 &&
+        Math.abs(playerPos.y - pos.y) < 2.0 &&
+        Math.abs(playerPos.z - pos.z) < 1.5) {
+      return true;
     }
     return false;
   }
@@ -265,6 +293,189 @@ export function initGame(THREE){
   let isBreaking = false;
   let breakStartTime = 0;
   let currentBreakTarget = null;
+
+  // Heart image support + Health rendering
+  let heartsImg = null;
+  let heartsLoaded = false;
+  let heartFrameW = 9;
+  let heartFrameH = 9;
+  let heartFullCanvas = null;
+  let heartGreyCanvas = null;
+  let heartHalfCanvas = null;
+
+  (function initHeartImage() {
+    heartsImg = new Image();
+    heartsImg.crossOrigin = 'anonymous';
+    heartsImg.onload = () => {
+      heartsLoaded = true;
+      try {
+        const frames = 10; // assume a strip of 10 hearts
+        heartFrameW = Math.max(1, Math.round(heartsImg.width / frames));
+        heartFrameH = heartsImg.height || 9;
+
+        heartFullCanvas = document.createElement('canvas');
+        heartFullCanvas.width = heartFrameW;
+        heartFullCanvas.height = heartFrameH;
+        const hf = heartFullCanvas.getContext('2d');
+        hf.clearRect(0, 0, heartFrameW, heartFrameH);
+        // copy left-most frame as the red heart
+        hf.drawImage(heartsImg, 0, 0, heartFrameW, heartFrameH, 0, 0, heartFrameW, heartFrameH);
+
+        // create grey-tinted version
+        heartGreyCanvas = document.createElement('canvas');
+        heartGreyCanvas.width = heartFrameW;
+        heartGreyCanvas.height = heartFrameH;
+        const hg = heartGreyCanvas.getContext('2d');
+        hg.clearRect(0, 0, heartFrameW, heartFrameH);
+        hg.drawImage(heartFullCanvas, 0, 0);
+        hg.globalCompositeOperation = 'source-in';
+        hg.fillStyle = '#444444';
+        hg.fillRect(0, 0, heartFrameW, heartFrameH);
+        hg.globalCompositeOperation = 'source-over';
+
+        // create half heart (left red, right grey)
+        heartHalfCanvas = document.createElement('canvas');
+        heartHalfCanvas.width = heartFrameW;
+        heartHalfCanvas.height = heartFrameH;
+        const hh = heartHalfCanvas.getContext('2d');
+        hh.clearRect(0, 0, heartFrameW, heartFrameH);
+        hh.drawImage(heartFullCanvas, 0, 0);
+        hh.save();
+        hh.beginPath();
+        hh.rect(Math.ceil(heartFrameW / 2), 0, Math.floor(heartFrameW / 2), heartFrameH);
+        hh.clip();
+        hh.drawImage(heartGreyCanvas, 0, 0);
+        hh.restore();
+      } catch (e) {
+        console.error('Heart image processing failed', e);
+        heartsLoaded = false;
+      }
+    };
+    heartsImg.onerror = () => {
+      if (!heartsImg._triedAlt) {
+        heartsImg._triedAlt = true;
+        heartsImg.src = '/hearts.png';
+      }
+    };
+    heartsImg.src = '/textures/hearts.png';
+  })();
+
+  // Health rendering function
+  function renderHealth() {
+    const canvas = document.getElementById('healthCanvas');
+    if (!canvas) return;
+
+    try {
+      // Render scale (adjust to make hearts larger)
+      const scale = 0.15; // Reduced scale to make hearts smaller
+
+      const srcW = Math.max(1, heartFrameW || 9);
+      const srcH = Math.max(1, heartFrameH || 9);
+      const heartWidth = Math.max(1, Math.round(srcW * scale));
+      const heartHeight = Math.max(1, Math.round(srcH * scale));
+      const padding = 0;
+
+      // Calculate and set canvas pixel buffer size (resets context)
+      const totalWidth = 10 * heartWidth;
+      const totalHeight = heartHeight + 2;
+      if (canvas.width !== totalWidth || canvas.height !== totalHeight) {
+        canvas.width = totalWidth;
+        canvas.height = totalHeight;
+      }
+
+      const ctx = canvas.getContext('2d');
+      // Use smoothing when scaling the provided sprite so hearts don't look pixelated
+      ctx.imageSmoothingEnabled = true;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const fullHearts = Math.floor(player.health / 2);
+      const hasHalfHeart = player.health % 2 === 1;
+
+      // Draw hearts (use image if available, otherwise fallback to pixel draw)
+      for (let i = 0; i < 10; i++) {
+        const x = i * heartWidth;
+        const y = 1;
+
+        if (heartsLoaded && heartFullCanvas) {
+          if (i < fullHearts) {
+            ctx.drawImage(heartFullCanvas, 0, 0, heartFrameW, heartFrameH, x, y, heartWidth, heartHeight);
+          } else if (i === fullHearts && hasHalfHeart) {
+            ctx.drawImage(heartHalfCanvas, 0, 0, heartFrameW, heartFrameH, x, y, heartWidth, heartHeight);
+          } else {
+            ctx.drawImage(heartGreyCanvas, 0, 0, heartFrameW, heartFrameH, x, y, heartWidth, heartHeight);
+          }
+        } else {
+          // Fallback: draw the pixel heart but scaled up
+          const pixelSize = Math.max(1, scale);
+          if (i < fullHearts) {
+            drawMinecraftHeart(ctx, x, y, true, true, pixelSize);
+          } else if (i === fullHearts && hasHalfHeart) {
+            drawMinecraftHeart(ctx, x, y, true, false, pixelSize);
+          } else {
+            drawMinecraftHeart(ctx, x, y, false, true, pixelSize);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('renderHealth error', e);
+    }
+  }
+
+  function drawMinecraftHeart(ctx, x, y, filled, isFull, pixelSize = 1) {
+    // Minecraft-style heart rendering - exact pixel pattern
+
+    // Minecraft heart shape (9x9 pixels) - accurate to java edition
+    const heartPixels = [
+      [0, 0, 1, 1, 0, 0, 0, 1, 1],
+      [0, 1, 1, 1, 1, 0, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [0, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 1, 1, 1, 1, 1, 0, 0],
+      [0, 0, 0, 1, 1, 1, 0, 0, 0],
+      [0, 0, 0, 0, 1, 0, 0, 0, 0]
+    ];
+
+    if (filled && isFull) {
+      // Full heart - completely filled with red
+      for (let row = 0; row < heartPixels.length; row++) {
+        for (let col = 0; col < heartPixels[row].length; col++) {
+          if (heartPixels[row][col]) {
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+          }
+        }
+      }
+    } else if (!filled && isFull) {
+      // Empty heart - outline only in dark grey
+      for (let row = 0; row < heartPixels.length; row++) {
+        for (let col = 0; col < heartPixels[row].length; col++) {
+          if (heartPixels[row][col]) {
+            ctx.fillStyle = '#444444';
+            ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+          }
+        }
+      }
+    } else if (!isFull) {
+      // Half heart - left half red, right half dark grey
+      for (let row = 0; row < heartPixels.length; row++) {
+        for (let col = 0; col < heartPixels[row].length; col++) {
+          if (heartPixels[row][col]) {
+            if (col <= 4) {
+              // Left half - red fill
+              ctx.fillStyle = '#ff0000';
+              ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+            } else {
+              // Right half - dark grey
+              ctx.fillStyle = '#444444';
+              ctx.fillRect(x + col * pixelSize, y + row * pixelSize, pixelSize, pixelSize);
+            }
+          }
+        }
+      }
+    }
+  }
 
   function showBlockCountMessage(action, blockName, count) {
     let msgDiv = document.getElementById("blockCountMessage");
@@ -442,6 +653,20 @@ export function initGame(THREE){
       const drop = blockDrops[i];
       drop.age += delta;
       
+      // Check if drop is inside a block and float it up
+      const blockAtPosition = blocks3D.find(b => 
+        Math.abs(b.mesh.position.x - drop.mesh.position.x) < 0.5 &&
+        Math.abs(b.mesh.position.z - drop.mesh.position.z) < 0.5 &&
+        Math.abs(b.mesh.position.y - drop.mesh.position.y) < 0.5
+      );
+      
+      if (blockAtPosition) {
+        // Float up by moving past the top of the block
+        drop.mesh.position.y = blockAtPosition.mesh.position.y + 1;
+        drop.velocity.y = 0;
+        drop.grounded = false;
+      }
+      
       if (!drop.grounded) {
         drop.velocity.y -= gravity * delta;
         drop.mesh.position.add(drop.velocity.clone().multiplyScalar(delta));
@@ -503,7 +728,8 @@ export function initGame(THREE){
         }
       }
       
-      if (drop.age > 300) {
+      // Despawn after 2 minutes (120 seconds)
+      if (drop.age > 120) {
         scene.remove(drop.mesh);
         blockDrops.splice(i, 1);
       }
@@ -528,6 +754,26 @@ export function initGame(THREE){
     swingTime = 0;
 
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+    
+    // Check for player attacks (left click)
+    if (e.button === 0 && !e.shiftKey) {
+      // First check if we hit another player
+      const playerMeshes = Object.values(remotePlayers).map(p => p.model);
+      const playerIntersects = raycaster.intersectObjects(playerMeshes, true);
+      
+      if (playerIntersects.length > 0) {
+        // Find which player was hit
+        for (const [playerId, remotePlayer] of Object.entries(remotePlayers)) {
+          if (playerMeshes[Object.keys(remotePlayers).indexOf(playerId)].children.some(child => 
+              playerIntersects[0].object === child || playerIntersects[0].object.parent === child
+          )) {
+            if (socket) socket.emit("playerAttack", playerId);
+            return;
+          }
+        }
+      }
+    }
+    
     const intersects = raycaster.intersectObjects(blocks3D.map(b => b.mesh));
     
     if (e.button === 0 && !e.shiftKey) {
@@ -577,6 +823,26 @@ export function initGame(THREE){
       const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
       const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
+
+      // Prevent placing blocks where the player is standing
+      try {
+        const blockPos = newBlock.position;
+        const playerPos = player.group.position;
+        const xDiff = Math.abs(playerPos.x - blockPos.x);
+        const yDiff = Math.abs(playerPos.y - blockPos.y);
+        const zDiff = Math.abs(playerPos.z - blockPos.z);
+        
+        // Allow placing below if there's >0.5 block gap, otherwise check collision normally
+        const isDirectlyBelow = xDiff < 0.4 && zDiff < 0.4;
+        if (isDirectlyBelow && playerPos.y - blockPos.y > 0.5) {
+          // Allow placement - there's enough clearance
+        } else if (xDiff < 0.9 && zDiff < 0.9 && yDiff < (playerHeight || 1.8)) {
+          // Block placement denied - too close to player
+          return;
+        }
+      } catch (e) {
+        // If playerHeight isn't initialized yet, ignore and continue to collision checks
+      }
 
       if (!checkCollision(newBlock.position)) {
         scene.add(newBlock);
@@ -969,6 +1235,23 @@ export function initGame(THREE){
       }
     });
 
+    socket.on("playerHealth", (data) => {
+      try {
+        if (!data || typeof data.health !== 'number') {
+          console.warn('playerHealth: invalid data', data);
+          return;
+        }
+        if (data.id === socket.id) {
+          player.health = Math.max(0, Math.min(20, data.health));
+          renderHealth();
+        } else if (remotePlayers[data.id]) {
+          remotePlayers[data.id].health = data.health;
+        }
+      } catch (e) {
+        console.error('Error handling playerHealth', e, data);
+      }
+    });
+
     socket.on("worldData", (blocks) => {
         if (!blocks || !Array.isArray(blocks)) return;
         if (blocks.length === 0) {
@@ -1119,21 +1402,100 @@ export function initGame(THREE){
 
     remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR } };
 
-    // Apply skin if it exists
+    // Apply skin if it exists - use proper texture extraction like the player model
     fetch("/skin").then(r => r.json()).then(res => {
         if (res.skin) {
-            const loader = new THREE.TextureLoader();
-            loader.load(res.skin, (tex) => {
-                tex.magFilter = THREE.NearestFilter;
-                tex.minFilter = THREE.NearestFilter;
-                const mat = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide });
-                remotehead.material = mat;
-                body.material = mat;
-                armL.material = mat;
-                armR.material = mat;
-                legL.material = mat;
-                legR.material = mat;
-            });
+            const img = new Image();
+            img.onload = () => {
+                const skinWidth = img.width;
+                const skinHeight = img.height;
+                
+                function extractAndApplySkinPart(mesh, x, y, w, h) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+                    const tex = new THREE.CanvasTexture(canvas);
+                    tex.magFilter = THREE.NearestFilter;
+                    tex.minFilter = THREE.NearestFilter;
+                    return new THREE.MeshStandardMaterial({ map: tex });
+                }
+                
+                function createBoxMaterialsForRemote(uvs) {
+                    return [
+                        extractAndApplySkinPart(mesh, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),    // +X = right
+                        extractAndApplySkinPart(mesh, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),        // -X = left
+                        extractAndApplySkinPart(mesh, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),            // +Y = top
+                        extractAndApplySkinPart(mesh, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h), // -Y = bottom
+                        extractAndApplySkinPart(mesh, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),        // +Z = game BACK
+                        extractAndApplySkinPart(mesh, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)     // -Z = game FRONT
+                    ];
+                }
+                
+                const headUV = {
+                    right: {x: 0, y: 8, w: 8, h: 8},
+                    left: {x: 16, y: 8, w: 8, h: 8},
+                    top: {x: 8, y: 0, w: 8, h: 8},
+                    bottom: {x: 16, y: 0, w: 8, h: 8},
+                    front: {x: 8, y: 8, w: 8, h: 8},
+                    back: {x: 24, y: 8, w: 8, h: 8}
+                };
+                
+                const bodyUV = {
+                    right: {x: 16, y: 20, w: 4, h: 12},
+                    left: {x: 28, y: 20, w: 4, h: 12},
+                    top: {x: 20, y: 16, w: 8, h: 4},
+                    bottom: {x: 28, y: 16, w: 8, h: 4},
+                    front: {x: 20, y: 20, w: 8, h: 12},
+                    back: {x: 32, y: 20, w: 8, h: 12}
+                };
+                
+                const armRightUV = {
+                    right: {x: 40, y: 20, w: 4, h: 12},
+                    left: {x: 48, y: 20, w: 4, h: 12},
+                    top: {x: 44, y: 16, w: 4, h: 4},
+                    bottom: {x: 48, y: 16, w: 4, h: 4},
+                    front: {x: 44, y: 20, w: 4, h: 12},
+                    back: {x: 52, y: 20, w: 4, h: 12}
+                };
+                
+                const armLeftUV = skinHeight >= 64 ? {
+                    right: {x: 32, y: 52, w: 4, h: 12},
+                    left: {x: 40, y: 52, w: 4, h: 12},
+                    top: {x: 36, y: 48, w: 4, h: 4},
+                    bottom: {x: 40, y: 48, w: 4, h: 4},
+                    front: {x: 36, y: 52, w: 4, h: 12},
+                    back: {x: 44, y: 52, w: 4, h: 12}
+                } : armRightUV;
+                
+                const legRightUV = {
+                    right: {x: 0, y: 20, w: 4, h: 12},
+                    left: {x: 8, y: 20, w: 4, h: 12},
+                    top: {x: 4, y: 16, w: 4, h: 4},
+                    bottom: {x: 8, y: 16, w: 4, h: 4},
+                    front: {x: 4, y: 20, w: 4, h: 12},
+                    back: {x: 12, y: 20, w: 4, h: 12}
+                };
+                
+                const legLeftUV = skinHeight >= 64 ? {
+                    right: {x: 16, y: 52, w: 4, h: 12},
+                    left: {x: 24, y: 52, w: 4, h: 12},
+                    top: {x: 20, y: 48, w: 4, h: 4},
+                    bottom: {x: 24, y: 48, w: 4, h: 4},
+                    front: {x: 20, y: 52, w: 4, h: 12},
+                    back: {x: 28, y: 52, w: 4, h: 12}
+                } : legRightUV;
+                
+                remotehead.material = createBoxMaterialsForRemote(headUV);
+                body.material
+                armL.material = createBoxMaterialsForRemote(armLeftUV);
+                armR.material = createBoxMaterialsForRemote(armRightUV);
+                legL.material = createBoxMaterialsForRemote(legLeftUV);
+                legR.material = createBoxMaterialsForRemote(legRightUV);
+            };
+            img.src = res.skin;
         }
     });
   }
@@ -1239,6 +1601,43 @@ export function initGame(THREE){
         });
     }
   });
+
+  // Death screen exit button
+  const exitToTitleBtn = document.getElementById("exitToTitleBtn");
+  if (exitToTitleBtn) {
+    exitToTitleBtn.onclick = () => {
+      // Reset game state
+      player.health = player.maxHealth;
+      player.group.position.set(0, playerSpawnHeight + 2, 0);
+      player.velocity.set(0, 0, 0);
+      
+      // Hide death screen
+      const deathScreen = document.getElementById("deathScreen");
+      if (deathScreen) {
+        deathScreen.style.display = "none";
+      }
+      
+      // Disconnect socket and go back to title
+      if (socket) {
+        socket.emit("leave");
+        socket.disconnect();
+      }
+      
+      // Show title screen
+      const titleScreen = document.getElementById("titleScreen");
+      if (titleScreen) {
+        titleScreen.style.display = "flex";
+      }
+      
+      // Reset inventory and other game states if needed
+      blocks3D.forEach(b => scene.remove(b.mesh));
+      blocks3D.length = 0;
+      occlusionDirty = true;
+      
+      // Exit pointer lock
+      document.exitPointerLock();
+    };
+  }
 
   let currentPixels = Array(256).fill("#ffffff");
 
@@ -1572,6 +1971,7 @@ export function initGame(THREE){
   }
 
   const devPasswordSubmit = document.getElementById("devPasswordSubmit");
+  const devPasswordInput = document.getElementById("devPasswordInput");
   if (devPasswordSubmit) {
     devPasswordSubmit.onclick = () => {
       const input = document.getElementById("devPasswordInput");
@@ -1583,6 +1983,22 @@ export function initGame(THREE){
       } else {
         alert("Incorrect password");
         input.value = "";
+      }
+    };
+  }
+  if (devPasswordInput) {
+    devPasswordInput.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (devPasswordInput.value === "Banana@123") {
+          document.getElementById("devPasswordOverlay").style.display = "none";
+          document.getElementById("devOverlay").style.display = "flex";
+          updateSidebar();
+          devPasswordInput.value = "";
+        } else {
+          alert("Incorrect password");
+          devPasswordInput.value = "";
+        }
       }
     };
   }
@@ -2366,6 +2782,17 @@ export function initGame(THREE){
           count.textContent = item.count;
           slot.appendChild(count);
         }
+        // Add hover tooltips to hotbar
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
+        slot.onmouseleave = hideTooltip;
+      } else {
+        // Remove tooltip handlers from empty slots
+        slot.onmouseenter = null;
+        slot.onmouseleave = null;
       }
     };
 
@@ -2375,14 +2802,32 @@ export function initGame(THREE){
 
   // ─── TOOL UI ───────────────────────────────────────────────────────────────
   function createToolIcon(id) {
-    const cvs = document.createElement("canvas");
-    cvs.width = 16; cvs.height = 16;
-    const ctx = cvs.getContext("2d");
-    const tex = toolTypes[id]?.texture;
-    if (Array.isArray(tex)) {
-      tex.forEach((color, i) => { ctx.fillStyle = color; ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1); });
-    } else { ctx.fillStyle = "#8B4513"; ctx.fillRect(0, 0, 16, 16); }
-    return cvs;
+    try {
+      const cvs = document.createElement("canvas");
+      cvs.width = 16;
+      cvs.height = 16;
+      const ctx = cvs.getContext("2d");
+      const tex = toolTypes[id]?.texture;
+      if (Array.isArray(tex)) {
+        tex.forEach((color, i) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+        });
+      } else {
+        ctx.fillStyle = "#8B4513";
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      return cvs;
+    } catch (e) {
+      console.error("Error creating tool icon:", e, id);
+      const cvs = document.createElement("canvas");
+      cvs.width = 16;
+      cvs.height = 16;
+      const ctx = cvs.getContext("2d");
+      ctx.fillStyle = "#ff00ff";
+      ctx.fillRect(0, 0, 16, 16);
+      return cvs;
+    }
   }
 
   function updateToolSidebar() {
@@ -2556,6 +3001,16 @@ export function initGame(THREE){
       slot.appendChild(createBlockIcon(id));
     } else if (toolTypes[id]) {
       slot.appendChild(createToolIcon(id));
+    } else {
+      // Fallback for items not in blockTypes or toolTypes
+      const canvas = document.createElement("canvas");
+      canvas.width = 16; canvas.height = 16;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#8B8B8B";
+      ctx.fillRect(0, 0, 16, 16);
+      ctx.fillStyle = "#CCCCCC";
+      ctx.fillRect(2, 2, 12, 12);
+      slot.appendChild(canvas);
     }
     const lbl = document.createElement("div");
     lbl.className = "item-count";
@@ -2565,29 +3020,79 @@ export function initGame(THREE){
   }
 
   function matchRecipe(grid) {
+    // Validate inputs
+    if (!Array.isArray(grid) || grid.length === 0) return null;
+    if (!Array.isArray(craftingRecipes) || craftingRecipes.length === 0) {
+      console.warn("No crafting recipes loaded");
+      return null;
+    }
+    
+    // Robust matching:
+    // - Direct match when pattern size equals grid size
+    // - Allow 2x2 (4) recipes to match anywhere inside a 3x3 (9) crafting table
     const size = grid.length;
+    
     for (const recipe of craftingRecipes) {
       if (!recipe.pattern || !recipe.output) continue;
-      if (recipe.pattern.length !== size) continue;
-      let match = true;
-      for (let i = 0; i < size; i++) {
-        const rp = recipe.pattern[i] || null;
-        const gp = grid[i] || null;
-        if (rp !== gp) { match = false; break; }
+      const p = recipe.pattern;
+
+      // Direct same-size match
+      if (p.length === size) {
+        let ok = true;
+        for (let i = 0; i < size; i++) {
+          const rp = p[i] || null;
+          const gp = grid[i] || null;
+          if (rp !== gp) { ok = false; break; }
+        }
+        if (ok) {
+          console.log("Recipe matched (direct):", recipe.name, "->", recipe.output);
+          return recipe;
+        }
       }
-      if (match) return recipe;
+
+      // Allow 2x2 recipes to be matched inside 3x3 crafting table
+      if (p.length === 4 && size === 9) {
+        // 2x2 positions inside 3x3 (top-left, top-right, bottom-left, bottom-right)
+        const offsets = [ [0,1,3,4], [1,2,4,5], [3,4,6,7], [4,5,7,8] ];
+        for (const off of offsets) {
+          let ok = true;
+          for (let i = 0; i < 4; i++) {
+            const rp = p[i] || null;
+            const gp = grid[off[i]] || null;
+            if (rp !== gp) { ok = false; break; }
+          }
+          if (ok) {
+            console.log("Recipe matched (2x2 in 3x3):", recipe.name, "->", recipe.output);
+            return recipe;
+          }
+        }
+      }
     }
+    
+    console.log("No recipe matched for grid:", grid);
     return null;
   }
 
   function updateCraftingOutput() {
-    const recipe = matchRecipe(craftingGridState);
+    // Convert crafting grid state to recipe format (extract types only)
+    const recipeGrid = craftingGridState.map(item => item ? item.type : null);
+    const recipe = matchRecipe(recipeGrid);
     craftingOutput = recipe ? { type: recipe.output, count: recipe.outputCount || 1 } : null;
     const outputSlot = document.getElementById("craftingOutput");
-    if (!outputSlot) return;
+    if (!outputSlot) {
+      console.warn("craftingOutput slot not found in DOM");
+      return;
+    }
     outputSlot.innerHTML = "";
     if (craftingOutput) {
-      renderItemIcon(craftingOutput.type, outputSlot);
+      console.log("Rendering crafting output:", craftingOutput);
+      // Render the output item icon
+      if (blockTypes[craftingOutput.type]) {
+        outputSlot.appendChild(createBlockIcon(craftingOutput.type));
+      } else if (toolTypes[craftingOutput.type]) {
+        outputSlot.appendChild(createToolIcon(craftingOutput.type));
+      }
+      // Show count if > 1
       if (craftingOutput.count > 1) {
         const cnt = document.createElement("div");
         cnt.className = "item-count";
@@ -2604,36 +3109,82 @@ export function initGame(THREE){
     for (let i = 0; i < 4; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
-      const itemId = craftingGridState[i];
-      if (itemId) renderItemIcon(itemId, slot);
+      const item = craftingGridState[i];
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        // Add hover tooltip
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
+        slot.onmouseleave = hideTooltip;
+      }
       slot.onclick = (e) => {
         if (player.draggedItem) {
-          // Place dragged item into this crafting slot
-          const prev = craftingGridState[i];
-          craftingGridState[i] = player.draggedItem.type;
-          player.draggedItem = null;
-          const dragEl = document.getElementById("dragged-item");
-          if (dragEl) dragEl.remove();
-          // If there was already something here, try to put it back
-          if (prev) {
-            let placed = false;
-            for (let j = 0; j < 36; j++) {
-              if (!player.inventory[j].type) {
-                player.inventory[j] = { type: prev, count: 1 };
-                placed = true;
-                break;
+          if (e.shiftKey && player.draggedItem.count > 1) {
+            // Shift+click while holding: place exactly 1, keep rest held
+            if (!craftingGridState[i].type || craftingGridState[i].type === player.draggedItem.type) {
+              if (!craftingGridState[i].type) {
+                craftingGridState[i] = { type: player.draggedItem.type, count: 1 };
+              } else {
+                craftingGridState[i].count += 1;
+              }
+              player.draggedItem.count -= 1;
+              // Refresh the drag visual to show the new count
+              const dragEl = document.getElementById("dragged-item");
+              if (dragEl) {
+                dragEl.innerHTML = "";
+                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+                if (icon) dragEl.appendChild(icon);
+                if (player.draggedItem.count > 1) {
+                  const countEl = document.createElement("div");
+                  countEl.className = "item-count";
+                  countEl.textContent = player.draggedItem.count;
+                  dragEl.appendChild(countEl);
+                }
               }
             }
+          } else {
+            // Normal placement: place dragged item into this crafting slot (supports stacking)
+            if (!craftingGridState[i].type) {
+              // Empty slot - place all items
+              craftingGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = null;
+            } else if (craftingGridState[i].type === player.draggedItem.type) {
+              // Same type - combine stacks
+              craftingGridState[i].count += player.draggedItem.count;
+              player.draggedItem = null;
+            } else {
+              // Different type - swap
+              const temp = { ...craftingGridState[i] };
+              craftingGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = temp;
+            }
+            const dragEl = document.getElementById("dragged-item");
+            if (dragEl && !player.draggedItem) dragEl.remove();
+            if (player.draggedItem) updateDragPos(e);
           }
-        } else if (craftingGridState[i]) {
+        } else if (craftingGridState[i] && craftingGridState[i].type) {
           // Pick up item from crafting slot into drag
-          const itemType = craftingGridState[i];
-          craftingGridState[i] = null;
-          player.draggedItem = { type: itemType, count: 1, sourceIdx: -1 };
+          player.draggedItem = { ...craftingGridState[i], sourceIdx: -1 };
+          craftingGridState[i] = { type: null, count: 0 };
           const dragEl = document.createElement("div");
           dragEl.id = "dragged-item";
-          const icon = createBlockIcon(itemType) || createToolIcon(itemType);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
+          if (player.draggedItem.count > 1) {
+            const count = document.createElement("div");
+            count.className = "item-count";
+            count.textContent = player.draggedItem.count;
+            dragEl.appendChild(count);
+          }
           document.body.appendChild(dragEl);
           updateDragPos(e);
         }
@@ -2668,14 +3219,34 @@ export function initGame(THREE){
     renderRecipePatternGrid();
     updateRecipeSidebar();
 
+    // Recipe type selector
+    const typeSelect = document.getElementById("recipeTypeSelect");
+    if (typeSelect && !typeSelect._initDone) {
+      typeSelect._initDone = true;
+      typeSelect.onchange = () => {
+        currentRecipeType = typeSelect.value;
+        const newSize = currentRecipeType === "2x2" ? 4 : 9;
+        // Resize pattern array
+        if (recipePattern.length < newSize) {
+          while (recipePattern.length < newSize) recipePattern.push(null);
+        } else {
+          while (recipePattern.length > newSize) recipePattern.pop();
+        }
+        renderRecipePatternGrid();
+      };
+    }
+
     const addBtn = document.getElementById("addRecipeBtn");
     if (addBtn && !addBtn._initDone) {
       addBtn._initDone = true;
       addBtn.onclick = () => {
         currentCraftingRecipeId = null;
+        currentRecipeType = "3x3"; // Default to 3x3
         recipePattern = Array(9).fill(null);
         const nameEl = document.getElementById("editRecipeName");
         if (nameEl) nameEl.value = "";
+        const typeEl = document.getElementById("recipeTypeSelect");
+        if (typeEl) typeEl.value = "3x3";
         if (outputSel) outputSel.value = "";
         const cntEl = document.getElementById("recipeOutputCount");
         if (cntEl) cntEl.value = "1";
@@ -2692,7 +3263,7 @@ export function initGame(THREE){
         const count = parseInt(document.getElementById("recipeOutputCount").value) || 1;
         if (!name || !output) return alert("Set recipe name and output");
         const id = currentCraftingRecipeId || name.toLowerCase().replace(/\s+/g, "_") + "_" + Date.now();
-        const recipe = { name, pattern: [...recipePattern], output, outputCount: count };
+        const recipe = { name, type: currentRecipeType, pattern: [...recipePattern], output, outputCount: count };
         await fetch("/save-recipe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, recipe }) });
         const existing = craftingRecipes.findIndex(r => r.id === id);
         if (existing !== -1) craftingRecipes[existing] = { id, ...recipe };
@@ -2712,6 +3283,7 @@ export function initGame(THREE){
         await fetch("/delete-recipe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: currentCraftingRecipeId }) });
         craftingRecipes = craftingRecipes.filter(r => r.id !== currentCraftingRecipeId);
         currentCraftingRecipeId = null;
+        currentRecipeType = "3x3";
         recipePattern = Array(9).fill(null);
         updateRecipeSidebar();
         renderRecipePatternGrid();
@@ -2737,19 +3309,15 @@ export function initGame(THREE){
             }
           }
         }
-        // Consume ingredients (1 of each used slot)
+        // Consume ingredients (decrement from crafting grid)
         for (let i = 0; i < 4; i++) {
-          if (craftingGridState[i]) {
-            for (let j = 0; j < 36; j++) {
-              if (player.inventory[j].type === craftingGridState[i] && player.inventory[j].count > 0) {
-                player.inventory[j].count--;
-                if (player.inventory[j].count <= 0) player.inventory[j] = { type: null, count: 0 };
-                break;
-              }
+          if (craftingGridState[i] && craftingGridState[i].type) {
+            craftingGridState[i].count--;
+            if (craftingGridState[i].count <= 0) {
+              craftingGridState[i] = { type: null, count: 0 };
             }
           }
         }
-        craftingGridState = Array(4).fill(null);
         renderCraftingGrid();
         renderInventoryGrid();
         updateHotbarUI();
@@ -2769,18 +3337,58 @@ export function initGame(THREE){
 
   // ─── CRAFTING TABLE (3x3) ──────────────────────────────────────────────────
   function updateCraftingTableOutput() {
-    const recipe = matchRecipe(craftingTableGridState);
+    console.log("Updating crafting table output. Grid state:", craftingTableGridState);
+    console.log("Available recipes:", craftingRecipes);
+    // Convert crafting grid state to recipe format (extract types only)
+    const recipeGrid = craftingTableGridState.map(item => item ? item.type : null);
+    const recipe = matchRecipe(recipeGrid);
     craftingTableOutput = recipe ? { type: recipe.output, count: recipe.outputCount || 1 } : null;
     const outputSlot = document.getElementById("craftingTableOutput");
-    if (!outputSlot) return;
+    if (!outputSlot) {
+      console.warn("craftingTableOutput slot not found in DOM");
+      return;
+    }
     outputSlot.innerHTML = "";
     if (craftingTableOutput) {
-      renderItemIcon(craftingTableOutput.type, outputSlot);
-      if (craftingTableOutput.count > 1) {
-        const cnt = document.createElement("div");
-        cnt.className = "item-count";
-        cnt.textContent = craftingTableOutput.count;
-        outputSlot.appendChild(cnt);
+      console.log("Rendering crafting table output:", craftingTableOutput);
+      console.log("blockTypes has:", Object.keys(blockTypes).slice(0, 5), "...");
+      console.log("Looking for block type:", craftingTableOutput.type);
+      
+      try {
+        // Render the output item icon
+        if (blockTypes[craftingTableOutput.type]) {
+          console.log("Found block type, creating icon");
+          const icon = createBlockIcon(craftingTableOutput.type);
+          if (icon) {
+            outputSlot.appendChild(icon);
+            console.log("Icon appended successfully");
+          } else {
+            console.warn("createBlockIcon returned null/undefined");
+          }
+        } else if (toolTypes[craftingTableOutput.type]) {
+          console.log("Found tool type, creating icon");
+          const icon = createToolIcon(craftingTableOutput.type);
+          if (icon) {
+            outputSlot.appendChild(icon);
+          }
+        } else {
+          console.warn("Output type not found in blockTypes or toolTypes:", craftingTableOutput.type);
+          // Fallback: create a placeholder
+          const placeholder = document.createElement("div");
+          placeholder.textContent = "?";
+          placeholder.style.cssText = "width:16px;height:16px;background:#ccc;display:flex;align-items:center;justify-content:center;";
+          outputSlot.appendChild(placeholder);
+        }
+        
+        // Show count if > 1
+        if (craftingTableOutput.count > 1) {
+          const cnt = document.createElement("div");
+          cnt.className = "item-count";
+          cnt.textContent = craftingTableOutput.count;
+          outputSlot.appendChild(cnt);
+        }
+      } catch (e) {
+        console.error("Error rendering crafting output:", e);
       }
     }
   }
@@ -2788,37 +3396,80 @@ export function initGame(THREE){
   function renderCraftingTableGrid() {
     const grid = document.getElementById("craftingTableGrid");
     if (!grid) return;
+    console.log("Rendering crafting table grid. Current state:", craftingTableGridState);
     grid.innerHTML = "";
     for (let i = 0; i < 9; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
-      const itemId = craftingTableGridState[i];
-      if (itemId) renderItemIcon(itemId, slot);
-      slot.onclick = (e) => {
-        if (player.draggedItem) {
-          const prev = craftingTableGridState[i];
-          craftingTableGridState[i] = player.draggedItem.type;
-          player.draggedItem = null;
-          const dragEl = document.getElementById("dragged-item");
-          if (dragEl) dragEl.remove();
-          if (prev) {
-            for (let j = 0; j < 36; j++) {
-              if (!player.inventory[j].type) {
-                player.inventory[j] = { type: prev, count: 1 };
-                break;
-              }
-            }
+      const item = craftingTableGridState[i];
+      if (item && item.type) {
+        console.log(`Slot ${i}: rendering item ${item.type} x${item.count}`);
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        if (icon) slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        // Add hover tooltip
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
           }
-        } else if (craftingTableGridState[i]) {
-          const itemType = craftingTableGridState[i];
-          craftingTableGridState[i] = null;
-          player.draggedItem = { type: itemType, count: 1, sourceIdx: -1 };
+        };
+        slot.onmouseleave = hideTooltip;
+      }
+      slot.onclick = (e) => {
+        console.log(`Crafting table grid slot ${i} clicked. Shift: ${e.shiftKey}. Dragged item:`, player.draggedItem);
+        if (player.draggedItem) {
+          // Place dragged item into this crafting slot (supports stacking)
+          if (!craftingTableGridState[i].type) {
+            // Empty slot - place all items
+            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+            player.draggedItem = null;
+          } else if (craftingTableGridState[i].type === player.draggedItem.type) {
+            // Same type - combine stacks
+            craftingTableGridState[i].count += player.draggedItem.count;
+            player.draggedItem = null;
+          } else {
+            // Different type - swap
+            const temp = { ...craftingTableGridState[i] };
+            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+            player.draggedItem = temp;
+          }
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl && !player.draggedItem) dragEl.remove();
+          if (player.draggedItem) updateDragPos(e);
+          console.log(`Placed into slot ${i}`);
+        } else if (e.shiftKey && craftingTableGridState[i] && craftingTableGridState[i].count > 1) {
+          // Shift+click with multiple items: place exactly 1, keep rest held
+          player.draggedItem = { type: craftingTableGridState[i].type, count: 1, sourceIdx: -1 };
+          craftingTableGridState[i].count -= 1;
           const dragEl = document.createElement("div");
           dragEl.id = "dragged-item";
-          const icon = createBlockIcon(itemType) || createToolIcon(itemType);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           document.body.appendChild(dragEl);
           updateDragPos(e);
+          console.log(`Shift-picked 1 item from slot ${i}`);
+        } else if (craftingTableGridState[i] && craftingTableGridState[i].type) {
+          // Normal click: pick up entire stack
+          player.draggedItem = { ...craftingTableGridState[i], sourceIdx: -1 };
+          craftingTableGridState[i] = { type: null, count: 0 };
+          const dragEl = document.createElement("div");
+          dragEl.id = "dragged-item";
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+          if (icon) dragEl.appendChild(icon);
+          if (player.draggedItem.count > 1) {
+            const count = document.createElement("div");
+            count.className = "item-count";
+            count.textContent = player.draggedItem.count;
+            dragEl.appendChild(count);
+          }
+          document.body.appendChild(dragEl);
+          updateDragPos(e);
+          console.log(`Picked up entire stack from slot ${i}`);
         }
         renderCraftingTableGrid();
         renderInventoryGrid();
@@ -2831,17 +3482,28 @@ export function initGame(THREE){
   }
 
   function initCraftingTableUI() {
+    console.log("Initializing crafting table UI");
     renderCraftingTableGrid();
+    renderCraftingTableInventory();
+    renderCraftingTableHotbar();
+    renderInventoryGrid();
+    updateCraftingTableOutput();
 
     const craftTableBtn = document.getElementById("craftTableBtn");
     if (craftTableBtn && !craftTableBtn._initDone) {
       craftTableBtn._initDone = true;
       craftTableBtn.onclick = () => {
-        if (!craftingTableOutput) return;
+        if (!craftingTableOutput) {
+          console.warn("No crafting table output available");
+          return;
+        }
+        console.log("Crafting item:", craftingTableOutput);
         let placed = false;
         for (let i = 0; i < 36; i++) {
           if (player.inventory[i].type === craftingTableOutput.type && player.inventory[i].count < 64) {
-            player.inventory[i].count += craftingTableOutput.count; placed = true; break;
+            player.inventory[i].count += craftingTableOutput.count;
+            placed = true;
+            break;
           }
         }
         if (!placed) {
@@ -2851,21 +3513,20 @@ export function initGame(THREE){
             }
           }
         }
+        // Consume ingredients (decrement from crafting table grid)
         for (let i = 0; i < 9; i++) {
-          if (craftingTableGridState[i]) {
-            for (let j = 0; j < 36; j++) {
-              if (player.inventory[j].type === craftingTableGridState[i] && player.inventory[j].count > 0) {
-                player.inventory[j].count--;
-                if (player.inventory[j].count <= 0) player.inventory[j] = { type: null, count: 0 };
-                break;
-              }
+          if (craftingTableGridState[i] && craftingTableGridState[i].type) {
+            craftingTableGridState[i].count--;
+            if (craftingTableGridState[i].count <= 0) {
+              craftingTableGridState[i] = { type: null, count: 0 };
             }
           }
         }
-        craftingTableGridState = Array(9).fill(null);
         renderCraftingTableGrid();
+        renderCraftingTableInventory();
+        renderCraftingTableHotbar();
         renderInventoryGrid();
-        updateHotbarUI();
+        updateCraftingTableOutput();
       };
     }
 
@@ -2882,17 +3543,157 @@ export function initGame(THREE){
     if (closeBtn && !closeBtn._initDone) {
       closeBtn._initDone = true;
       closeBtn.onclick = () => {
+        // Return crafting table grid items back to inventory
+        for (let i = 0; i < 9; i++) {
+          if (craftingTableGridState[i] && craftingTableGridState[i].type) {
+            let remaining = craftingTableGridState[i].count;
+            // Try to place in existing stacks
+            for (let j = 0; j < 36 && remaining > 0; j++) {
+              if (player.inventory[j].type === craftingTableGridState[i].type && player.inventory[j].count < 64) {
+                const space = 64 - player.inventory[j].count;
+                const toAdd = Math.min(space, remaining);
+                player.inventory[j].count += toAdd;
+                remaining -= toAdd;
+              }
+            }
+            // Place remaining in empty slots
+            for (let j = 0; j < 36 && remaining > 0; j++) {
+              if (!player.inventory[j].type) {
+                const toAdd = Math.min(64, remaining);
+                player.inventory[j] = { type: craftingTableGridState[i].type, count: toAdd };
+                remaining -= toAdd;
+              }
+            }
+            // Clear the crafting slot
+            craftingTableGridState[i] = { type: null, count: 0 };
+          }
+        }
+        renderCraftingTableInventory();
+        renderCraftingTableHotbar();
+        renderInventoryGrid();
         document.getElementById("craftingTableOverlay").style.display = "none";
         renderer.domElement.requestPointerLock();
       };
     }
   }
 
+  function renderCraftingTableInventory() {
+    const grid = document.getElementById("craftingTableInventoryGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = player.inventory[i];
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
+        slot.onmouseleave = hideTooltip;
+      }
+      slot.onclick = (e) => handleCraftingTableSlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function renderCraftingTableHotbar() {
+    const grid = document.getElementById("craftingTableHotbar");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 27; i < 36; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = player.inventory[i];
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
+        slot.onmouseleave = hideTooltip;
+      }
+      slot.onclick = (e) => handleCraftingTableSlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function handleCraftingTableSlotClick(e, idx) {
+    if (player.draggedItem === null) {
+      if (player.inventory[idx].type) {
+        player.draggedItem = { ...player.inventory[idx], sourceIdx: idx };
+        player.inventory[idx] = { type: null, count: 0 };
+        const dragEl = document.createElement("div");
+        dragEl.id = "dragged-item";
+        renderItemIcon(player.draggedItem.type, dragEl);
+        document.body.appendChild(dragEl);
+        updateDragPos(e);
+      }
+    } else if (e.shiftKey && player.draggedItem.count > 1) {
+      const target = player.inventory[idx];
+      if (!target.type || target.type === player.draggedItem.type) {
+        if (!target.type) {
+          player.inventory[idx] = { type: player.draggedItem.type, count: 1 };
+        } else {
+          target.count += 1;
+        }
+        player.draggedItem.count -= 1;
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) {
+          dragEl.innerHTML = "";
+          renderItemIcon(player.draggedItem.type, dragEl);
+          if (player.draggedItem.count > 1) {
+            const countEl = document.createElement("div");
+            countEl.className = "item-count";
+            countEl.textContent = player.draggedItem.count;
+            dragEl.appendChild(countEl);
+          }
+        }
+      }
+    } else {
+      const target = player.inventory[idx];
+      if (target.type === player.draggedItem.type) {
+        target.count += player.draggedItem.count;
+      } else {
+        player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
+        if (target.type) {
+          player.inventory[player.draggedItem.sourceIdx] = target;
+        }
+      }
+      player.draggedItem = null;
+      const dragEl = document.getElementById("dragged-item");
+      if (dragEl) dragEl.remove();
+    }
+    renderCraftingTableInventory();
+    renderCraftingTableHotbar();
+    renderInventoryGrid();
+  }
+
   function renderRecipePatternGrid() {
     const grid = document.getElementById("recipePatternGrid");
     if (!grid) return;
     grid.innerHTML = "";
-    for (let i = 0; i < 9; i++) {
+    
+    const patternSize = currentRecipeType === "2x2" ? 4 : 9;
+    const gridCols = currentRecipeType === "2x2" ? 2 : 3;
+    grid.style.gridTemplateColumns = `repeat(${gridCols}, 40px)`;
+    
+    for (let i = 0; i < patternSize; i++) {
       const slot = document.createElement("div");
       slot.className = "slot";
       const itemId = recipePattern[i];
@@ -2919,9 +3720,19 @@ export function initGame(THREE){
       item.appendChild(lbl);
       item.onclick = () => {
         currentCraftingRecipeId = recipe.id;
-        recipePattern = [...(recipe.pattern || Array(9).fill(null))].slice(0, 9);
+        currentRecipeType = recipe.type || "3x3"; // Default to 3x3 for old recipes
+        
+        // Set the pattern size based on type
+        const patternSize = currentRecipeType === "2x2" ? 4 : 9;
+        recipePattern = recipe.pattern ? [...recipe.pattern] : Array(patternSize).fill(null);
+        // Pad or trim to correct size
+        while (recipePattern.length < patternSize) recipePattern.push(null);
+        while (recipePattern.length > patternSize) recipePattern.pop();
+        
         const nameEl = document.getElementById("editRecipeName");
         if (nameEl) nameEl.value = recipe.name || "";
+        const typeEl = document.getElementById("recipeTypeSelect");
+        if (typeEl) typeEl.value = currentRecipeType;
         const outputSel = document.getElementById("recipeOutput");
         if (outputSel) outputSel.value = recipe.output || "";
         const cntEl = document.getElementById("recipeOutputCount");
@@ -3023,9 +3834,19 @@ export function initGame(THREE){
     // Load crafting recipes
     try {
       const recipeRes = await fetch("/crafting-recipes");
-      craftingRecipes = await recipeRes.json();
+      const recipeData = await recipeRes.json();
+      if (Array.isArray(recipeData)) {
+        craftingRecipes = recipeData;
+        console.log("Crafting recipes loaded successfully:", craftingRecipes);
+      } else {
+        console.error("Recipe data is not an array:", recipeData);
+        craftingRecipes = [];
+      }
       initCraftingUI();
-    } catch(e) { craftingRecipes = []; }
+    } catch(e) {
+      console.error("Failed to load crafting recipes:", e);
+      craftingRecipes = [];
+    }
 
     createPixelGrid();
     setupInventoryUI();
@@ -3093,21 +3914,39 @@ export function initGame(THREE){
   }
 
   function showTooltip(e, text) {
-    const tooltip = document.getElementById("itemTooltip");
-    tooltip.textContent = text;
-    tooltip.style.display = "block";
-    updateTooltipPos(e);
+    try {
+      const tooltip = document.getElementById("itemTooltip");
+      if (!tooltip) return;
+      tooltip.textContent = text;
+      tooltip.style.display = "block";
+      tooltip.style.visibility = "visible";
+      updateTooltipPos(e);
+    } catch (err) {
+      console.warn("Error showing tooltip:", err);
+    }
   }
 
   function hideTooltip() {
-    document.getElementById("itemTooltip").style.display = "none";
+    try {
+      const tooltip = document.getElementById("itemTooltip");
+      if (!tooltip) return;
+      tooltip.style.display = "none";
+      tooltip.style.visibility = "hidden";
+    } catch (err) {
+      console.warn("Error hiding tooltip:", err);
+    }
   }
 
   function updateTooltipPos(e) {
-    const tooltip = document.getElementById("itemTooltip");
-    if (tooltip) {
-      tooltip.style.left = e.clientX + "px";
-      tooltip.style.top = (e.clientY - 10) + "px";
+    try {
+      const tooltip = document.getElementById("itemTooltip");
+      if (!tooltip || !e) return;
+      const x = Math.max(0, Math.min(e.clientX, window.innerWidth - 100));
+      const y = Math.max(0, e.clientY - 10);
+      tooltip.style.left = x + "px";
+      tooltip.style.top = y + "px";
+    } catch (err) {
+      console.warn("Error updating tooltip position:", err);
     }
   }
 
@@ -3180,23 +4019,40 @@ export function initGame(THREE){
   });
 
   function createBlockIcon(blockName) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 16;
-    const ctx = canvas.getContext("2d");
-    const textures = blockTypes[blockName]?.textures;
-    const tex = textures?.front || textures?.top || "#ffffff";
-    
-    if (Array.isArray(tex)) {
-      tex.forEach((color, i) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-      });
-    } else {
-      ctx.fillStyle = tex;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext("2d");
+      const textures = blockTypes[blockName]?.textures;
+      if (!textures) {
+        console.warn("No textures found for block:", blockName);
+        ctx.fillStyle = "#808080";
+        ctx.fillRect(0, 0, 16, 16);
+        return canvas;
+      }
+      const tex = textures.front || textures.top || "#ffffff";
+      
+      if (Array.isArray(tex)) {
+        tex.forEach((color, i) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+        });
+      } else {
+        ctx.fillStyle = tex;
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      return canvas;
+    } catch (e) {
+      console.error("Error creating block icon:", e, blockName);
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ff00ff";
       ctx.fillRect(0, 0, 16, 16);
+      return canvas;
     }
-    return canvas;
   }
 
   const closeInventoryBtn = document.getElementById("closeInventory");
@@ -3207,59 +4063,7 @@ export function initGame(THREE){
     };
   }
 
-  const applyColorBtn = document.getElementById("applyColor");
-  if (applyColorBtn) {
-    applyColorBtn.onclick = async () => {
-      const blockSelect = document.getElementById("blockSelect");
-      const sideSelect = document.getElementById("sideSelect");
-      if (!blockSelect || !sideSelect) return;
-      
-      const blockName = blockSelect.value;
-      const side = sideSelect.value;
-      await fetch("/update-block", {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blockName, side, textureData: currentPixels })
-      });
 
-      // Update local state immediately
-      if (!blockTypes[blockName]) blockTypes[blockName] = { name: blockName, textures: {} };
-      blockTypes[blockName].textures[side] = [...currentPixels];
-      
-      // Update materials
-      const materials = [];
-      const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-      sides.forEach(s => {
-        const data = blockTypes[blockName].textures[s];
-        if (Array.isArray(data)) {
-          const canvas = document.createElement('canvas');
-          canvas.width = 16;
-          canvas.height = 16;
-          const ctx = canvas.getContext('2d');
-          data.forEach((color, i) => {
-            ctx.fillStyle = color;
-            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-          });
-          const texture = new THREE.CanvasTexture(canvas);
-          texture.magFilter = THREE.NearestFilter;
-          texture.minFilter = THREE.NearestFilter;
-          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
-        } else {
-          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
-        }
-      });
-      blockMaterials[blockName] = materials;
-      
-      // Update existing blocks in world
-      blocks3D.forEach(b => {
-        if (b.type === blockName) {
-          b.mesh.material = materials;
-        }
-      });
-
-      alert("Texture saved!");
-    };
-  }
 
     // PHYSICS
     const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
@@ -3317,6 +4121,7 @@ export function initGame(THREE){
   let frames = 0;
   let fpsLastTime = performance.now();
   const fpsElement = document.getElementById("fpsCounter");
+  let lastHealTime = performance.now(); // Track healing timer
 
     function animate() {
         requestAnimationFrame(animate);
@@ -3395,6 +4200,18 @@ export function initGame(THREE){
         updateBreaking();
         updateBlockDrops(delta);
 
+        // Healing system - heal 0.5 hearts (1 damage point) every second
+        if (now - lastHealTime >= 1000) {
+          if (player.health < player.maxHealth && player.onGround) {
+            if (socket) socket.emit("playerHeal", 1); // only send when multiplayer
+            const prev = player.health;
+            player.health = Math.min(player.maxHealth, player.health + 1);
+            console.log('Player healed', 1, 'health', prev, '->', player.health);
+            renderHealth();
+          }
+          lastHealTime = now;
+        }
+
         player.group.rotation.y = player.yaw;
         
         if (isSwinging) {
@@ -3432,15 +4249,19 @@ export function initGame(THREE){
             player.limbs.armR.rotation.x = 0;
         }
 
+        // Update sneak state (Shift) before camera adjustments
+        player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
+
         if (player.cameraMode === 0) {
-            // First Person: Camera follows head pitch and inherits group rotation
-            camera.rotation.set(player.pitch, 0, 0); 
-            camera.position.set(0, 1.6, 0); // Position relative to player group
-            player.model.visible = false;
-            // Ensure first person hand is visible and positioned correctly
-            if (player.fp && player.fp.handGroup) {
-                player.fp.handGroup.visible = true;
-            }
+          // First Person: Camera follows head pitch and inherits group rotation
+          camera.rotation.set(player.pitch, 0, 0);
+          // Slightly lower the camera when sneaking (crouch)
+          camera.position.set(0, player.isSneaking ? 1.4 : 1.6, 0); // Position relative to player group
+          player.model.visible = false;
+          // Ensure first person hand is visible and positioned correctly
+          if (player.fp && player.fp.handGroup) {
+            player.fp.handGroup.visible = true;
+          }
         } else if (player.cameraMode === 1) {
             // Third Person Back
             player.model.visible = true;
@@ -3471,21 +4292,37 @@ export function initGame(THREE){
         if (keys["KeyA"]) moveDir.x -= 1;
         if (keys["KeyD"]) moveDir.x += 1;
 
+        // Helper: allow movement to a position, and when sneaking prevent stepping off edges
+        function canMoveTo(pos) {
+          if (checkCollision(pos)) return false;
+          if (!player.isSneaking) return true;
+          try {
+            const groundY = getGroundHeight(pos.x, pos.z, player.group.position.y);
+            if (groundY === -100) return false;
+            if (groundY < player.group.position.y - 0.6) return false;
+          } catch (e) {
+            return true;
+          }
+          return true;
+        }
+
         if (moveDir.lengthSq() > 0) {
-            moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED);
-            
+            // Reduce movement speed while sneaking
+            const speedMul = player.isSneaking ? 0.3 : 1.0;
+            moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED * speedMul);
+
             // Current position before move
             const currentPos = player.group.position.clone();
-            
-            // X-axis collision
+
+            // X-axis collision (and sneaking edge-check)
             const nextX = currentPos.clone();
             nextX.x += moveDir.x;
-            if (!checkCollision(nextX)) player.group.position.x = nextX.x;
-            
-            // Z-axis collision
-            const nextZ = player.group.position.clone(); // Use updated X if it moved
+            if (canMoveTo(nextX)) player.group.position.x = nextX.x;
+
+            // Z-axis collision (use updated X if it moved)
+            const nextZ = player.group.position.clone();
             nextZ.z += moveDir.z;
-            if (!checkCollision(nextZ)) player.group.position.z = nextZ.z;
+            if (canMoveTo(nextZ)) player.group.position.z = nextZ.z;
         }
 
         player.velocity.y += GRAVITY;
@@ -3495,22 +4332,67 @@ export function initGame(THREE){
         if (!checkCollision(nextY)) {
             player.group.position.y = nextY.y;
             player.onGround = false;
+            
+            // Track peak height for fall damage
+            if (player.peakY === null || player.group.position.y > player.peakY) {
+                player.peakY = player.group.position.y;
+            }
         } else {
-            if (player.velocity.y < 0) player.onGround = true;
+            if (player.velocity.y < 0) {
+                // Just landed
+                player.onGround = true;
+                
+                // Calculate fall damage
+                if (player.peakY !== null) {
+                    const fallDistance = player.peakY - player.group.position.y;
+                    if (fallDistance > 3) {
+                        // Fall damage: 0.5 hearts per block over 3 blocks = 1 damage per block
+                        const damagePoints = Math.ceil((fallDistance - 3) * 2);
+                        if (damagePoints > 0 && player.invincibleTime === 0) {
+                          const prevHealth = player.health;
+                          if (socket) socket.emit("playerFallDamage", damagePoints);
+                          player.health = Math.max(0, player.health - damagePoints);
+                          console.log('Player fall damage', damagePoints, 'health', prevHealth, '->', player.health);
+                          player.invincibleTime = 20; // 20 frames of invincibility after damage
+                          renderHealth();
+                        }
+                    }
+                    player.peakY = null;
+                }
+            }
             player.velocity.y = 0;
         }
 
         if (keys["Space"] && player.onGround) {
             player.velocity.y = JUMP;
             player.onGround = false;
+            player.peakY = player.group.position.y; // Record peak at jump start
+        }
+        
+        // Reduce invincibility time
+        if (player.invincibleTime > 0) {
+            player.invincibleTime--;
         }
 
         // Respawn if player falls below y = -7
         if (player.group.position.y < -7) {
             player.group.position.set(0, playerSpawnHeight + 2, 0);
             player.velocity.y = 0;
+            player.health = player.maxHealth;
+            renderHealth();
         }
 
+        renderHealth();
+        
+        // Check if player is dead and show death screen
+        if (player.health <= 0) {
+          const deathScreen = document.getElementById("deathScreen");
+          if (deathScreen && deathScreen.style.display === "none") {
+            deathScreen.style.display = "flex";
+            document.exitPointerLock();
+          }
+        }
+        
         renderer.render(scene, camera);
     }
 

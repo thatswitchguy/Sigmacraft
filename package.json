@@ -1,14 +1,16 @@
 {
   "name": "sigmacraft",
-  "version": "1.0.0",
+  "version": "v1.4.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "play": "node autostart.js"
   },
   "dependencies": {
-    "canvas": "^3.2.2",
+    "canvas": "^3.2.3",
     "express": "^5.0.1",
+    "open": "^9.1.0",
     "socket.io": "^4.8.3"
   },
   "optionalDependencies": {
