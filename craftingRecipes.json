@@ -1,13 +1,13 @@
 [
   {
     "id": "crafting_table_t3st_1775773280316",
-    "name": "Crafting table t3st",
+    "name": "Crafting table",
     "type": "2x2",
     "pattern": [
-      "grass",
-      "grass",
-      "grass",
-      "grass"
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks"
     ],
     "output": "crafting_table",
     "outputCount": 1
@@ -29,5 +29,18 @@
     ],
     "output": "the_pebble",
     "outputCount": 1
+  },
+  {
+    "id": "oak_planks_1775843575134",
+    "name": "Oak Planks",
+    "type": "2x2",
+    "pattern": [
+      "wood",
+      null,
+      null,
+      null
+    ],
+    "output": "wooden_planks",
+    "outputCount": 4
   }
 ]

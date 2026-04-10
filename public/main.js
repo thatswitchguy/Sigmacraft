@@ -1136,15 +1136,11 @@ export function initGame(THREE){
           if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
             const topY = h;
-            const trunkH = 4 + Math.floor(seededRand(x + 1, z) * 2);
+            const trunkH = 6; // Set trunk height to 6 blocks
             // Place trunk
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
-            // Minecraft-style oak canopy:
-            // Layer -1 (trunkH-2): 5x5 minus corners
-            // Layer 0  (trunkH-1): 5x5 minus corners
-            // Layer 1  (trunkH  ): 3x3
-            // Layer 2  (trunkH+1): 3x3 (top cap, may skip corners)
-            const leafBase = topY + trunkH - 2;
+            // Adjust canopy placement to be at the top of the trunk
+            const leafBase = topY + trunkH - 1; // Canopy starts at the top of the trunk
             for (let ly = 0; ly <= 3; ly++) {
               const radius = ly <= 1 ? 2 : 1;
               for (let lx = -radius; lx <= radius; lx++) {
@@ -1343,26 +1339,26 @@ export function initGame(THREE){
     // Arms
     const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
     armL.position.set(-0.3, 1.1, 0);
-    armL.geometry.translate(0, -0.3, 0);
+    armL.geometry.translate(0, -0.3, 0); // Move pivot to top
     armL.position.y += 0.3;
     model.add(armL);
 
     const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
     armR.position.set(0.3, 1.1, 0);
-    armR.geometry.translate(0, -0.3, 0);
+    armR.geometry.translate(0, -0.3, 0); // Move pivot to top
     armR.position.y += 0.3;
     model.add(armR);
 
     // Legs
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
     legL.position.set(-0.1, 0.5, 0);
-    legL.geometry.translate(0, -0.3, 0);
+    legL.geometry.translate(0, -0.3, 0); // Move pivot to top
     legL.position.y += 0.3;
     model.add(legL);
 
     const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
     legR.position.set(0.1, 0.5, 0);
-    legR.geometry.translate(0, -0.3, 0);
+    legR.geometry.translate(0, -0.3, 0); // Move pivot to top
     legR.position.y += 0.3;
     model.add(legR);
 
@@ -2843,7 +2839,8 @@ export function initGame(THREE){
       lbl.style.flex = "1";
       item.appendChild(lbl);
       const del = document.createElement("button");
-      del.innerHTML = "&times;"; del.className = "small-btn";
+      del.innerHTML = "&times;";
+      del.className = "small-btn";
       del.style.cssText = "background:transparent;border:none;color:#f44";
       del.onclick = async (e) => {
         e.stopPropagation();
@@ -3088,10 +3085,29 @@ export function initGame(THREE){
       console.log("Rendering crafting output:", craftingOutput);
       // Render the output item icon
       if (blockTypes[craftingOutput.type]) {
-        outputSlot.appendChild(createBlockIcon(craftingOutput.type));
+        console.log("Found block type, creating icon");
+        const icon = createBlockIcon(craftingOutput.type);
+        if (icon) {
+          outputSlot.appendChild(icon);
+          console.log("Icon appended successfully");
+        } else {
+          console.warn("createBlockIcon returned null/undefined");
+        }
       } else if (toolTypes[craftingOutput.type]) {
-        outputSlot.appendChild(createToolIcon(craftingOutput.type));
+        console.log("Found tool type, creating icon");
+        const icon = createToolIcon(craftingOutput.type);
+        if (icon) {
+          outputSlot.appendChild(icon);
+        }
+      } else {
+        console.warn("Output type not found in blockTypes or toolTypes:", craftingOutput.type);
+        // Fallback: create a placeholder
+        const placeholder = document.createElement("div");
+        placeholder.textContent = "?";
+        placeholder.style.cssText = "width:16px;height:16px;background:#ccc;display:flex;align-items:center;justify-content:center;";
+        outputSlot.appendChild(placeholder);
       }
+      
       // Show count if > 1
       if (craftingOutput.count > 1) {
         const cnt = document.createElement("div");
@@ -4063,57 +4079,55 @@ export function initGame(THREE){
     };
   }
 
+  // PHYSICS
+  const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
+  const playerWidth = 0.3; // Half-width
+  const playerHeight = 1.8;
 
+  document.addEventListener("pointerlockchange", () => {
+      if (document.pointerLockElement !== renderer.domElement) {
+          const inventoryVisible = document.getElementById("inventoryOverlay").style.display === "flex";
+          const devVisible = document.getElementById("devOverlay").style.display === "flex";
+          const passVisible = document.getElementById("devPasswordOverlay").style.display === "flex";
+          const craftTableVisible = document.getElementById("craftingTableOverlay")?.style.display === "flex";
+          
+          if (!inventoryVisible && !devVisible && !passVisible && !craftTableVisible) {
+              const pause = document.getElementById("pauseMenu");
+              if (pause.style.display === "none") {
+                  togglePauseMenu();
+              }
+          }
+      }
+  });
 
-    // PHYSICS
-    const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
-    const playerWidth = 0.3; // Half-width
-    const playerHeight = 1.8;
+  function getPlayerAABB(pos) {
+      return {
+          minX: pos.x - playerWidth,
+          maxX: pos.x + playerWidth,
+          minY: pos.y,
+          maxY: pos.y + playerHeight,
+          minZ: pos.z - playerWidth,
+          maxZ: pos.z + playerWidth
+      };
+  }
 
-    document.addEventListener("pointerlockchange", () => {
-        if (document.pointerLockElement !== renderer.domElement) {
-            const inventoryVisible = document.getElementById("inventoryOverlay").style.display === "flex";
-            const devVisible = document.getElementById("devOverlay").style.display === "flex";
-            const passVisible = document.getElementById("devPasswordOverlay").style.display === "flex";
-            const craftTableVisible = document.getElementById("craftingTableOverlay")?.style.display === "flex";
-            
-            if (!inventoryVisible && !devVisible && !passVisible && !craftTableVisible) {
-                const pause = document.getElementById("pauseMenu");
-                if (pause.style.display === "none") {
-                    togglePauseMenu();
-                }
-            }
-        }
-    });
+  function checkCollision(pos) {
+      const aabb = getPlayerAABB(pos);
+      // Optimize: only check nearby blocks
+      for (const b of blocks3D) {
+          const bx = b.mesh.position.x;
+          const by = b.mesh.position.y;
+          const bz = b.mesh.position.z;
 
-    function getPlayerAABB(pos) {
-        return {
-            minX: pos.x - playerWidth,
-            maxX: pos.x + playerWidth,
-            minY: pos.y,
-            maxY: pos.y + playerHeight,
-            minZ: pos.z - playerWidth,
-            maxZ: pos.z + playerWidth
-        };
-    }
-
-    function checkCollision(pos) {
-        const aabb = getPlayerAABB(pos);
-        // Optimize: only check nearby blocks
-        for (const b of blocks3D) {
-            const bx = b.mesh.position.x;
-            const by = b.mesh.position.y;
-            const bz = b.mesh.position.z;
-
-            // Block AABB (1x1x1 centered)
-            if (aabb.maxX > bx - 0.5 && aabb.minX < bx + 0.5 &&
-                aabb.maxY > by - 0.5 && aabb.minY < by + 0.5 &&
-                aabb.maxZ > bz - 0.5 && aabb.minZ < bz + 0.5) {
-                return true;
-            }
-        }
-        return false;
-    }
+          // Block AABB (1x1x1 centered)
+          if (aabb.maxX > bx - 0.5 && aabb.minX < bx + 0.5 &&
+              aabb.maxY > by - 0.5 && aabb.minY < by + 0.5 &&
+              aabb.maxZ > bz - 0.5 && aabb.minZ < bz + 0.5) {
+              return true;
+          }
+      }
+      return false;
+  }
 
   // ANIMATE
   let animationTime = 0;
@@ -4123,136 +4137,136 @@ export function initGame(THREE){
   const fpsElement = document.getElementById("fpsCounter");
   let lastHealTime = performance.now(); // Track healing timer
 
-    function animate() {
-        requestAnimationFrame(animate);
-        
-        const now = performance.now();
-        const delta = Math.min((now - lastTime) / 1000, 0.1);
-        lastTime = now;
+  function animate() {
+      requestAnimationFrame(animate);
+      
+      const now = performance.now();
+      const delta = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
 
-        // Rebuild occlusion set when world changes
-        if (occlusionDirty) rebuildBlockSet();
+      // Rebuild occlusion set when world changes
+      if (occlusionDirty) rebuildBlockSet();
 
-        // Update camera frustum for this frame
-        camera.updateMatrixWorld();
-        projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-        viewFrustum.setFromProjectionMatrix(projScreenMatrix);
+      // Update camera frustum for this frame
+      camera.updateMatrixWorld();
+      projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      viewFrustum.setFromProjectionMatrix(projScreenMatrix);
 
-        const renderDistSq = 10 * 10;
-        const playerPos = player.group.position;
+      const renderDistSq = 10 * 10;
+      const playerPos = player.group.position;
 
-        blocks3D.forEach(b => {
-            const distSq = b.mesh.position.distanceToSquared(playerPos);
+      blocks3D.forEach(b => {
+          const distSq = b.mesh.position.distanceToSquared(playerPos);
 
-            if (distSq > renderDistSq) {
-                b.mesh.visible = false;
-                return;
-            }
+          if (distSq > renderDistSq) {
+              b.mesh.visible = false;
+              return;
+          }
 
-            // Occlusion culling: fully surrounded blocks are never visible
-            const bx = Math.round(b.mesh.position.x);
-            const by = Math.round(b.mesh.position.y);
-            const bz = Math.round(b.mesh.position.z);
-            const fullyOccluded =
-                blockPositionSet.has(`${bx+1},${by},${bz}`) &&
-                blockPositionSet.has(`${bx-1},${by},${bz}`) &&
-                blockPositionSet.has(`${bx},${by+1},${bz}`) &&
-                blockPositionSet.has(`${bx},${by-1},${bz}`) &&
-                blockPositionSet.has(`${bx},${by},${bz+1}`) &&
-                blockPositionSet.has(`${bx},${by},${bz-1}`);
+          // Occlusion culling: fully surrounded blocks are never visible
+          const bx = Math.round(b.mesh.position.x);
+          const by = Math.round(b.mesh.position.y);
+          const bz = Math.round(b.mesh.position.z);
+          const fullyOccluded =
+              blockPositionSet.has(`${bx+1},${by},${bz}`) &&
+              blockPositionSet.has(`${bx-1},${by},${bz}`) &&
+              blockPositionSet.has(`${bx},${by+1},${bz}`) &&
+              blockPositionSet.has(`${bx},${by-1},${bz}`) &&
+              blockPositionSet.has(`${bx},${by},${bz+1}`) &&
+              blockPositionSet.has(`${bx},${by},${bz-1}`);
 
-            if (fullyOccluded) {
-                b.mesh.visible = false;
-                return;
-            }
+          if (fullyOccluded) {
+              b.mesh.visible = false;
+              return;
+          }
 
-            // Frustum culling using AABB — render if ANY part of block is in view
-            const p = b.mesh.position;
-            tempBox.min.set(p.x - 0.5, p.y - 0.5, p.z - 0.5);
-            tempBox.max.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
-            b.mesh.visible = viewFrustum.intersectsBox(tempBox);
-        });
+          // Frustum culling using AABB — render if ANY part of block is in view
+          const p = b.mesh.position;
+          tempBox.min.set(p.x - 0.5, p.y - 0.5, p.z - 0.5);
+          tempBox.max.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
+          b.mesh.visible = viewFrustum.intersectsBox(tempBox);
+      });
 
-        // Apply same to remote players
-        Object.values(remotePlayers).forEach(p => {
-            const toRemote = p.group.position.clone().sub(playerPos);
-            const distSq = toRemote.lengthSq();
-            if (distSq > renderDistSq) {
-                p.group.visible = false;
-            } else {
-                const pp = p.group.position;
-                tempBox.min.set(pp.x - 0.5, pp.y, pp.z - 0.5);
-                tempBox.max.set(pp.x + 0.5, pp.y + 2, pp.z + 0.5);
-                p.group.visible = viewFrustum.intersectsBox(tempBox);
-            }
-        });
+      // Apply same to remote players
+      Object.values(remotePlayers).forEach(p => {
+          const toRemote = p.group.position.clone().sub(playerPos);
+          const distSq = toRemote.lengthSq();
+          if (distSq > renderDistSq) {
+              p.group.visible = false;
+          } else {
+              const pp = p.group.position;
+              tempBox.min.set(pp.x - 0.5, pp.y, pp.z - 0.5);
+              tempBox.max.set(pp.x + 0.5, pp.y + 2, pp.z + 0.5);
+              p.group.visible = viewFrustum.intersectsBox(tempBox);
+          }
+      });
 
-        // FPS Counter logic
-        frames++;
-        if (now > fpsLastTime + 1000) {
-            if (fpsElement) {
-                fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
-            }
-            fpsLastTime = now;
-            frames = 0;
-        }
-        
-        updateBreaking();
-        updateBlockDrops(delta);
+      // FPS Counter logic
+      frames++;
+      if (now > fpsLastTime + 1000) {
+          if (fpsElement) {
+              fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
+          }
+          fpsLastTime = now;
+          frames = 0;
+      }
+      
+      updateBreaking();
+      updateBlockDrops(delta);
 
-        // Healing system - heal 0.5 hearts (1 damage point) every second
-        if (now - lastHealTime >= 1000) {
+      // Healing system - heal 0.5 hearts (1 damage point) every second
+      if (now - lastHealTime >= 1000) {
           if (player.health < player.maxHealth && player.onGround) {
-            if (socket) socket.emit("playerHeal", 1); // only send when multiplayer
-            const prev = player.health;
-            player.health = Math.min(player.maxHealth, player.health + 1);
-            console.log('Player healed', 1, 'health', prev, '->', player.health);
-            renderHealth();
+              if (socket) socket.emit("playerHeal", 1); // only send when multiplayer
+              const prev = player.health;
+              player.health = Math.min(player.maxHealth, player.health + 1);
+              console.log('Player healed', 1, 'health', prev, '->', player.health);
+              renderHealth();
           }
           lastHealTime = now;
-        }
+      }
 
-        player.group.rotation.y = player.yaw;
-        
-        if (isSwinging) {
-            swingTime += 0.25;
-            const swingAngle = Math.sin(swingTime) * 0.8;
-            
-            // First Person: Bob and Swing
-            player.fp.handGroup.rotation.x = -swingAngle;
-            player.fp.handGroup.rotation.y = swingAngle * 0.3;
-            player.fp.handGroup.position.z = (swingAngle * 0.2);
-            
-            // Third Person Arm
-            player.limbs.armR.rotation.x = -0.5 - swingAngle;
+      player.group.rotation.y = player.yaw;
+      
+      if (isSwinging) {
+          swingTime += 0.25;
+          const swingAngle = Math.sin(swingTime) * 0.8;
+          
+          // First Person: Bob and Swing
+          player.fp.handGroup.rotation.x = -swingAngle;
+          player.fp.handGroup.rotation.y = swingAngle * 0.3;
+          player.fp.handGroup.position.z = (swingAngle * 0.2);
+          
+          // Third Person Arm
+          player.limbs.armR.rotation.x = -0.5 - swingAngle;
 
-            if (swingTime > Math.PI) {
-                isSwinging = false;
-                player.fp.handGroup.rotation.set(0, 0, 0);
-                player.fp.handGroup.position.set(0, 0, 0);
-                player.limbs.armR.rotation.x = 0;
-            }
-        }
+          if (swingTime > Math.PI) {
+              isSwinging = false;
+              player.fp.handGroup.rotation.set(0, 0, 0);
+              player.fp.handGroup.position.set(0, 0, 0);
+              player.limbs.armR.rotation.x = 0;
+          }
+      }
 
-        const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
-        if (isMoving && player.onGround) {
-            animationTime += 0.15;
-            const angle = Math.sin(animationTime) * 0.5;
-            player.limbs.legL.rotation.x = angle;
-            player.limbs.legR.rotation.x = -angle;
-            player.limbs.armL.rotation.x = -angle;
-            player.limbs.armR.rotation.x = angle;
-        } else {
-            player.limbs.legL.rotation.x = 0;
-            player.limbs.legR.rotation.x = 0;
-            player.limbs.armL.rotation.x = 0;
-            player.limbs.armR.rotation.x = 0;
-        }
+      const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
+      if (isMoving && player.onGround) {
+          animationTime += 0.15;
+          const angle = Math.sin(animationTime) * 0.5;
+          player.limbs.legL.rotation.x = angle;
+          player.limbs.legR.rotation.x = -angle;
+          player.limbs.armL.rotation.x = -angle;
+          player.limbs.armR.rotation.x = angle;
+      } else {
+          player.limbs.legL.rotation.x = 0;
+          player.limbs.legR.rotation.x = 0;
+          player.limbs.armL.rotation.x = 0;
+          player.limbs.armR.rotation.x = 0;
+      }
 
-        // Update sneak state (Shift) before camera adjustments
-        player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
+      // Update sneak state (Shift) before camera adjustments
+      player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
 
-        if (player.cameraMode === 0) {
+      if (player.cameraMode === 0) {
           // First Person: Camera follows head pitch and inherits group rotation
           camera.rotation.set(player.pitch, 0, 0);
           // Slightly lower the camera when sneaking (crouch)
@@ -4260,140 +4274,140 @@ export function initGame(THREE){
           player.model.visible = false;
           // Ensure first person hand is visible and positioned correctly
           if (player.fp && player.fp.handGroup) {
-            player.fp.handGroup.visible = true;
+              player.fp.handGroup.visible = true;
           }
-        } else if (player.cameraMode === 1) {
-            // Third Person Back
-            player.model.visible = true;
-            // Compute world position since camera is child of group
-            const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-            const worldPos = player.group.position.clone().add(offset);
-            
-            // To position a child in world space, we can use worldToLocal on the parent
-            camera.position.copy(player.group.worldToLocal(worldPos));
-            
-            const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-            camera.lookAt(targetPos);
-        } else if (player.cameraMode === 2) {
-            // Third Person Front
-            player.model.visible = true;
-            const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-            const worldPos = player.group.position.clone().add(offset);
-            
-            camera.position.copy(player.group.worldToLocal(worldPos));
-            
-            const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-            camera.lookAt(targetPos);
-        }
+      } else if (player.cameraMode === 1) {
+          // Third Person Back
+          player.model.visible = true;
+          // Compute world position since camera is child of group
+          const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          const worldPos = player.group.position.clone().add(offset);
+          
+          // To position a child in world space, we can use worldToLocal on the parent
+          camera.position.copy(player.group.worldToLocal(worldPos));
+          
+          const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+          camera.lookAt(targetPos);
+      } else if (player.cameraMode === 2) {
+          // Third Person Front
+          player.model.visible = true;
+          const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          const worldPos = player.group.position.clone().add(offset);
+          
+          camera.position.copy(player.group.worldToLocal(worldPos));
+          
+          const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+          camera.lookAt(targetPos);
+      }
 
-        const moveDir = new THREE.Vector3();
-        if (keys["KeyW"]) moveDir.z -= 1;
-        if (keys["KeyS"]) moveDir.z += 1;
-        if (keys["KeyA"]) moveDir.x -= 1;
-        if (keys["KeyD"]) moveDir.x += 1;
+      const moveDir = new THREE.Vector3();
+      if (keys["KeyW"]) moveDir.z -= 1;
+      if (keys["KeyS"]) moveDir.z += 1;
+      if (keys["KeyA"]) moveDir.x -= 1;
+      if (keys["KeyD"]) moveDir.x += 1;
 
-        // Helper: allow movement to a position, and when sneaking prevent stepping off edges
-        function canMoveTo(pos) {
+      // Helper: allow movement to a position, and when sneaking prevent stepping off edges
+      function canMoveTo(pos) {
           if (checkCollision(pos)) return false;
           if (!player.isSneaking) return true;
           try {
-            const groundY = getGroundHeight(pos.x, pos.z, player.group.position.y);
-            if (groundY === -100) return false;
-            if (groundY < player.group.position.y - 0.6) return false;
+              const groundY = getGroundHeight(pos.x, pos.z, player.group.position.y);
+              if (groundY === -100) return false;
+              if (groundY < player.group.position.y - 0.6) return false;
           } catch (e) {
-            return true;
+              return true;
           }
           return true;
-        }
+      }
 
-        if (moveDir.lengthSq() > 0) {
-            // Reduce movement speed while sneaking
-            const speedMul = player.isSneaking ? 0.3 : 1.0;
-            moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED * speedMul);
+      if (moveDir.lengthSq() > 0) {
+          // Reduce movement speed while sneaking
+          const speedMul = player.isSneaking ? 0.3 : 1.0;
+          moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED * speedMul);
 
-            // Current position before move
-            const currentPos = player.group.position.clone();
+          // Current position before move
+          const currentPos = player.group.position.clone();
 
-            // X-axis collision (and sneaking edge-check)
-            const nextX = currentPos.clone();
-            nextX.x += moveDir.x;
-            if (canMoveTo(nextX)) player.group.position.x = nextX.x;
+          // X-axis collision (and sneaking edge-check)
+          const nextX = currentPos.clone();
+          nextX.x += moveDir.x;
+          if (canMoveTo(nextX)) player.group.position.x = nextX.x;
 
-            // Z-axis collision (use updated X if it moved)
-            const nextZ = player.group.position.clone();
-            nextZ.z += moveDir.z;
-            if (canMoveTo(nextZ)) player.group.position.z = nextZ.z;
-        }
+          // Z-axis collision (use updated X if it moved)
+          const nextZ = player.group.position.clone();
+          nextZ.z += moveDir.z;
+          if (canMoveTo(nextZ)) player.group.position.z = nextZ.z;
+      }
 
-        player.velocity.y += GRAVITY;
-        const nextY = player.group.position.clone();
-        nextY.y += player.velocity.y;
+      player.velocity.y += GRAVITY;
+      const nextY = player.group.position.clone();
+      nextY.y += player.velocity.y;
 
-        if (!checkCollision(nextY)) {
-            player.group.position.y = nextY.y;
-            player.onGround = false;
-            
-            // Track peak height for fall damage
-            if (player.peakY === null || player.group.position.y > player.peakY) {
-                player.peakY = player.group.position.y;
-            }
-        } else {
-            if (player.velocity.y < 0) {
-                // Just landed
-                player.onGround = true;
-                
-                // Calculate fall damage
-                if (player.peakY !== null) {
-                    const fallDistance = player.peakY - player.group.position.y;
-                    if (fallDistance > 3) {
-                        // Fall damage: 0.5 hearts per block over 3 blocks = 1 damage per block
-                        const damagePoints = Math.ceil((fallDistance - 3) * 2);
-                        if (damagePoints > 0 && player.invincibleTime === 0) {
+      if (!checkCollision(nextY)) {
+          player.group.position.y = nextY.y;
+          player.onGround = false;
+          
+          // Track peak height for fall damage
+          if (player.peakY === null || player.group.position.y > player.peakY) {
+              player.peakY = player.group.position.y;
+          }
+      } else {
+          if (player.velocity.y < 0) {
+              // Just landed
+              player.onGround = true;
+              
+              // Calculate fall damage
+              if (player.peakY !== null) {
+                  const fallDistance = player.peakY - player.group.position.y;
+                  if (fallDistance > 3) {
+                      // Fall damage: 0.5 hearts per block over 3 blocks = 1 damage per block
+                      const damagePoints = Math.ceil((fallDistance - 3) * 2);
+                      if (damagePoints > 0 && player.invincibleTime === 0) {
                           const prevHealth = player.health;
                           if (socket) socket.emit("playerFallDamage", damagePoints);
                           player.health = Math.max(0, player.health - damagePoints);
                           console.log('Player fall damage', damagePoints, 'health', prevHealth, '->', player.health);
                           player.invincibleTime = 20; // 20 frames of invincibility after damage
                           renderHealth();
-                        }
-                    }
-                    player.peakY = null;
-                }
-            }
-            player.velocity.y = 0;
-        }
+                      }
+                  }
+                  player.peakY = null;
+              }
+          }
+          player.velocity.y = 0;
+      }
 
-        if (keys["Space"] && player.onGround) {
-            player.velocity.y = JUMP;
-            player.onGround = false;
-            player.peakY = player.group.position.y; // Record peak at jump start
-        }
-        
-        // Reduce invincibility time
-        if (player.invincibleTime > 0) {
-            player.invincibleTime--;
-        }
+      if (keys["Space"] && player.onGround) {
+          player.velocity.y = JUMP;
+          player.onGround = false;
+          player.peakY = player.group.position.y; // Record peak at jump start
+      }
+      
+      // Reduce invincibility time
+      if (player.invincibleTime > 0) {
+          player.invincibleTime--;
+      }
 
-        // Respawn if player falls below y = -7
-        if (player.group.position.y < -7) {
-            player.group.position.set(0, playerSpawnHeight + 2, 0);
-            player.velocity.y = 0;
-            player.health = player.maxHealth;
-            renderHealth();
-        }
+      // Respawn if player falls below y = -7
+      if (player.group.position.y < -7) {
+          player.group.position.set(0, playerSpawnHeight + 2, 0);
+          player.velocity.y = 0;
+          player.health = player.maxHealth;
+          renderHealth();
+      }
 
-        renderHealth();
-        
-        // Check if player is dead and show death screen
-        if (player.health <= 0) {
+      renderHealth();
+      
+      // Check if player is dead and show death screen
+      if (player.health <= 0) {
           const deathScreen = document.getElementById("deathScreen");
           if (deathScreen && deathScreen.style.display === "none") {
-            deathScreen.style.display = "flex";
-            document.exitPointerLock();
+              deathScreen.style.display = "flex";
+              document.exitPointerLock();
           }
-        }
-        
-        renderer.render(scene, camera);
+      }
+      
+      renderer.render(scene, camera);
     }
 
   const initRenderer = renderer.init ? renderer.init() : Promise.resolve();
