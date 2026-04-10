@@ -15,6 +15,7 @@ Published link » <kbd>[Here](https://sigmacraft.onrender.com)</kbd>
 - Multiplayer
 - Seed gen (unique, but not customisable (can't put one in like a set seed)
 - Sneaking (player movement model, not yet done)
+- Trees
 
 ## Controls
 
@@ -32,3 +33,14 @@ Published link » <kbd>[Here](https://sigmacraft.onrender.com)</kbd>
 
 # Pictures
 
+## General
+<img width="1440" height="812" alt="Screenshot 2026-04-10 at 1 02 56 AM" src="https://github.com/user-attachments/assets/55c2697d-c74d-4ea8-99dd-a62ac0019f83" />
+
+## Player Model
+<img width="1440" height="812" alt="Screenshot 2026-04-10 at 1 04 21 AM" src="https://github.com/user-attachments/assets/99306672-0d8b-444f-8114-3606e933e537" />
+
+## Inventory
+<img width="1440" height="812" alt="Screenshot 2026-04-10 at 1 05 10 AM" src="https://github.com/user-attachments/assets/81b9470c-5641-4475-b4bb-ca6afcf52381" />
+
+## Dev Mode
+<img width="1440" height="812" alt="Screenshot 2026-04-10 at 1 05 44 AM" src="https://github.com/user-attachments/assets/66966186-0a7e-4938-83aa-1de385a4fb24" />
