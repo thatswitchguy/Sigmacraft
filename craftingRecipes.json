@@ -42,5 +42,59 @@
     ],
     "output": "wooden_planks",
     "outputCount": 4
+  },
+  {
+    "id": "wooden_pickaxe_1775858674067",
+    "name": "Wooden Pickaxe",
+    "type": "3x3",
+    "pattern": [
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks",
+      null,
+      "wooden_planks",
+      null,
+      null,
+      "wooden_planks",
+      null
+    ],
+    "output": "wooden_pickaxe",
+    "outputCount": 1
+  },
+  {
+    "id": "strong_dirt_1775861596404",
+    "name": "Strong Dirt",
+    "type": "3x3",
+    "pattern": [
+      "stone",
+      "dirt",
+      "stone",
+      "dirt",
+      "stone",
+      "dirt",
+      "stone",
+      "dirt",
+      "stone"
+    ],
+    "output": "strong_dirt",
+    "outputCount": 1
+  },
+  {
+    "id": "pointy_leaves_1775862543255",
+    "name": "Pointy Leaves",
+    "type": "3x3",
+    "pattern": [
+      "leaves",
+      "wooden_planks",
+      "leaves",
+      "leaves",
+      "leaves",
+      "wooden_planks",
+      "leaves",
+      "wooden_planks",
+      "leaves"
+    ],
+    "output": "pointy_leaves",
+    "outputCount": 1
   }
 ]

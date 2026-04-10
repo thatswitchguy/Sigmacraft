@@ -618,7 +618,7 @@ export function initGame(THREE){
       type: blockType,
       velocity: new THREE.Vector3(
         (Math.random() - 0.5) * 3,
-        4 + Math.random() * 2,
+        0.5 + Math.random() * 0.3,
         (Math.random() - 0.5) * 3
       ),
       grounded: false,
@@ -679,7 +679,7 @@ export function initGame(THREE){
           drop.velocity.set(0, 0, 0);
         }
       } else {
-        drop.mesh.position.y = drop.groundY + Math.sin(drop.bobPhase + drop.age * 2) * 0.08;
+        drop.mesh.position.y = drop.groundY + 0.7 + Math.sin(drop.bobPhase + drop.age * 2) * 0.2;
       }
       
       drop.mesh.rotation.y += delta * 1.5;
@@ -1041,7 +1041,7 @@ export function initGame(THREE){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
 
-          const h = Math.floor(simplex.noise2D(x/10, z/10) * 4) + 7;
+          const h = Math.floor(simplex.noise2D(x/20, z/20) * 4) + 7;
 
           // Save spawn height at center
           if (x === 0 && z === 0) {
@@ -1136,15 +1136,30 @@ export function initGame(THREE){
           if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
             const topY = h;
-            const trunkH = 6; // Set trunk height to 6 blocks
-            // Place trunk
-            for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, topY + ty, z, "wood");
-            // Adjust canopy placement to be at the top of the trunk
-            const leafBase = topY + trunkH - 1; // Canopy starts at the top of the trunk
+            
+            // Find the highest ground block at this (x,z) and place trunk on top of it
+            const column = blocks3D.filter(b => 
+              Math.round(b.mesh.position.x) === x &&
+              Math.round(b.mesh.position.z) === z
+            );
+            if (!column.length) continue; // no ground here
+            const groundY = Math.max(...column.map(b => Math.round(b.mesh.position.y)));
+
+            // Ensure trunk is 2-6 blocks tall
+            const trunkH = Math.min(4, Math.max(2, 2 + Math.floor(seededRand(x + 1, z + 1) * 5)));
+
+            // Place trunk - base sits immediately above the ground block
+            const trunkBaseY = groundY + 1;
+            for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, trunkBaseY + ty, z, "wood");
+
+            // Canopy starts above the top of the trunk (keeps at least 2 blocks of exposed trunk)
+            const leafBase = trunkBaseY + trunkH;
             for (let ly = 0; ly <= 3; ly++) {
               const radius = ly <= 1 ? 2 : 1;
               for (let lx = -radius; lx <= radius; lx++) {
                 for (let lz = -radius; lz <= radius; lz++) {
+                  // Skip the center to keep trunk exposed
+                  if (lx === 0 && lz === 0) continue;
                   // Skip corners on wide layers for rounded look
                   if (radius === 2 && Math.abs(lx) === 2 && Math.abs(lz) === 2) continue;
                   // Skip corners on top cap
@@ -1312,6 +1327,12 @@ export function initGame(THREE){
             scene.remove(blocks3D[idx].mesh);
             blocks3D.splice(idx, 1);
             occlusionDirty = true;
+        }
+    });
+
+    socket.on("itemDrop", (data) => {
+        for (let i = 0; i < data.count; i++) {
+            createBlockDrop(data.pos, data.type);
         }
     });
   }
@@ -1570,6 +1591,48 @@ export function initGame(THREE){
         player.cameraMode = (player.cameraMode + 1) % 3;
         updateCamera();
         e.preventDefault();
+      }
+    }
+
+    // Drop item: Q = one item, Shift+Q = entire stack
+    if (e.code === "KeyQ") {
+      const heldSlot = player.inventory[player.selectedSlot];
+      if (heldSlot && heldSlot.type && heldSlot.count > 0) {
+        const itemToDrop = heldSlot.type;
+        // Calculate camera direction and drop 2 blocks away
+        const cameraDir = new THREE.Vector3(
+          Math.sin(player.yaw) * Math.cos(player.pitch),
+          -Math.sin(player.pitch),
+          -Math.cos(player.yaw) * Math.cos(player.pitch)
+        ).normalize().multiplyScalar(2);
+        const dropPos = player.group.position.clone()
+          .add(new THREE.Vector3(0, 1.5, 0))
+          .add(cameraDir);
+        let dropCount = 1;
+        
+        if (e.shiftKey) {
+          // Drop entire stack
+          dropCount = heldSlot.count;
+          heldSlot.type = null;
+          heldSlot.count = 0;
+          
+          for (let i = 0; i < dropCount; i++) {
+            createBlockDrop(dropPos, itemToDrop);
+          }
+        } else {
+          // Drop one item
+          heldSlot.count -= 1;
+          if (heldSlot.count === 0) {
+            heldSlot.type = null;
+          }
+          createBlockDrop(dropPos, itemToDrop);
+        }
+        
+        updateHotbarUI();
+        renderInventoryGrid();
+        
+        // Send drop event to other players
+        if (socket) socket.emit("itemDrop", { pos: dropPos, type: itemToDrop, count: dropCount });
       }
     }
   });
@@ -3082,29 +3145,27 @@ export function initGame(THREE){
     }
     outputSlot.innerHTML = "";
     if (craftingOutput) {
-      console.log("Rendering crafting output:", craftingOutput);
       // Render the output item icon
+      let iconRendered = false;
       if (blockTypes[craftingOutput.type]) {
-        console.log("Found block type, creating icon");
         const icon = createBlockIcon(craftingOutput.type);
         if (icon) {
           outputSlot.appendChild(icon);
-          console.log("Icon appended successfully");
-        } else {
-          console.warn("createBlockIcon returned null/undefined");
+          iconRendered = true;
         }
-      } else if (toolTypes[craftingOutput.type]) {
-        console.log("Found tool type, creating icon");
+      }
+      if (!iconRendered && toolTypes[craftingOutput.type]) {
         const icon = createToolIcon(craftingOutput.type);
         if (icon) {
           outputSlot.appendChild(icon);
+          iconRendered = true;
         }
-      } else {
-        console.warn("Output type not found in blockTypes or toolTypes:", craftingOutput.type);
-        // Fallback: create a placeholder
+      }
+      if (!iconRendered) {
+        // Fallback: create a proper placeholder with item name
         const placeholder = document.createElement("div");
-        placeholder.textContent = "?";
-        placeholder.style.cssText = "width:16px;height:16px;background:#ccc;display:flex;align-items:center;justify-content:center;";
+        placeholder.textContent = craftingOutput.type.charAt(0).toUpperCase();
+        placeholder.style.cssText = "width:16px;height:16px;background:#4a8a2a;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;";
         outputSlot.appendChild(placeholder);
       }
       
@@ -3115,6 +3176,18 @@ export function initGame(THREE){
         cnt.textContent = craftingOutput.count;
         outputSlot.appendChild(cnt);
       }
+      
+      // Add hover tooltip
+      outputSlot.onmouseenter = (e) => {
+        let name = craftingOutput.type;
+        if (blockTypes[craftingOutput.type]) {
+          name = blockTypes[craftingOutput.type].name || craftingOutput.type;
+        } else if (toolTypes[craftingOutput.type]) {
+          name = toolTypes[craftingOutput.type].name || craftingOutput.type;
+        }
+        showTooltip(e, name);
+      };
+      outputSlot.onmouseleave = hideTooltip;
     }
   }
 
@@ -3209,6 +3282,7 @@ export function initGame(THREE){
         updateHotbarUI();
         updateCraftingOutput();
       };
+      grid.appendChild(slot);
       grid.appendChild(slot);
     }
     updateCraftingOutput();
@@ -3337,6 +3411,7 @@ export function initGame(THREE){
         renderCraftingGrid();
         renderInventoryGrid();
         updateHotbarUI();
+        updateCraftingOutput();
       };
     }
 
@@ -3354,7 +3429,6 @@ export function initGame(THREE){
   // ─── CRAFTING TABLE (3x3) ──────────────────────────────────────────────────
   function updateCraftingTableOutput() {
     console.log("Updating crafting table output. Grid state:", craftingTableGridState);
-    console.log("Available recipes:", craftingRecipes);
     // Convert crafting grid state to recipe format (extract types only)
     const recipeGrid = craftingTableGridState.map(item => item ? item.type : null);
     const recipe = matchRecipe(recipeGrid);
@@ -3367,45 +3441,50 @@ export function initGame(THREE){
     outputSlot.innerHTML = "";
     if (craftingTableOutput) {
       console.log("Rendering crafting table output:", craftingTableOutput);
-      console.log("blockTypes has:", Object.keys(blockTypes).slice(0, 5), "...");
-      console.log("Looking for block type:", craftingTableOutput.type);
       
-      try {
-        // Render the output item icon
-        if (blockTypes[craftingTableOutput.type]) {
-          console.log("Found block type, creating icon");
-          const icon = createBlockIcon(craftingTableOutput.type);
-          if (icon) {
-            outputSlot.appendChild(icon);
-            console.log("Icon appended successfully");
-          } else {
-            console.warn("createBlockIcon returned null/undefined");
-          }
-        } else if (toolTypes[craftingTableOutput.type]) {
-          console.log("Found tool type, creating icon");
-          const icon = createToolIcon(craftingTableOutput.type);
-          if (icon) {
-            outputSlot.appendChild(icon);
-          }
-        } else {
-          console.warn("Output type not found in blockTypes or toolTypes:", craftingTableOutput.type);
-          // Fallback: create a placeholder
-          const placeholder = document.createElement("div");
-          placeholder.textContent = "?";
-          placeholder.style.cssText = "width:16px;height:16px;background:#ccc;display:flex;align-items:center;justify-content:center;";
-          outputSlot.appendChild(placeholder);
+      // Render the output item icon
+      let iconRendered = false;
+      if (blockTypes[craftingTableOutput.type]) {
+        const icon = createBlockIcon(craftingTableOutput.type);
+        if (icon) {
+          outputSlot.appendChild(icon);
+          iconRendered = true;
         }
-        
-        // Show count if > 1
-        if (craftingTableOutput.count > 1) {
-          const cnt = document.createElement("div");
-          cnt.className = "item-count";
-          cnt.textContent = craftingTableOutput.count;
-          outputSlot.appendChild(cnt);
-        }
-      } catch (e) {
-        console.error("Error rendering crafting output:", e);
       }
+      if (!iconRendered && toolTypes[craftingTableOutput.type]) {
+        const icon = createToolIcon(craftingTableOutput.type);
+        if (icon) {
+          outputSlot.appendChild(icon);
+          iconRendered = true;
+        }
+      }
+      if (!iconRendered) {
+        // Fallback: create a proper placeholder with item name
+        const placeholder = document.createElement("div");
+        placeholder.textContent = craftingTableOutput.type.charAt(0).toUpperCase();
+        placeholder.style.cssText = "width:16px;height:16px;background:#4a8a2a;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;";
+        outputSlot.appendChild(placeholder);
+      }
+      
+      // Show count if > 1
+      if (craftingTableOutput.count > 1) {
+        const cnt = document.createElement("div");
+        cnt.className = "item-count";
+        cnt.textContent = craftingTableOutput.count;
+        outputSlot.appendChild(cnt);
+      }
+      
+      // Add hover tooltip
+      outputSlot.onmouseenter = (e) => {
+        let name = craftingTableOutput.type;
+        if (blockTypes[craftingTableOutput.type]) {
+          name = blockTypes[craftingTableOutput.type].name || craftingTableOutput.type;
+        } else if (toolTypes[craftingTableOutput.type]) {
+          name = toolTypes[craftingTableOutput.type].name || craftingTableOutput.type;
+        }
+        showTooltip(e, name);
+      };
+      outputSlot.onmouseleave = hideTooltip;
     }
   }
 
@@ -3458,17 +3537,30 @@ export function initGame(THREE){
           if (dragEl && !player.draggedItem) dragEl.remove();
           if (player.draggedItem) updateDragPos(e);
           console.log(`Placed into slot ${i}`);
-        } else if (e.shiftKey && craftingTableGridState[i] && craftingTableGridState[i].count > 1) {
-          // Shift+click with multiple items: place exactly 1, keep rest held
-          player.draggedItem = { type: craftingTableGridState[i].type, count: 1, sourceIdx: -1 };
-          craftingTableGridState[i].count -= 1;
-          const dragEl = document.createElement("div");
-          dragEl.id = "dragged-item";
-          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
-          if (icon) dragEl.appendChild(icon);
-          document.body.appendChild(dragEl);
-          updateDragPos(e);
-          console.log(`Shift-picked 1 item from slot ${i}`);
+        } else if (e.shiftKey && player.draggedItem && player.draggedItem.count > 1) {
+          // Shift+click while holding: place exactly 1, keep rest held
+          if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
+            if (!craftingTableGridState[i].type) {
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
+            } else {
+              craftingTableGridState[i].count += 1;
+            }
+            player.draggedItem.count -= 1;
+            // Refresh the drag visual to show the new count
+            const dragEl = document.getElementById("dragged-item");
+            if (dragEl) {
+              dragEl.innerHTML = "";
+              const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+              if (icon) dragEl.appendChild(icon);
+              if (player.draggedItem.count > 1) {
+                const countEl = document.createElement("div");
+                countEl.className = "item-count";
+                countEl.textContent = player.draggedItem.count;
+                dragEl.appendChild(countEl);
+              }
+            }
+          }
+          console.log(`Shift-placed 1 item into slot ${i}`);
         } else if (craftingTableGridState[i] && craftingTableGridState[i].type) {
           // Normal click: pick up entire stack
           player.draggedItem = { ...craftingTableGridState[i], sourceIdx: -1 };
@@ -3669,6 +3761,7 @@ export function initGame(THREE){
           target.count += 1;
         }
         player.draggedItem.count -= 1;
+        // Refresh the drag visual to show the new count
         const dragEl = document.getElementById("dragged-item");
         if (dragEl) {
           dragEl.innerHTML = "";
@@ -3920,6 +4013,10 @@ export function initGame(THREE){
         slot.onmouseenter = (e) => {
           if (blockTypes[item.type]) {
             showTooltip(e, blockTypes[item.type].name || item.type);
+          } else if (toolTypes[item.type]) {
+            showTooltip(e, toolTypes[item.type].name || item.type);
+          } else {
+            showTooltip(e, item.type);
           }
         };
         slot.onmouseleave = hideTooltip;

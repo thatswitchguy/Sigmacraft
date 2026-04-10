@@ -56,6 +56,8 @@ io.on("connection", (socket) => {
         // First player who generates world sends it to server
         if (worldBlocks.length === 0) {
             worldBlocks = blocks;
+            // Broadcast the generated world to all other players
+            socket.broadcast.emit("worldData", blocks);
         }
     });
 
@@ -105,6 +107,10 @@ io.on("connection", (socket) => {
             worldBreaks.push(data.pos);
         }
         socket.broadcast.emit("blockBreak", data);
+    });
+
+    socket.on("itemDrop", (data) => {
+        socket.broadcast.emit("itemDrop", data);
     });
 
     socket.on("playerAttack", (targetId) => {
