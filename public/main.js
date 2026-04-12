@@ -1145,6 +1145,9 @@ export function initGame(THREE){
             if (!column.length) continue; // no ground here
             const groundY = Math.max(...column.map(b => Math.round(b.mesh.position.y)));
 
+            const topBlock = column.find(b => Math.round(b.mesh.position.y) === groundY);
+
+            if (!topBlock || topBlock.type !== "grass") continue;
             // Ensure trunk is 2-6 blocks tall
             const trunkH = Math.min(4, Math.max(2, 2 + Math.floor(seededRand(x + 1, z + 1) * 5)));
 
