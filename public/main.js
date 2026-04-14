@@ -3075,12 +3075,7 @@ export function initGame(THREE){
       ctx.fillRect(2, 2, 12, 12);
       slot.appendChild(canvas);
     }
-    const lbl = document.createElement("div");
-    lbl.className = "item-count";
-    lbl.style.cssText = "font-size:8px;bottom:0;left:0;right:0;text-align:center;";
-    lbl.textContent = (getItemName(id) || "").slice(0, 4);
-    slot.appendChild(lbl);
-  }
+    }
 
   function matchRecipe(grid) {
     // Validate inputs
@@ -3521,49 +3516,51 @@ export function initGame(THREE){
       slot.onclick = (e) => {
         console.log(`Crafting table grid slot ${i} clicked. Shift: ${e.shiftKey}. Dragged item:`, player.draggedItem);
         if (player.draggedItem) {
-          // Place dragged item into this crafting slot (supports stacking)
-          if (!craftingTableGridState[i].type) {
-            // Empty slot - place all items
-            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-            player.draggedItem = null;
-          } else if (craftingTableGridState[i].type === player.draggedItem.type) {
-            // Same type - combine stacks
-            craftingTableGridState[i].count += player.draggedItem.count;
-            player.draggedItem = null;
-          } else {
-            // Different type - swap
-            const temp = { ...craftingTableGridState[i] };
-            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-            player.draggedItem = temp;
-          }
-          const dragEl = document.getElementById("dragged-item");
-          if (dragEl && !player.draggedItem) dragEl.remove();
-          if (player.draggedItem) updateDragPos(e);
-          console.log(`Placed into slot ${i}`);
-        } else if (e.shiftKey && player.draggedItem && player.draggedItem.count > 1) {
-          // Shift+click while holding: place exactly 1, keep rest held
-          if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
-            if (!craftingTableGridState[i].type) {
-              craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
-            } else {
-              craftingTableGridState[i].count += 1;
-            }
-            player.draggedItem.count -= 1;
-            // Refresh the drag visual to show the new count
-            const dragEl = document.getElementById("dragged-item");
-            if (dragEl) {
-              dragEl.innerHTML = "";
-              const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
-              if (icon) dragEl.appendChild(icon);
-              if (player.draggedItem.count > 1) {
-                const countEl = document.createElement("div");
-                countEl.className = "item-count";
-                countEl.textContent = player.draggedItem.count;
-                dragEl.appendChild(countEl);
+          if (e.shiftKey && player.draggedItem.count > 1) {
+            // Shift+click while holding: place exactly 1, keep rest held
+            if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
+              if (!craftingTableGridState[i].type) {
+                craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
+              } else {
+                craftingTableGridState[i].count += 1;
+              }
+              player.draggedItem.count -= 1;
+              // Refresh the drag visual to show the new count
+              const dragEl = document.getElementById("dragged-item");
+              if (dragEl) {
+                dragEl.innerHTML = "";
+                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+                if (icon) dragEl.appendChild(icon);
+                if (player.draggedItem.count > 1) {
+                  const countEl = document.createElement("div");
+                  countEl.className = "item-count";
+                  countEl.textContent = player.draggedItem.count;
+                  dragEl.appendChild(countEl);
+                }
               }
             }
+            console.log(`Shift-placed 1 item into slot ${i}`);
+          } else {
+            // Place dragged item into this crafting slot (supports stacking)
+            if (!craftingTableGridState[i].type) {
+              // Empty slot - place all items
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = null;
+            } else if (craftingTableGridState[i].type === player.draggedItem.type) {
+              // Same type - combine stacks
+              craftingTableGridState[i].count += player.draggedItem.count;
+              player.draggedItem = null;
+            } else {
+              // Different type - swap
+              const temp = { ...craftingTableGridState[i] };
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = temp;
+            }
+            const dragEl = document.getElementById("dragged-item");
+            if (dragEl && !player.draggedItem) dragEl.remove();
+            if (player.draggedItem) updateDragPos(e);
+            console.log(`Placed into slot ${i}`);
           }
-          console.log(`Shift-placed 1 item into slot ${i}`);
         } else if (craftingTableGridState[i] && craftingTableGridState[i].type) {
           // Normal click: pick up entire stack
           player.draggedItem = { ...craftingTableGridState[i], sourceIdx: -1 };
@@ -4005,7 +4002,7 @@ export function initGame(THREE){
       slot.className = "slot";
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type);
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
         if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
@@ -4073,7 +4070,8 @@ export function initGame(THREE){
         player.inventory[idx] = { type: null, count: 0 };
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
-        dragEl.appendChild(createBlockIcon(player.draggedItem.type));
+        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        if (icon) dragEl.appendChild(icon);
         document.body.appendChild(dragEl);
         updateDragPos(e);
       }
@@ -4091,7 +4089,7 @@ export function initGame(THREE){
         const dragEl = document.getElementById("dragged-item");
         if (dragEl) {
           dragEl.innerHTML = "";
-          const icon = createBlockIcon(player.draggedItem.type);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           if (player.draggedItem.count > 1) {
             const countEl = document.createElement("div");
