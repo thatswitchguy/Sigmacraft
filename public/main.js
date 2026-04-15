@@ -3184,44 +3184,153 @@ export function initGame(THREE){
     }
   }
 
-  function update3DItemPreview() {
+  // 3D Item Preview System
+  let item3DScene, item3DCamera, item3DRenderer, item3DControls;
+  let item3DMesh = null;
+  let item3DHandGroup = null;
+  let item3DPreviewMouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
+  let item3DRotation = { x: 0, y: 0 };
+  let item3DAnimFrame = null;
+
+  function init3DItemPreview() {
     const canvas = document.getElementById("item3DPreviewCanvas");
     if (!canvas) return;
-    const cvs = document.createElement("canvas");
-    cvs.width = 64;
-    cvs.height = 64;
-    const ctx = cvs.getContext("2d");
-    ctx.fillStyle = "#333333";
-    ctx.fillRect(0, 0, 64, 64);
     
-    // Draw a simple 3D representation of the texture
-    // Draw front face
-    ctx.fillStyle = "#888888";
-    ctx.fillRect(12, 16, 40, 40);
+    if (item3DRenderer) {
+      item3DRenderer.dispose();
+    }
     
-    // Draw pixel texture on front face
-    const scale = 2.5;
+    // Scene setup
+    item3DScene = new THREE.Scene();
+    item3DScene.background = new THREE.Color(0x1a1a1a);
+    
+    const container = canvas.parentElement;
+    const w = container.clientWidth;
+    const h = w * 0.75; // Maintain aspect ratio
+    
+    item3DCamera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
+    item3DCamera.position.set(0, 0.5, 1.5);
+    
+    item3DRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    item3DRenderer.setSize(w, h);
+    item3DRenderer.setPixelRatio(window.devicePixelRatio);
+    
+    // Lighting
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+    item3DScene.add(ambLight);
+    
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 5, 5);
+    item3DScene.add(dirLight);
+    
+    // Create hand model
+    item3DHandGroup = new THREE.Group();
+    item3DScene.add(item3DHandGroup);
+    
+    // Hand - simple geometry
+    const armGeom = new THREE.BoxGeometry(0.15, 0.6, 0.15);
+    const armMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+    const arm = new THREE.Mesh(armGeom, armMat);
+    arm.position.set(-0.2, -0.2, 0);
+    arm.castShadow = true;
+    item3DHandGroup.add(arm);
+    
+    const palmGeom = new THREE.BoxGeometry(0.25, 0.2, 0.2);
+    const palm = new THREE.Mesh(palmGeom, armMat);
+    palm.position.set(0, 0.2, 0);
+    palm.castShadow = true;
+    item3DHandGroup.add(palm);
+    
+    // Update item mesh
+    update3DItemPreview();
+    
+    // Mouse controls
+    canvas.addEventListener('mousedown', (e) => {
+      item3DPreviewMouse.down = true;
+      item3DPreviewMouse.lastX = e.clientX;
+      item3DPreviewMouse.lastY = e.clientY;
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (item3DPreviewMouse.down) {
+        const deltaX = e.clientX - item3DPreviewMouse.lastX;
+        const deltaY = e.clientY - item3DPreviewMouse.lastY;
+        item3DRotation.y += deltaX * 0.01;
+        item3DRotation.x += deltaY * 0.01;
+        item3DPreviewMouse.lastX = e.clientX;
+        item3DPreviewMouse.lastY = e.clientY;
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      item3DPreviewMouse.down = false;
+    });
+    
+    // Start animation loop
+    function animate3DPreview() {
+      item3DAnimFrame = requestAnimationFrame(animate3DPreview);
+      
+      if (item3DMesh) {
+        item3DMesh.rotation.x = item3DRotation.x;
+        item3DMesh.rotation.y = item3DRotation.y;
+      }
+      
+      if (item3DRenderer) {
+        item3DRenderer.render(item3DScene, item3DCamera);
+      }
+    }
+    animate3DPreview();
+  }
+
+  function update3DItemPreview() {
+    const canvas = document.getElementById("item3DPreviewCanvas");
+    if (!canvas || !item3DScene) return;
+    
+    // Remove old mesh
+    if (item3DMesh) {
+      item3DScene.remove(item3DMesh);
+      item3DMesh.geometry.dispose();
+      if (item3DMesh.material.map) item3DMesh.material.map.dispose();
+      item3DMesh.material.dispose();
+    }
+    
+    // Create texture from pixel data
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 16;
+    textureCanvas.height = 16;
+    const ctx = textureCanvas.getContext('2d');
+    
     for (let i = 0; i < 256; i++) {
       const x = i % 16;
       const y = Math.floor(i / 16);
       ctx.fillStyle = currentItemPixels[i];
-      ctx.fillRect(12 + x * scale, 16 + y * scale, scale, scale);
+      ctx.fillRect(x, y, 1, 1);
     }
     
-    // Draw simple highlight for 3D effect
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(12, 16, 40, 40);
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
     
-    canvas.width = 64;
-    canvas.height = 64;
-    const canvasCtx = canvas.getContext("2d");
-    canvasCtx.clearRect(0, 0, 64, 64);
-    canvasCtx.drawImage(cvs, 0, 0);
+    const material = new THREE.MeshStandardMaterial({ 
+      map: texture,
+      metalness: 0.2,
+      roughness: 0.8
+    });
+    
+    // Create cube for item
+    const geometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+    item3DMesh = new THREE.Mesh(geometry, material);
+    item3DMesh.position.set(0.15, 0.35, 0);
+    item3DMesh.rotation.x = item3DRotation.x;
+    item3DMesh.rotation.y = item3DRotation.y;
+    item3DMesh.castShadow = true;
+    
+    item3DScene.add(item3DMesh);
   }
 
   function initItemsUI() {
     updateItemsSidebar();
+    init3DItemPreview();
     createItemPixelGrid();
 
     const addBtn = document.getElementById("addItemBtn");
@@ -3332,11 +3441,6 @@ export function initGame(THREE){
       ctx.fillRect(2, 2, 12, 12);
       slot.appendChild(canvas);
     }
-    const lbl = document.createElement("div");
-    lbl.className = "item-count";
-    lbl.style.cssText = "font-size:8px;bottom:0;left:0;right:0;text-align:center;";
-    lbl.textContent = (getItemName(id) || "").slice(0, 4);
-    slot.appendChild(lbl);
   }
 
   function matchRecipe(grid) {
