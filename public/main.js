@@ -2975,6 +2975,7 @@ export function initGame(THREE){
     if (nameEl) nameEl.value = tool.name || id;
     currentToolPixels = Array.isArray(tool.texture) ? [...tool.texture] : Array(256).fill(tool.texture || "#8B4513");
     createToolPixelGrid();
+    init3DToolPreview();
     // Populate break multipliers
     const container = document.getElementById("toolBreakMultipliers");
     if (container) {
@@ -3007,12 +3008,146 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
         currentToolPixels[i] = color;
         px.style.backgroundColor = color;
+        update3DToolPreview();
       };
       grid.appendChild(px);
     }
   }
 
+  // 3D Tool Preview System
+  let tool3DScene, tool3DCamera, tool3DRenderer;
+  let tool3DMesh = null;
+  let tool3DHandGroup = null;
+  let tool3DRotation = { x: 0, y: 0 };
+  let tool3DAnimFrame = null;
+
+  function init3DToolPreview() {
+    const canvas = document.getElementById("tool3DPreviewCanvas");
+    if (!canvas) return;
+    
+    if (tool3DRenderer) {
+      tool3DRenderer.dispose();
+    }
+    
+    // Scene setup
+    tool3DScene = new THREE.Scene();
+    tool3DScene.background = new THREE.Color(0x1a1a1a);
+    
+    const container = canvas.parentElement;
+    const w = container.clientWidth;
+    const h = w * 0.75;
+    
+    tool3DCamera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
+    tool3DCamera.position.set(0, 0.5, 1.5);
+    
+    tool3DRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    tool3DRenderer.setSize(w, h);
+    tool3DRenderer.setPixelRatio(window.devicePixelRatio);
+    
+    // Lighting
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
+    tool3DScene.add(ambLight);
+    
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 5, 5);
+    tool3DScene.add(dirLight);
+    
+    // Create main hand model (more detailed than item preview)
+    tool3DHandGroup = new THREE.Group();
+    tool3DScene.add(tool3DHandGroup);
+    
+    // Arm
+    const armGeom = new THREE.BoxGeometry(0.15, 0.6, 0.15);
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+    const arm = new THREE.Mesh(armGeom, skinMat);
+    arm.position.set(-0.2, -0.2, 0);
+    arm.castShadow = true;
+    tool3DHandGroup.add(arm);
+    
+    // Palm/Hand
+    const palmGeom = new THREE.BoxGeometry(0.25, 0.2, 0.2);
+    const palm = new THREE.Mesh(palmGeom, skinMat);
+    palm.position.set(0, 0.2, 0);
+    palm.castShadow = true;
+    tool3DHandGroup.add(palm);
+    
+    // Fingers (simplified)
+    const fingerGeom = new THREE.BoxGeometry(0.05, 0.15, 0.05);
+    const fingerPositions = [[0.08, 0.35, 0.05], [0.08, 0.35, -0.05], [-0.08, 0.35, 0.05], [-0.08, 0.35, -0.05]];
+    fingerPositions.forEach(pos => {
+      const finger = new THREE.Mesh(fingerGeom, skinMat);
+      finger.position.set(...pos);
+      finger.castShadow = true;
+      tool3DHandGroup.add(finger);
+    });
+    
+    // Update tool mesh
+    update3DToolPreview();
+    
+    // Start animation loop
+    function animate3DToolPreview() {
+      tool3DAnimFrame = requestAnimationFrame(animate3DToolPreview);
+      
+      if (tool3DMesh) {
+        tool3DMesh.rotation.x = tool3DRotation.x;
+        tool3DMesh.rotation.y = tool3DRotation.y;
+      }
+      
+      if (tool3DRenderer) {
+        tool3DRenderer.render(tool3DScene, tool3DCamera);
+      }
+    }
+    animate3DToolPreview();
+  }
+
+  function update3DToolPreview() {
+    const canvas = document.getElementById("tool3DPreviewCanvas");
+    if (!canvas || !tool3DScene) return;
+    
+    // Remove old mesh
+    if (tool3DMesh) {
+      tool3DScene.remove(tool3DMesh);
+      tool3DMesh.geometry.dispose();
+      if (tool3DMesh.material.map) tool3DMesh.material.map.dispose();
+      tool3DMesh.material.dispose();
+    }
+    
+    // Create texture from pixel data
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 16;
+    textureCanvas.height = 16;
+    const ctx = textureCanvas.getContext('2d');
+    
+    for (let i = 0; i < 256; i++) {
+      const x = i % 16;
+      const y = Math.floor(i / 16);
+      ctx.fillStyle = currentToolPixels[i];
+      ctx.fillRect(x, y, 1, 1);
+    }
+    
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    
+    const material = new THREE.MeshStandardMaterial({ 
+      map: texture,
+      metalness: 0.3,
+      roughness: 0.6
+    });
+    
+    // Create tool shape (elongated for handles)
+    const geometry = new THREE.BoxGeometry(0.3, 1.0, 0.3);
+    tool3DMesh = new THREE.Mesh(geometry, material);
+    tool3DMesh.position.set(0.2, 0.5, 0);
+    tool3DMesh.rotation.x = tool3DRotation.x;
+    tool3DMesh.rotation.y = tool3DRotation.y;
+    tool3DMesh.castShadow = true;
+    
+    tool3DScene.add(tool3DMesh);
+  }
+
   function initToolUI() {
+
     updateToolSidebar();
     createToolPixelGrid();
 
@@ -3054,6 +3189,7 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker").value;
         currentToolPixels = Array(256).fill(color);
         document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
+        update3DToolPreview();
       };
     }
 
@@ -3091,13 +3227,30 @@ export function initGame(THREE){
         setupInventoryUI();
       };
     }
+
+    const rotateLeftBtn = document.getElementById("toolRotateLeftBtn");
+    if (rotateLeftBtn && !rotateLeftBtn._initDone) {
+      rotateLeftBtn._initDone = true;
+      rotateLeftBtn.onclick = () => {
+        tool3DRotation.y -= 0.2618; // ~15 degrees
+        update3DToolPreview();
+      };
+    }
+
+    const rotateRightBtn = document.getElementById("toolRotateRightBtn");
+    if (rotateRightBtn && !rotateRightBtn._initDone) {
+      rotateRightBtn._initDone = true;
+      rotateRightBtn.onclick = () => {
+        tool3DRotation.y += 0.2618; // ~15 degrees
+        update3DToolPreview();
+      };
+    }
   }
 
   // ─── ITEMS UI ──────────────────────────────────────────────────────────────
   let itemsData = {};
   let currentItemPixels = Array(256).fill("#8B4513");
   let editingItemId = null;
-  let item3DPreviewRotation = 0;
 
   function createItemIcon(id) {
     try {
@@ -3163,7 +3316,6 @@ export function initGame(THREE){
     if (typeEl) typeEl.value = itemData.type || "generic";
     currentItemPixels = Array.isArray(itemData.texture) ? [...itemData.texture] : Array(256).fill(itemData.texture || "#8B4513");
     createItemPixelGrid();
-    update3DItemPreview();
   }
 
   function createItemPixelGrid() {
@@ -3178,159 +3330,13 @@ export function initGame(THREE){
         const color = document.getElementById("itemColorPicker")?.value || "#8B4513";
         currentItemPixels[i] = color;
         px.style.backgroundColor = color;
-        update3DItemPreview();
       };
       grid.appendChild(px);
     }
   }
 
-  // 3D Item Preview System
-  let item3DScene, item3DCamera, item3DRenderer, item3DControls;
-  let item3DMesh = null;
-  let item3DHandGroup = null;
-  let item3DPreviewMouse = { x: 0, y: 0, down: false, lastX: 0, lastY: 0 };
-  let item3DRotation = { x: 0, y: 0 };
-  let item3DAnimFrame = null;
-
-  function init3DItemPreview() {
-    const canvas = document.getElementById("item3DPreviewCanvas");
-    if (!canvas) return;
-    
-    if (item3DRenderer) {
-      item3DRenderer.dispose();
-    }
-    
-    // Scene setup
-    item3DScene = new THREE.Scene();
-    item3DScene.background = new THREE.Color(0x1a1a1a);
-    
-    const container = canvas.parentElement;
-    const w = container.clientWidth;
-    const h = w * 0.75; // Maintain aspect ratio
-    
-    item3DCamera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
-    item3DCamera.position.set(0, 0.5, 1.5);
-    
-    item3DRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    item3DRenderer.setSize(w, h);
-    item3DRenderer.setPixelRatio(window.devicePixelRatio);
-    
-    // Lighting
-    const ambLight = new THREE.AmbientLight(0xffffff, 0.6);
-    item3DScene.add(ambLight);
-    
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(5, 5, 5);
-    item3DScene.add(dirLight);
-    
-    // Create hand model
-    item3DHandGroup = new THREE.Group();
-    item3DScene.add(item3DHandGroup);
-    
-    // Hand - simple geometry
-    const armGeom = new THREE.BoxGeometry(0.15, 0.6, 0.15);
-    const armMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
-    const arm = new THREE.Mesh(armGeom, armMat);
-    arm.position.set(-0.2, -0.2, 0);
-    arm.castShadow = true;
-    item3DHandGroup.add(arm);
-    
-    const palmGeom = new THREE.BoxGeometry(0.25, 0.2, 0.2);
-    const palm = new THREE.Mesh(palmGeom, armMat);
-    palm.position.set(0, 0.2, 0);
-    palm.castShadow = true;
-    item3DHandGroup.add(palm);
-    
-    // Update item mesh
-    update3DItemPreview();
-    
-    // Mouse controls
-    canvas.addEventListener('mousedown', (e) => {
-      item3DPreviewMouse.down = true;
-      item3DPreviewMouse.lastX = e.clientX;
-      item3DPreviewMouse.lastY = e.clientY;
-    });
-    
-    document.addEventListener('mousemove', (e) => {
-      if (item3DPreviewMouse.down) {
-        const deltaX = e.clientX - item3DPreviewMouse.lastX;
-        const deltaY = e.clientY - item3DPreviewMouse.lastY;
-        item3DRotation.y += deltaX * 0.01;
-        item3DRotation.x += deltaY * 0.01;
-        item3DPreviewMouse.lastX = e.clientX;
-        item3DPreviewMouse.lastY = e.clientY;
-      }
-    });
-    
-    document.addEventListener('mouseup', () => {
-      item3DPreviewMouse.down = false;
-    });
-    
-    // Start animation loop
-    function animate3DPreview() {
-      item3DAnimFrame = requestAnimationFrame(animate3DPreview);
-      
-      if (item3DMesh) {
-        item3DMesh.rotation.x = item3DRotation.x;
-        item3DMesh.rotation.y = item3DRotation.y;
-      }
-      
-      if (item3DRenderer) {
-        item3DRenderer.render(item3DScene, item3DCamera);
-      }
-    }
-    animate3DPreview();
-  }
-
-  function update3DItemPreview() {
-    const canvas = document.getElementById("item3DPreviewCanvas");
-    if (!canvas || !item3DScene) return;
-    
-    // Remove old mesh
-    if (item3DMesh) {
-      item3DScene.remove(item3DMesh);
-      item3DMesh.geometry.dispose();
-      if (item3DMesh.material.map) item3DMesh.material.map.dispose();
-      item3DMesh.material.dispose();
-    }
-    
-    // Create texture from pixel data
-    const textureCanvas = document.createElement('canvas');
-    textureCanvas.width = 16;
-    textureCanvas.height = 16;
-    const ctx = textureCanvas.getContext('2d');
-    
-    for (let i = 0; i < 256; i++) {
-      const x = i % 16;
-      const y = Math.floor(i / 16);
-      ctx.fillStyle = currentItemPixels[i];
-      ctx.fillRect(x, y, 1, 1);
-    }
-    
-    const texture = new THREE.CanvasTexture(textureCanvas);
-    texture.magFilter = THREE.NearestFilter;
-    texture.minFilter = THREE.NearestFilter;
-    
-    const material = new THREE.MeshStandardMaterial({ 
-      map: texture,
-      metalness: 0.2,
-      roughness: 0.8
-    });
-    
-    // Create cube for item
-    const geometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
-    item3DMesh = new THREE.Mesh(geometry, material);
-    item3DMesh.position.set(0.15, 0.35, 0);
-    item3DMesh.rotation.x = item3DRotation.x;
-    item3DMesh.rotation.y = item3DRotation.y;
-    item3DMesh.castShadow = true;
-    
-    item3DScene.add(item3DMesh);
-  }
-
   function initItemsUI() {
     updateItemsSidebar();
-    init3DItemPreview();
     createItemPixelGrid();
 
     const addBtn = document.getElementById("addItemBtn");
@@ -3358,7 +3364,6 @@ export function initGame(THREE){
         const color = document.getElementById("itemColorPicker").value;
         currentItemPixels = Array(256).fill(color);
         document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
-        update3DItemPreview();
       };
     }
 
@@ -3390,24 +3395,6 @@ export function initGame(THREE){
         editingItemId = null;
         updateItemsSidebar();
         setupInventoryUI();
-      };
-    }
-
-    const rotateLeftBtn = document.getElementById("rotateLeft3DBtn");
-    if (rotateLeftBtn && !rotateLeftBtn._initDone) {
-      rotateLeftBtn._initDone = true;
-      rotateLeftBtn.onclick = () => {
-        item3DPreviewRotation = (item3DPreviewRotation - 15) % 360;
-        update3DItemPreview();
-      };
-    }
-
-    const rotateRightBtn = document.getElementById("rotateRight3DBtn");
-    if (rotateRightBtn && !rotateRightBtn._initDone) {
-      rotateRightBtn._initDone = true;
-      rotateRightBtn.onclick = () => {
-        item3DPreviewRotation = (item3DPreviewRotation + 15) % 360;
-        update3DItemPreview();
       };
     }
   }
