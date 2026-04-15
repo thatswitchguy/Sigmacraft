@@ -8,7 +8,7 @@ import http from "http";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const PORT = 3000;
+const PORT = 5000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -272,6 +272,34 @@ app.post("/delete-block", (req, res) => {
         delete data[blockName];
         fs.writeFileSync(BLOCK_FILE, JSON.stringify(data, null, 2));
     }
+    res.json({ success: true });
+});
+
+const ITEMS_FILE = path.join(process.cwd(), "itemData.json");
+
+function loadItems() {
+    try { return JSON.parse(fs.readFileSync(ITEMS_FILE)); } catch(e) { return {}; }
+}
+function saveItems(data) {
+    fs.writeFileSync(ITEMS_FILE, JSON.stringify(data, null, 2));
+}
+
+app.get("/items", (req, res) => res.json(loadItems()));
+
+app.post("/update-item", (req, res) => {
+    const { itemId, itemName, textureData } = req.body;
+    const data = loadItems();
+    if (!data[itemId]) data[itemId] = {};
+    data[itemId].name = itemName;
+    data[itemId].texture = textureData;
+    saveItems(data);
+    res.json({ success: true });
+});
+
+app.post("/delete-item", (req, res) => {
+    const { itemId } = req.body;
+    const data = loadItems();
+    if (data[itemId]) { delete data[itemId]; saveItems(data); }
     res.json({ success: true });
 });
 

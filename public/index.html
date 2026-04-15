@@ -57,6 +57,7 @@
       <button class="dev-tab active" data-tab="blocks">Blocks</button>
       <button class="dev-tab" data-tab="structures">Structures</button>
       <button class="dev-tab" data-tab="tools">Tools</button>
+      <button class="dev-tab" data-tab="items">Items</button>
       <button class="dev-tab" data-tab="crafting">Crafting</button>
       <button id="fullScreenEditorBtn" class="dev-tab">Blender Mode</button>
     </div>
@@ -241,6 +242,50 @@
         </div>
       </div>
 
+      <div id="itemsTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Items</h4>
+              <button id="addItemBtn" class="small-btn">+</button>
+            </div>
+            <div id="itemSidebarList" class="sidebar-list"></div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Item ID</label>
+                <input type="text" id="editItemId" readonly>
+              </div>
+              <div class="control-group">
+                <label>Item Name</label>
+                <input type="text" id="editItemName" placeholder="e.g. Diamond Sword">
+              </div>
+              <div class="control-group">
+                <label>Texture Color</label>
+                <div class="tool-buttons">
+                  <input type="color" id="itemColorPicker" value="#ffffff">
+                  <button id="itemFillButton">Fill All</button>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+              <div class="pixel-grid-container">
+                <div id="itemPixelGrid" class="pixel-grid"></div>
+              </div>
+              <div>
+                <h4 style="color:#fff;margin:0 0 6px 0;font-size:13px;">3D Hand Preview</h4>
+                <canvas id="itemHandCanvas" width="200" height="160" style="border:1px solid #444;border-radius:4px;display:block;"></canvas>
+              </div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveItemBtn" class="primary-btn">Save Item</button>
+              <button id="deleteItemBtn" class="danger-btn">Delete Item</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="craftingTab" class="dev-tab-content">
         <div class="dev-layout">
           <div class="dev-sidebar">
@@ -287,6 +332,24 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <div id="newItemOverlay" style="display:none;">
+    <div class="options-window">
+      <h2>New Item</h2>
+      <div class="control-group">
+        <label>Item ID (lowercase, no spaces)</label>
+        <input type="text" id="newItemId" placeholder="e.g. diamond_sword">
+      </div>
+      <div class="control-group">
+        <label>Item Name</label>
+        <input type="text" id="newItemName" placeholder="e.g. Diamond Sword">
+      </div>
+      <div class="options-footer">
+        <button id="newItemCancel" class="mc-btn">Cancel</button>
+        <button id="newItemSubmit" class="mc-btn">Create</button>
+      </div>
     </div>
   </div>
 
