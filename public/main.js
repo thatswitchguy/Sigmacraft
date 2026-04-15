@@ -13,6 +13,7 @@ export function initGame(THREE){
   let toolTypes = {};
   let currentToolPixels = Array(256).fill("#8B4513");
   let editingToolId = null;
+  let toolHandRenderer = null, toolHandScene = null, toolHandCamera = null, toolHandItemMesh = null, toolHandArmMesh = null;
 
   // Item data
   let itemTypes = {};
@@ -2963,6 +2964,7 @@ export function initGame(THREE){
     if (nameEl) nameEl.value = tool.name || id;
     currentToolPixels = Array.isArray(tool.texture) ? [...tool.texture] : Array(256).fill(tool.texture || "#8B4513");
     createToolPixelGrid();
+    updateToolHandPreview();
     // Populate break multipliers
     const container = document.getElementById("toolBreakMultipliers");
     if (container) {
@@ -2995,14 +2997,91 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
         currentToolPixels[i] = color;
         px.style.backgroundColor = color;
+        updateToolHandPreview();
       };
       grid.appendChild(px);
     }
   }
 
+  function updateToolHandPreview() {
+    if (!toolHandItemMesh) return;
+    const cvs = document.createElement("canvas");
+    cvs.width = 16; cvs.height = 16;
+    const ctx = cvs.getContext("2d");
+    currentToolPixels.forEach((color, i) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+    });
+    const tex = new THREE.CanvasTexture(cvs);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    toolHandItemMesh.material.map = tex;
+    toolHandItemMesh.material.needsUpdate = true;
+  }
+
+  function initToolHandRenderer() {
+    const canvas = document.getElementById("toolHandCanvas");
+    if (!canvas || toolHandRenderer) {
+      if (toolHandRenderer) startToolHandRenderLoop();
+      return;
+    }
+    toolHandScene = new THREE.Scene();
+    toolHandScene.background = new THREE.Color(0x1a1a2e);
+    toolHandCamera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 100);
+    toolHandCamera.position.set(0, 0, 2);
+    toolHandScene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    dLight.position.set(1, 2, 2);
+    toolHandScene.add(dLight);
+    // Arm mesh
+    const handMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+    toolHandArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), handMat);
+    toolHandArmMesh.position.set(0.4, -0.6, -0.5);
+    toolHandArmMesh.rotation.x = -0.3;
+    toolHandScene.add(toolHandArmMesh);
+    // Tool mesh (flat plane showing texture)
+    const initCvs = document.createElement("canvas");
+    initCvs.width = 16; initCvs.height = 16;
+    const initCtx = initCvs.getContext("2d");
+    initCtx.fillStyle = "#8B4513";
+    initCtx.fillRect(0, 0, 16, 16);
+    const initTex = new THREE.CanvasTexture(initCvs);
+    initTex.magFilter = THREE.NearestFilter;
+    initTex.minFilter = THREE.NearestFilter;
+    const toolMat = new THREE.MeshStandardMaterial({ map: initTex, transparent: true });
+    toolHandItemMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.08), toolMat);
+    toolHandItemMesh.position.set(0.4, -0.15, -0.75);
+    toolHandItemMesh.rotation.set(-0.15, 0.3, 0.1);
+    toolHandScene.add(toolHandItemMesh);
+    try {
+      toolHandRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+      toolHandRenderer.setSize(canvas.width, canvas.height);
+    } catch(e) {
+      console.warn("Tool hand renderer failed:", e);
+      return;
+    }
+    startToolHandRenderLoop();
+  }
+
+  function startToolHandRenderLoop() {
+    if (!toolHandRenderer || !toolHandScene || !toolHandCamera) return;
+    let angle = 0;
+    function loop() {
+      const tab = document.getElementById("toolsTab");
+      if (!tab || !tab.classList.contains("active")) return;
+      requestAnimationFrame(loop);
+      angle += 0.015;
+      if (toolHandArmMesh) toolHandArmMesh.position.y = -0.6 + Math.sin(angle) * 0.025;
+      if (toolHandItemMesh) toolHandItemMesh.position.y = -0.15 + Math.sin(angle) * 0.025;
+      toolHandRenderer.render(toolHandScene, toolHandCamera);
+    }
+    loop();
+  }
+
   function initToolUI() {
     updateToolSidebar();
     createToolPixelGrid();
+    initToolHandRenderer();
 
     const addBtn = document.getElementById("addToolBtn");
     if (addBtn && !addBtn._initDone) {
@@ -3042,6 +3121,7 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker").value;
         currentToolPixels = Array(256).fill(color);
         document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
+        updateToolHandPreview();
       };
     }
 

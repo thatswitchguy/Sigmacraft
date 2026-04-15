@@ -231,8 +231,14 @@
                 <div id="toolBreakMultipliers" class="tool-break-multipliers"></div>
               </details>
             </div>
-            <div class="pixel-grid-container">
-              <div id="toolPixelGrid" class="pixel-grid"></div>
+            <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+              <div class="pixel-grid-container">
+                <div id="toolPixelGrid" class="pixel-grid"></div>
+              </div>
+              <div>
+                <h4 style="color:#fff;margin:0 0 6px 0;font-size:13px;">3D Hand Preview</h4>
+                <canvas id="toolHandCanvas" width="200" height="160" style="border:1px solid #444;border-radius:4px;display:block;"></canvas>
+              </div>
             </div>
             <div class="action-buttons">
               <button id="saveToolBtn" class="primary-btn">Save Tool</button>
