@@ -57,6 +57,7 @@
       <button class="dev-tab active" data-tab="blocks">Blocks</button>
       <button class="dev-tab" data-tab="structures">Structures</button>
       <button class="dev-tab" data-tab="tools">Tools</button>
+      <button class="dev-tab" data-tab="items">Items</button>
       <button class="dev-tab" data-tab="crafting">Crafting</button>
       <button id="fullScreenEditorBtn" class="dev-tab">Blender Mode</button>
     </div>
@@ -236,6 +237,62 @@
             <div class="action-buttons">
               <button id="saveToolBtn" class="primary-btn">Save Tool</button>
               <button id="deleteToolBtn" class="danger-btn">Delete Tool</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="itemsTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Items</h4>
+              <button id="addItemBtn" class="small-btn">+</button>
+            </div>
+            <div id="itemSidebarList" class="sidebar-list"></div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Item ID</label>
+                <input type="text" id="editItemId" readonly>
+              </div>
+              <div class="control-group">
+                <label>Item Name</label>
+                <input type="text" id="editItemName" placeholder="e.g. Iron Ingot">
+              </div>
+              <div class="control-group">
+                <label>Item Type</label>
+                <select id="editItemType">
+                  <option value="block">Block</option>
+                  <option value="tool">Tool</option>
+                  <option value="generic">Generic Item</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Texture Color</label>
+                <div class="tool-buttons">
+                  <input type="color" id="itemColorPicker" value="#8B4513">
+                  <button id="itemFillButton">Fill All</button>
+                </div>
+              </div>
+              <details open>
+                <summary>3D Texture Preview</summary>
+                <div id="item3DPreviewContainer" class="item-3d-preview-container">
+                  <canvas id="item3DPreviewCanvas"></canvas>
+                  <div class="preview-controls">
+                    <button id="rotateLeft3DBtn" class="small-btn">Rotate Left</button>
+                    <button id="rotateRight3DBtn" class="small-btn">Rotate Right</button>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div class="pixel-grid-container">
+              <div id="itemPixelGrid" class="pixel-grid"></div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveItemBtn" class="primary-btn">Save Item</button>
+              <button id="deleteItemBtn" class="danger-btn">Delete Item</button>
             </div>
           </div>
         </div>

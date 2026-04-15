@@ -341,6 +341,35 @@ app.post("/delete-tool", (req, res) => {
     res.json({ success: true });
 });
 
+const ITEMS_FILE = path.join(process.cwd(), "itemData.json");
+
+function loadItems() {
+    try { return JSON.parse(fs.readFileSync(ITEMS_FILE)); } catch(e) { return {}; }
+}
+function saveItemData(data) {
+    fs.writeFileSync(ITEMS_FILE, JSON.stringify(data, null, 2));
+}
+
+app.get("/items", (req, res) => res.json(loadItems()));
+
+app.post("/save-item", (req, res) => {
+    const { itemId, itemName, itemType, textureData } = req.body;
+    const data = loadItems();
+    if (!data[itemId]) data[itemId] = {};
+    data[itemId].name = itemName;
+    data[itemId].type = itemType || "generic";
+    data[itemId].texture = textureData;
+    saveItemData(data);
+    res.json({ success: true });
+});
+
+app.post("/delete-item", (req, res) => {
+    const { itemId } = req.body;
+    const data = loadItems();
+    if (data[itemId]) { delete data[itemId]; saveItemData(data); }
+    res.json({ success: true });
+});
+
 function loadRecipes() {
     try { return JSON.parse(fs.readFileSync(CRAFTING_FILE)); } catch(e) { return []; }
 }

@@ -87,7 +87,7 @@ export function initGame(THREE){
   camera.add(fpHandGroup);
   player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem };
 
-  const RendererClass = THREE.WebGPURenderer || THREE.WebGLRenderer;
+  const RendererClass = THREE.WebGPURenderer ? THREE.WebGPURenderer : THREE.WebGLRenderer;
   const renderer = new RendererClass({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
@@ -2075,21 +2075,26 @@ export function initGame(THREE){
   }
 
   function createBlockIcon(id) {
-    const canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 16;
-    const ctx = canvas.getContext("2d");
-    const texData = blockTypes[id].textures.top;
-    if (Array.isArray(texData)) {
-      texData.forEach((color, i) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-      });
-    } else {
-      ctx.fillStyle = texData || "#ffffff";
-      ctx.fillRect(0, 0, 16, 16);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext("2d");
+      const texData = blockTypes[id]?.textures?.top;
+      if (!texData) return null;
+      if (Array.isArray(texData)) {
+        texData.forEach((color, i) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+        });
+      } else {
+        ctx.fillStyle = texData || "#ffffff";
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      return canvas;
+    } catch(e) {
+      return null;
     }
-    return canvas;
   }
 
   function updateSidebar() {
@@ -2222,6 +2227,7 @@ export function initGame(THREE){
       document.getElementById(tabName + 'Tab').classList.add('active');
       if (tabName === 'structures') initStructureEditor();
       if (tabName === 'tools') initToolUI();
+      if (tabName === 'items') initItemsUI();
       if (tabName === 'crafting') initCraftingUI();
     };
   });
@@ -2358,7 +2364,7 @@ export function initGame(THREE){
     structureCamera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
     structureCamera.position.set(10, 10, 10);
     
-    structureRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    structureRenderer = (THREE.WebGPURenderer ? new THREE.WebGPURenderer({ canvas, antialias: true }) : new THREE.WebGLRenderer({ canvas, antialias: true }));
     structureRenderer.setSize(width, height);
     
     structureScene.add(new THREE.AmbientLight(0xffffff, 0.8));
@@ -2800,23 +2806,53 @@ export function initGame(THREE){
     const selectedItem = player.inventory[player.selectedSlot];
     const label = document.getElementById("hotbarLabel");
     
-    if (selectedItem && selectedItem.type && blockMaterials[selectedItem.type]) {
-      player.fp.item.visible = player.cameraMode === 0;
-      player.fp.hand.visible = false;
-      player.tpItem.visible = true;
+    if (selectedItem && selectedItem.type) {
+      let mat = null;
+      let itemName = selectedItem.type;
       
-      const mat = blockMaterials[selectedItem.type];
-      if (Array.isArray(mat)) {
-        player.fp.item.material = mat[4] || mat[0]; // Use front face for visual
-        player.tpItem.material = mat[4] || mat[0];
-      } else {
+      if (blockMaterials[selectedItem.type]) {
+        mat = blockMaterials[selectedItem.type];
+        if (Array.isArray(mat)) {
+          mat = mat[4] || mat[0];
+        }
+        itemName = blockTypes[selectedItem.type]?.name || selectedItem.type;
+      } else if (toolTypes[selectedItem.type]) {
+        const toolTex = toolTypes[selectedItem.type]?.texture;
+        if (toolTex) {
+          const cvs = document.createElement("canvas");
+          cvs.width = 16; cvs.height = 16;
+          const ctx = cvs.getContext("2d");
+          if (Array.isArray(toolTex)) {
+            toolTex.forEach((color, i) => {
+              ctx.fillStyle = color;
+              ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+            });
+          } else {
+            ctx.fillStyle = toolTex || "#8B4513";
+            ctx.fillRect(0, 0, 16, 16);
+          }
+          const texture = new THREE.CanvasTexture(cvs);
+          texture.magFilter = THREE.NearestFilter;
+          texture.minFilter = THREE.NearestFilter;
+          mat = new THREE.MeshStandardMaterial({ map: texture });
+        }
+        itemName = toolTypes[selectedItem.type]?.name || selectedItem.type;
+      }
+      
+      if (mat) {
+        player.fp.item.visible = player.cameraMode === 0;
+        player.fp.hand.visible = false;
+        player.tpItem.visible = true;
         player.fp.item.material = mat;
         player.tpItem.material = mat;
+      } else {
+        player.fp.item.visible = false;
+        player.fp.hand.visible = player.cameraMode === 0;
+        player.tpItem.visible = false;
       }
 
-      // Update hotbar label
-      if (label && blockTypes[selectedItem.type]) {
-        label.textContent = blockTypes[selectedItem.type].name || selectedItem.type;
+      if (label) {
+        label.textContent = itemName;
         label.style.opacity = 1;
         clearTimeout(window.labelTimeout);
         window.labelTimeout = setTimeout(() => {
@@ -2835,22 +2871,31 @@ export function initGame(THREE){
       slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
       slot.innerHTML = "";
       const item = player.inventory[inventoryIdx];
-      if (item && item.type && blockTypes[item.type]) {
-        const icon = createBlockIcon(item.type);
-        slot.appendChild(icon);
-        if (item.count > 1) {
-          const count = document.createElement("div");
-          count.className = "item-count";
-          count.textContent = item.count;
-          slot.appendChild(count);
-        }
-        // Add hover tooltips to hotbar
-        slot.onmouseenter = (e) => {
-          if (blockTypes[item.type]) {
-            showTooltip(e, blockTypes[item.type].name || item.type);
+      if (item && item.type) {
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        if (icon) {
+          slot.appendChild(icon);
+          if (item.count > 1) {
+            const count = document.createElement("div");
+            count.className = "item-count";
+            count.textContent = item.count;
+            slot.appendChild(count);
           }
-        };
-        slot.onmouseleave = hideTooltip;
+          // Add hover tooltips to hotbar
+          slot.onmouseenter = (e) => {
+            if (blockTypes[item.type]) {
+              showTooltip(e, blockTypes[item.type].name || item.type);
+            } else if (toolTypes[item.type]) {
+              showTooltip(e, toolTypes[item.type].name || item.type);
+            } else {
+              showTooltip(e, item.type);
+            }
+          };
+          slot.onmouseleave = hideTooltip;
+        } else {
+          slot.onmouseenter = null;
+          slot.onmouseleave = null;
+        }
       } else {
         // Remove tooltip handlers from empty slots
         slot.onmouseenter = null;
@@ -3048,13 +3093,223 @@ export function initGame(THREE){
     }
   }
 
+  // ─── ITEMS UI ──────────────────────────────────────────────────────────────
+  let itemsData = {};
+  let currentItemPixels = Array(256).fill("#8B4513");
+  let editingItemId = null;
+  let item3DPreviewRotation = 0;
+
+  function createItemIcon(id) {
+    try {
+      const cvs = document.createElement("canvas");
+      cvs.width = 16;
+      cvs.height = 16;
+      const ctx = cvs.getContext("2d");
+      const tex = itemsData[id]?.texture;
+      if (Array.isArray(tex)) {
+        tex.forEach((color, i) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+        });
+      } else {
+        ctx.fillStyle = "#888888";
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      return cvs;
+    } catch (e) {
+      console.error("Error creating item icon:", e);
+      return null;
+    }
+  }
+
+  function updateItemsSidebar() {
+    const list = document.getElementById("itemSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(itemsData).forEach(id => {
+      const item = document.createElement("div");
+      item.className = "sidebar-item";
+      const icon = createItemIcon(id);
+      if (icon) item.appendChild(icon);
+      const lbl = document.createElement("span");
+      lbl.textContent = itemsData[id].name || id;
+      lbl.style.flex = "1";
+      item.appendChild(lbl);
+      const del = document.createElement("button");
+      del.innerHTML = "&times;";
+      del.className = "small-btn";
+      del.style.cssText = "background:transparent;border:none;color:#f44";
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete item ${id}?`)) return;
+        await fetch("/delete-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: id }) });
+        delete itemsData[id];
+        updateItemsSidebar();
+      };
+      item.appendChild(del);
+      item.onclick = () => loadItemEditor(id);
+      list.appendChild(item);
+    });
+  }
+
+  function loadItemEditor(id) {
+    editingItemId = id;
+    const itemData = itemsData[id];
+    const idEl = document.getElementById("editItemId");
+    const nameEl = document.getElementById("editItemName");
+    const typeEl = document.getElementById("editItemType");
+    if (idEl) idEl.value = id;
+    if (nameEl) nameEl.value = itemData.name || id;
+    if (typeEl) typeEl.value = itemData.type || "generic";
+    currentItemPixels = Array.isArray(itemData.texture) ? [...itemData.texture] : Array(256).fill(itemData.texture || "#8B4513");
+    createItemPixelGrid();
+    update3DItemPreview();
+  }
+
+  function createItemPixelGrid() {
+    const grid = document.getElementById("itemPixelGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 256; i++) {
+      const px = document.createElement("div");
+      px.className = "pixel";
+      px.style.backgroundColor = currentItemPixels[i];
+      px.onclick = () => {
+        const color = document.getElementById("itemColorPicker")?.value || "#8B4513";
+        currentItemPixels[i] = color;
+        px.style.backgroundColor = color;
+        update3DItemPreview();
+      };
+      grid.appendChild(px);
+    }
+  }
+
+  function update3DItemPreview() {
+    const canvas = document.getElementById("item3DPreviewCanvas");
+    if (!canvas) return;
+    const cvs = document.createElement("canvas");
+    cvs.width = 64;
+    cvs.height = 64;
+    const ctx = cvs.getContext("2d");
+    ctx.fillStyle = "#333333";
+    ctx.fillRect(0, 0, 64, 64);
+    
+    // Draw a simple 3D representation of the texture
+    // Draw front face
+    ctx.fillStyle = "#888888";
+    ctx.fillRect(12, 16, 40, 40);
+    
+    // Draw pixel texture on front face
+    const scale = 2.5;
+    for (let i = 0; i < 256; i++) {
+      const x = i % 16;
+      const y = Math.floor(i / 16);
+      ctx.fillStyle = currentItemPixels[i];
+      ctx.fillRect(12 + x * scale, 16 + y * scale, scale, scale);
+    }
+    
+    // Draw simple highlight for 3D effect
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(12, 16, 40, 40);
+    
+    canvas.width = 64;
+    canvas.height = 64;
+    const canvasCtx = canvas.getContext("2d");
+    canvasCtx.clearRect(0, 0, 64, 64);
+    canvasCtx.drawImage(cvs, 0, 0);
+  }
+
+  function initItemsUI() {
+    updateItemsSidebar();
+    createItemPixelGrid();
+
+    const addBtn = document.getElementById("addItemBtn");
+    if (addBtn && !addBtn._initDone) {
+      addBtn._initDone = true;
+      addBtn.onclick = () => {
+        const id = prompt("Enter item ID (lowercase, no spaces):");
+        if (!id) return;
+        const cleanId = id.trim().toLowerCase().replace(/\s+/g, "_");
+        if (itemsData[cleanId]) return alert("Item ID already exists");
+        const name = prompt("Enter item name:");
+        if (!name) return;
+        itemsData[cleanId] = { name, type: "generic", texture: Array(256).fill("#8B4513") };
+        fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: cleanId, itemName: name, itemType: "generic", textureData: itemsData[cleanId].texture }) }).then(() => {
+          updateItemsSidebar();
+          setupInventoryUI();
+        });
+      };
+    }
+
+    const fillBtn = document.getElementById("itemFillButton");
+    if (fillBtn && !fillBtn._initDone) {
+      fillBtn._initDone = true;
+      fillBtn.onclick = () => {
+        const color = document.getElementById("itemColorPicker").value;
+        currentItemPixels = Array(256).fill(color);
+        document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
+        update3DItemPreview();
+      };
+    }
+
+    const saveBtn = document.getElementById("saveItemBtn");
+    if (saveBtn && !saveBtn._initDone) {
+      saveBtn._initDone = true;
+      saveBtn.onclick = async () => {
+        if (!editingItemId) return alert("Select an item first");
+        const name = document.getElementById("editItemName").value.trim();
+        const type = document.getElementById("editItemType").value;
+        itemsData[editingItemId].name = name;
+        itemsData[editingItemId].type = type;
+        itemsData[editingItemId].texture = [...currentItemPixels];
+        await fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: editingItemId, itemName: name, itemType: type, textureData: currentItemPixels }) });
+        updateItemsSidebar();
+        setupInventoryUI();
+        alert("Item saved!");
+      };
+    }
+
+    const delBtn = document.getElementById("deleteItemBtn");
+    if (delBtn && !delBtn._initDone) {
+      delBtn._initDone = true;
+      delBtn.onclick = async () => {
+        if (!editingItemId) return;
+        if (!confirm(`Delete item ${editingItemId}?`)) return;
+        await fetch("/delete-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: editingItemId }) });
+        delete itemsData[editingItemId];
+        editingItemId = null;
+        updateItemsSidebar();
+        setupInventoryUI();
+      };
+    }
+
+    const rotateLeftBtn = document.getElementById("rotateLeft3DBtn");
+    if (rotateLeftBtn && !rotateLeftBtn._initDone) {
+      rotateLeftBtn._initDone = true;
+      rotateLeftBtn.onclick = () => {
+        item3DPreviewRotation = (item3DPreviewRotation - 15) % 360;
+        update3DItemPreview();
+      };
+    }
+
+    const rotateRightBtn = document.getElementById("rotateRight3DBtn");
+    if (rotateRightBtn && !rotateRightBtn._initDone) {
+      rotateRightBtn._initDone = true;
+      rotateRightBtn.onclick = () => {
+        item3DPreviewRotation = (item3DPreviewRotation + 15) % 360;
+        update3DItemPreview();
+      };
+    }
+  }
+
   // ─── CRAFTING UI ────────────────────────────────────────────────────────────
   function getAllItemIds() {
-    return [...Object.keys(blockTypes).filter(k => !k.startsWith("_")), ...Object.keys(toolTypes)];
+    return [...Object.keys(blockTypes).filter(k => !k.startsWith("_")), ...Object.keys(toolTypes), ...Object.keys(itemsData)];
   }
 
   function getItemName(id) {
-    return blockTypes[id]?.name || toolTypes[id]?.name || id;
+    return blockTypes[id]?.name || toolTypes[id]?.name || itemsData[id]?.name || id;
   }
 
   function renderItemIcon(id, slot) {
@@ -3064,6 +3319,8 @@ export function initGame(THREE){
       slot.appendChild(createBlockIcon(id));
     } else if (toolTypes[id]) {
       slot.appendChild(createToolIcon(id));
+    } else if (itemsData[id]) {
+      slot.appendChild(createItemIcon(id));
     } else {
       // Fallback for items not in blockTypes or toolTypes
       const canvas = document.createElement("canvas");
@@ -3943,6 +4200,13 @@ export function initGame(THREE){
       initToolUI();
     } catch(e) { toolTypes = {}; }
 
+    // Load items
+    try {
+      const itemRes = await fetch("/items");
+      itemsData = await itemRes.json();
+      initItemsUI();
+    } catch(e) { itemsData = {}; }
+
     // Load crafting recipes
     try {
       const recipeRes = await fetch("/crafting-recipes");
@@ -4005,7 +4269,7 @@ export function initGame(THREE){
       slot.className = "slot";
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type);
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
         if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
