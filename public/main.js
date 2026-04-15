@@ -14,11 +14,6 @@ export function initGame(THREE){
   let currentToolPixels = Array(256).fill("#8B4513");
   let editingToolId = null;
 
-  // Item data
-  let itemTypes = {};
-  let currentItemPixels = Array(256).fill("#ffffff");
-  let editingItemId = null;
-
   // Crafting
   let craftingGridState = Array(4).fill(null).map(() => ({ type: null, count: 0 })); // 2x2 inventory crafting grid with stacking
   let craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 })); // 3x3 crafting table grid with stacking
@@ -2227,7 +2222,6 @@ export function initGame(THREE){
       document.getElementById(tabName + 'Tab').classList.add('active');
       if (tabName === 'structures') initStructureEditor();
       if (tabName === 'tools') initToolUI();
-      if (tabName === 'items') initItemsUI();
       if (tabName === 'crafting') initCraftingUI();
     };
   });
@@ -2829,33 +2823,6 @@ export function initGame(THREE){
           label.style.opacity = 0;
         }, 2000);
       }
-    } else if (selectedItem && selectedItem.type && (toolTypes[selectedItem.type] || itemTypes[selectedItem.type])) {
-      const typeData = toolTypes[selectedItem.type] || itemTypes[selectedItem.type];
-      player.fp.item.visible = player.cameraMode === 0;
-      player.fp.hand.visible = false;
-      player.tpItem.visible = true;
-      const texArray = typeData.texture;
-      if (Array.isArray(texArray)) {
-        const cvs = document.createElement('canvas');
-        cvs.width = 16; cvs.height = 16;
-        const ctx = cvs.getContext('2d');
-        texArray.forEach((color, idx) => {
-          ctx.fillStyle = color;
-          ctx.fillRect(idx % 16, Math.floor(idx / 16), 1, 1);
-        });
-        const tex = new THREE.CanvasTexture(cvs);
-        tex.magFilter = THREE.NearestFilter;
-        tex.minFilter = THREE.NearestFilter;
-        const mat = new THREE.MeshStandardMaterial({ map: tex });
-        player.fp.item.material = mat;
-        player.tpItem.material = mat;
-      }
-      if (label) {
-        label.textContent = typeData.name || selectedItem.type;
-        label.style.opacity = 1;
-        clearTimeout(window.labelTimeout);
-        window.labelTimeout = setTimeout(() => { label.style.opacity = 0; }, 2000);
-      }
     } else {
       player.fp.item.visible = false;
       player.fp.hand.visible = player.cameraMode === 0;
@@ -2868,11 +2835,9 @@ export function initGame(THREE){
       slot.classList.toggle("selected", inventoryIdx === player.selectedSlot);
       slot.innerHTML = "";
       const item = player.inventory[inventoryIdx];
-      if (item && item.type && (blockTypes[item.type] || toolTypes[item.type] || itemTypes[item.type])) {
-        const icon = (blockTypes[item.type] ? createBlockIcon(item.type) : null) ||
-                     (toolTypes[item.type] ? createToolIcon(item.type) : null) ||
-                     (itemTypes[item.type] ? createItemIcon(item.type) : null);
-        if (icon) slot.appendChild(icon);
+      if (item && item.type && blockTypes[item.type]) {
+        const icon = createBlockIcon(item.type);
+        slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
           count.className = "item-count";
@@ -2880,8 +2845,11 @@ export function initGame(THREE){
           slot.appendChild(count);
         }
         // Add hover tooltips to hotbar
-        const itemName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemTypes[item.type]?.name || item.type;
-        slot.onmouseenter = (e) => showTooltip(e, itemName);
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          }
+        };
         slot.onmouseleave = hideTooltip;
       } else {
         // Remove tooltip handlers from empty slots
@@ -2962,7 +2930,6 @@ export function initGame(THREE){
     if (nameEl) nameEl.value = tool.name || id;
     currentToolPixels = Array.isArray(tool.texture) ? [...tool.texture] : Array(256).fill(tool.texture || "#8B4513");
     createToolPixelGrid();
-    updateToolHandPreview();
     // Populate break multipliers
     const container = document.getElementById("toolBreakMultipliers");
     if (container) {
@@ -2995,83 +2962,14 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
         currentToolPixels[i] = color;
         px.style.backgroundColor = color;
-        updateToolHandPreview();
       };
       grid.appendChild(px);
     }
   }
 
-  function drawHandPreview2D(canvasId, pixels, activeTabId, time) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-    const bob = Math.sin(time * 0.002) * 5;
-
-    // Dark background
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, W, H);
-
-    // Build pixel texture offscreen
-    const texCvs = document.createElement("canvas");
-    texCvs.width = 16; texCvs.height = 16;
-    const texCtx = texCvs.getContext("2d");
-    if (Array.isArray(pixels)) {
-      pixels.forEach((color, i) => {
-        texCtx.fillStyle = color || "#000";
-        texCtx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-      });
-    }
-
-    // Item: lower-right, slightly rotated (Minecraft FP style)
-    const scale = 5;
-    ctx.save();
-    ctx.translate(W * 0.42, H * 0.38 + bob);
-    ctx.rotate(-0.35);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(texCvs, 0, 0, 16 * scale, 16 * scale);
-    // Right-edge shadow
-    ctx.fillStyle = "rgba(0,0,0,0.28)";
-    ctx.fillRect(16 * scale - 5, 0, 5, 16 * scale);
-    // Bottom-edge shadow
-    ctx.fillRect(0, 16 * scale - 4, 16 * scale, 4);
-    ctx.restore();
-
-    // Arm/hand
-    ctx.save();
-    ctx.translate(W * 0.72, H * 0.8 + bob);
-    ctx.rotate(-0.22);
-    ctx.fillStyle = "#d4a574";
-    ctx.fillRect(-20, -12, 40, 70);
-    ctx.fillStyle = "rgba(0,0,0,0.2)";
-    ctx.fillRect(20, -12, 7, 70);
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    ctx.fillRect(-20, -12, 7, 70);
-    ctx.restore();
-  }
-
-  function updateToolHandPreview() {
-    drawHandPreview2D("toolHandCanvas", currentToolPixels, "toolsTab", Date.now());
-  }
-
-  function initToolHandRenderer() {
-    startToolHandRenderLoop();
-  }
-
-  function startToolHandRenderLoop() {
-    function loop(time) {
-      const tab = document.getElementById("toolsTab");
-      if (!tab || !tab.classList.contains("active")) return;
-      drawHandPreview2D("toolHandCanvas", currentToolPixels, "toolsTab", time);
-      requestAnimationFrame(loop);
-    }
-    requestAnimationFrame(loop);
-  }
-
   function initToolUI() {
     updateToolSidebar();
     createToolPixelGrid();
-    initToolHandRenderer();
 
     const addBtn = document.getElementById("addToolBtn");
     if (addBtn && !addBtn._initDone) {
@@ -3111,7 +3009,6 @@ export function initGame(THREE){
         const color = document.getElementById("toolColorPicker").value;
         currentToolPixels = Array(256).fill(color);
         document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
-        updateToolHandPreview();
       };
     }
 
@@ -3151,196 +3048,13 @@ export function initGame(THREE){
     }
   }
 
-  // ─── ITEM UI ────────────────────────────────────────────────────────────────
-  function createItemIcon(id) {
-    try {
-      const cvs = document.createElement("canvas");
-      cvs.width = 16; cvs.height = 16;
-      const ctx = cvs.getContext("2d");
-      const tex = itemTypes[id]?.texture;
-      if (Array.isArray(tex)) {
-        tex.forEach((color, i) => {
-          ctx.fillStyle = color;
-          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-        });
-      } else {
-        ctx.fillStyle = "#cccccc";
-        ctx.fillRect(0, 0, 16, 16);
-      }
-      return cvs;
-    } catch(e) {
-      const cvs = document.createElement("canvas");
-      cvs.width = 16; cvs.height = 16;
-      const ctx = cvs.getContext("2d");
-      ctx.fillStyle = "#ff00ff";
-      ctx.fillRect(0, 0, 16, 16);
-      return cvs;
-    }
-  }
-
-  function updateItemSidebar() {
-    const list = document.getElementById("itemSidebarList");
-    if (!list) return;
-    list.innerHTML = "";
-    Object.keys(itemTypes).forEach(id => {
-      const item = document.createElement("div");
-      item.className = "sidebar-item";
-      item.appendChild(createItemIcon(id));
-      const lbl = document.createElement("span");
-      lbl.textContent = itemTypes[id].name || id;
-      lbl.style.flex = "1";
-      item.appendChild(lbl);
-      const del = document.createElement("button");
-      del.innerHTML = "&times;";
-      del.className = "small-btn";
-      del.style.cssText = "background:transparent;border:none;color:#f44";
-      del.onclick = async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Delete item ${id}?`)) return;
-        await fetch("/delete-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: id }) });
-        delete itemTypes[id];
-        updateItemSidebar();
-        setupInventoryUI();
-      };
-      item.appendChild(del);
-      item.onclick = () => loadItemEditor(id);
-      list.appendChild(item);
-    });
-  }
-
-  function loadItemEditor(id) {
-    editingItemId = id;
-    const itm = itemTypes[id];
-    const idEl = document.getElementById("editItemId");
-    const nameEl = document.getElementById("editItemName");
-    if (idEl) idEl.value = id;
-    if (nameEl) nameEl.value = itm.name || id;
-    currentItemPixels = Array.isArray(itm.texture) ? [...itm.texture] : Array(256).fill(itm.texture || "#ffffff");
-    createItemPixelGrid();
-    updateItemHandPreview();
-  }
-
-  function createItemPixelGrid() {
-    const grid = document.getElementById("itemPixelGrid");
-    if (!grid) return;
-    grid.innerHTML = "";
-    for (let i = 0; i < 256; i++) {
-      const px = document.createElement("div");
-      px.className = "pixel";
-      px.style.backgroundColor = currentItemPixels[i];
-      px.onclick = () => {
-        const color = document.getElementById("itemColorPicker")?.value || "#ffffff";
-        currentItemPixels[i] = color;
-        px.style.backgroundColor = color;
-        updateItemHandPreview();
-      };
-      grid.appendChild(px);
-    }
-  }
-
-  function updateItemHandPreview() {
-    drawHandPreview2D("itemHandCanvas", currentItemPixels, "itemsTab", Date.now());
-  }
-
-  function initItemHandRenderer() {
-    startItemHandRenderLoop();
-  }
-
-  function startItemHandRenderLoop() {
-    function loop(time) {
-      const tab = document.getElementById("itemsTab");
-      if (!tab || !tab.classList.contains("active")) return;
-      drawHandPreview2D("itemHandCanvas", currentItemPixels, "itemsTab", time);
-      requestAnimationFrame(loop);
-    }
-    requestAnimationFrame(loop);
-  }
-
-  function initItemsUI() {
-    updateItemSidebar();
-    createItemPixelGrid();
-    initItemHandRenderer();
-
-    const addBtn = document.getElementById("addItemBtn");
-    if (addBtn && !addBtn._initDone) {
-      addBtn._initDone = true;
-      addBtn.onclick = () => { document.getElementById("newItemOverlay").style.display = "flex"; };
-    }
-
-    const newItemSubmit = document.getElementById("newItemSubmit");
-    if (newItemSubmit && !newItemSubmit._initDone) {
-      newItemSubmit._initDone = true;
-      newItemSubmit.onclick = async () => {
-        const id = document.getElementById("newItemId").value.trim().toLowerCase().replace(/\s+/g, "_");
-        const name = document.getElementById("newItemName").value.trim();
-        if (!id || !name) return alert("Enter ID and Name");
-        if (itemTypes[id]) return alert("Item ID already exists");
-        itemTypes[id] = { name, texture: Array(256).fill("#cccccc") };
-        await fetch("/update-item", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId: id, itemName: name, textureData: itemTypes[id].texture }) });
-        document.getElementById("newItemOverlay").style.display = "none";
-        document.getElementById("newItemId").value = "";
-        document.getElementById("newItemName").value = "";
-        updateItemSidebar();
-        setupInventoryUI();
-      };
-    }
-
-    const newItemCancel = document.getElementById("newItemCancel");
-    if (newItemCancel && !newItemCancel._initDone) {
-      newItemCancel._initDone = true;
-      newItemCancel.onclick = () => { document.getElementById("newItemOverlay").style.display = "none"; };
-    }
-
-    const fillBtn = document.getElementById("itemFillButton");
-    if (fillBtn && !fillBtn._initDone) {
-      fillBtn._initDone = true;
-      fillBtn.onclick = () => {
-        const color = document.getElementById("itemColorPicker").value;
-        currentItemPixels = Array(256).fill(color);
-        document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
-        updateItemHandPreview();
-      };
-    }
-
-    const saveBtn = document.getElementById("saveItemBtn");
-    if (saveBtn && !saveBtn._initDone) {
-      saveBtn._initDone = true;
-      saveBtn.onclick = async () => {
-        if (!editingItemId) return alert("Select an item first");
-        const name = document.getElementById("editItemName").value.trim();
-        itemTypes[editingItemId].name = name;
-        itemTypes[editingItemId].texture = [...currentItemPixels];
-        await fetch("/update-item", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId: editingItemId, itemName: name, textureData: currentItemPixels }) });
-        updateItemSidebar();
-        setupInventoryUI();
-        alert("Item saved!");
-      };
-    }
-
-    const delBtn = document.getElementById("deleteItemBtn");
-    if (delBtn && !delBtn._initDone) {
-      delBtn._initDone = true;
-      delBtn.onclick = async () => {
-        if (!editingItemId) return;
-        if (!confirm(`Delete item ${editingItemId}?`)) return;
-        await fetch("/delete-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: editingItemId }) });
-        delete itemTypes[editingItemId];
-        editingItemId = null;
-        updateItemSidebar();
-        setupInventoryUI();
-      };
-    }
-  }
-
   // ─── CRAFTING UI ────────────────────────────────────────────────────────────
   function getAllItemIds() {
-    return [...Object.keys(blockTypes).filter(k => !k.startsWith("_")), ...Object.keys(toolTypes), ...Object.keys(itemTypes)];
+    return [...Object.keys(blockTypes).filter(k => !k.startsWith("_")), ...Object.keys(toolTypes)];
   }
 
   function getItemName(id) {
-    return blockTypes[id]?.name || toolTypes[id]?.name || itemTypes[id]?.name || id;
+    return blockTypes[id]?.name || toolTypes[id]?.name || id;
   }
 
   function renderItemIcon(id, slot) {
@@ -3361,7 +3075,12 @@ export function initGame(THREE){
       ctx.fillRect(2, 2, 12, 12);
       slot.appendChild(canvas);
     }
-    }
+    const lbl = document.createElement("div");
+    lbl.className = "item-count";
+    lbl.style.cssText = "font-size:8px;bottom:0;left:0;right:0;text-align:center;";
+    lbl.textContent = (getItemName(id) || "").slice(0, 4);
+    slot.appendChild(lbl);
+  }
 
   function matchRecipe(grid) {
     // Validate inputs
@@ -3514,7 +3233,7 @@ export function initGame(THREE){
               const dragEl = document.getElementById("dragged-item");
               if (dragEl) {
                 dragEl.innerHTML = "";
-                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
+                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
                 if (icon) dragEl.appendChild(icon);
                 if (player.draggedItem.count > 1) {
                   const countEl = document.createElement("div");
@@ -3550,7 +3269,7 @@ export function initGame(THREE){
           craftingGridState[i] = { type: null, count: 0 };
           const dragEl = document.createElement("div");
           dragEl.id = "dragged-item";
-          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           if (player.draggedItem.count > 1) {
             const count = document.createElement("div");
@@ -3802,58 +3521,56 @@ export function initGame(THREE){
       slot.onclick = (e) => {
         console.log(`Crafting table grid slot ${i} clicked. Shift: ${e.shiftKey}. Dragged item:`, player.draggedItem);
         if (player.draggedItem) {
-          if (e.shiftKey && player.draggedItem.count > 1) {
-            // Shift+click while holding: place exactly 1, keep rest held
-            if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
-              if (!craftingTableGridState[i].type) {
-                craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
-              } else {
-                craftingTableGridState[i].count += 1;
-              }
-              player.draggedItem.count -= 1;
-              // Refresh the drag visual to show the new count
-              const dragEl = document.getElementById("dragged-item");
-              if (dragEl) {
-                dragEl.innerHTML = "";
-                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
-                if (icon) dragEl.appendChild(icon);
-                if (player.draggedItem.count > 1) {
-                  const countEl = document.createElement("div");
-                  countEl.className = "item-count";
-                  countEl.textContent = player.draggedItem.count;
-                  dragEl.appendChild(countEl);
-                }
-              }
-            }
-            console.log(`Shift-placed 1 item into slot ${i}`);
+          // Place dragged item into this crafting slot (supports stacking)
+          if (!craftingTableGridState[i].type) {
+            // Empty slot - place all items
+            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+            player.draggedItem = null;
+          } else if (craftingTableGridState[i].type === player.draggedItem.type) {
+            // Same type - combine stacks
+            craftingTableGridState[i].count += player.draggedItem.count;
+            player.draggedItem = null;
           } else {
-            // Place dragged item into this crafting slot (supports stacking)
-            if (!craftingTableGridState[i].type) {
-              // Empty slot - place all items
-              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-              player.draggedItem = null;
-            } else if (craftingTableGridState[i].type === player.draggedItem.type) {
-              // Same type - combine stacks
-              craftingTableGridState[i].count += player.draggedItem.count;
-              player.draggedItem = null;
-            } else {
-              // Different type - swap
-              const temp = { ...craftingTableGridState[i] };
-              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-              player.draggedItem = temp;
-            }
-            const dragEl = document.getElementById("dragged-item");
-            if (dragEl && !player.draggedItem) dragEl.remove();
-            if (player.draggedItem) updateDragPos(e);
-            console.log(`Placed into slot ${i}`);
+            // Different type - swap
+            const temp = { ...craftingTableGridState[i] };
+            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+            player.draggedItem = temp;
           }
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl && !player.draggedItem) dragEl.remove();
+          if (player.draggedItem) updateDragPos(e);
+          console.log(`Placed into slot ${i}`);
+        } else if (e.shiftKey && player.draggedItem && player.draggedItem.count > 1) {
+          // Shift+click while holding: place exactly 1, keep rest held
+          if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
+            if (!craftingTableGridState[i].type) {
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
+            } else {
+              craftingTableGridState[i].count += 1;
+            }
+            player.draggedItem.count -= 1;
+            // Refresh the drag visual to show the new count
+            const dragEl = document.getElementById("dragged-item");
+            if (dragEl) {
+              dragEl.innerHTML = "";
+              const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+              if (icon) dragEl.appendChild(icon);
+              if (player.draggedItem.count > 1) {
+                const countEl = document.createElement("div");
+                countEl.className = "item-count";
+                countEl.textContent = player.draggedItem.count;
+                dragEl.appendChild(countEl);
+              }
+            }
+          }
+          console.log(`Shift-placed 1 item into slot ${i}`);
         } else if (craftingTableGridState[i] && craftingTableGridState[i].type) {
           // Normal click: pick up entire stack
           player.draggedItem = { ...craftingTableGridState[i], sourceIdx: -1 };
           craftingTableGridState[i] = { type: null, count: 0 };
           const dragEl = document.createElement("div");
           dragEl.id = "dragged-item";
-          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           if (player.draggedItem.count > 1) {
             const count = document.createElement("div");
@@ -4226,12 +3943,6 @@ export function initGame(THREE){
       initToolUI();
     } catch(e) { toolTypes = {}; }
 
-    // Load items
-    try {
-      const itemRes = await fetch("/items");
-      itemTypes = await itemRes.json();
-    } catch(e) { itemTypes = {}; }
-
     // Load crafting recipes
     try {
       const recipeRes = await fetch("/crafting-recipes");
@@ -4294,7 +4005,7 @@ export function initGame(THREE){
       slot.className = "slot";
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type) || createItemIcon(item.type);
+        const icon = createBlockIcon(item.type);
         if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
@@ -4302,8 +4013,15 @@ export function initGame(THREE){
           count.textContent = item.count;
           slot.appendChild(count);
         }
-        const itemName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemTypes[item.type]?.name || item.type;
-        slot.onmouseenter = (e) => showTooltip(e, itemName);
+        slot.onmouseenter = (e) => {
+          if (blockTypes[item.type]) {
+            showTooltip(e, blockTypes[item.type].name || item.type);
+          } else if (toolTypes[item.type]) {
+            showTooltip(e, toolTypes[item.type].name || item.type);
+          } else {
+            showTooltip(e, item.type);
+          }
+        };
         slot.onmouseleave = hideTooltip;
       }
       slot.onclick = (e) => handleSlotClick(e, i);
@@ -4355,8 +4073,7 @@ export function initGame(THREE){
         player.inventory[idx] = { type: null, count: 0 };
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
-        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
-        if (icon) dragEl.appendChild(icon);
+        dragEl.appendChild(createBlockIcon(player.draggedItem.type));
         document.body.appendChild(dragEl);
         updateDragPos(e);
       }
@@ -4374,7 +4091,7 @@ export function initGame(THREE){
         const dragEl = document.getElementById("dragged-item");
         if (dragEl) {
           dragEl.innerHTML = "";
-          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type) || createItemIcon(player.draggedItem.type);
+          const icon = createBlockIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           if (player.draggedItem.count > 1) {
             const countEl = document.createElement("div");
@@ -4425,7 +4142,10 @@ export function initGame(THREE){
       const ctx = canvas.getContext("2d");
       const textures = blockTypes[blockName]?.textures;
       if (!textures) {
-        return null;
+        console.warn("No textures found for block:", blockName);
+        ctx.fillStyle = "#808080";
+        ctx.fillRect(0, 0, 16, 16);
+        return canvas;
       }
       const tex = textures.front || textures.top || "#ffffff";
       

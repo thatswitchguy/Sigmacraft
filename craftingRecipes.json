@@ -44,45 +44,6 @@
     "outputCount": 4
   },
   {
-    "id": "oak_planks_1775843575134",
-    "name": "Oak Planks",
-    "type": "2x2",
-    "pattern": [
-      null,
-      "wood",
-      null,
-      null
-    ],
-    "output": "wooden_planks",
-    "outputCount": 4
-  },
-  {
-    "id": "oak_planks_1775843575134",
-    "name": "Oak Planks",
-    "type": "2x2",
-    "pattern": [
-      null,
-      null,
-      "wood",
-      null
-    ],
-    "output": "wooden_planks",
-    "outputCount": 4
-  },
-  {
-    "id": "oak_planks_1775843575134",
-    "name": "Oak Planks",
-    "type": "2x2",
-    "pattern": [
-      null,
-      null,
-      null,
-      "wood"
-    ],
-    "output": "wooden_planks",
-    "outputCount": 4
-  },
-  {
     "id": "wooden_pickaxe_1775858674067",
     "name": "Wooden Pickaxe",
     "type": "3x3",
