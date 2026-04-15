@@ -13,13 +13,11 @@ export function initGame(THREE){
   let toolTypes = {};
   let currentToolPixels = Array(256).fill("#8B4513");
   let editingToolId = null;
-  let toolHandRenderer = null, toolHandScene = null, toolHandCamera = null, toolHandItemMesh = null, toolHandArmMesh = null;
 
   // Item data
   let itemTypes = {};
   let currentItemPixels = Array(256).fill("#ffffff");
   let editingItemId = null;
-  let itemHandRenderer = null, itemHandScene = null, itemHandCamera = null, itemHandItemMesh = null, itemHandArmMesh = null;
 
   // Crafting
   let craftingGridState = Array(4).fill(null).map(() => ({ type: null, count: 0 })); // 2x2 inventory crafting grid with stacking
@@ -3003,79 +3001,71 @@ export function initGame(THREE){
     }
   }
 
+  function drawHandPreview2D(canvasId, pixels, activeTabId, time) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const bob = Math.sin(time * 0.002) * 5;
+
+    // Dark background
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, W, H);
+
+    // Build pixel texture offscreen
+    const texCvs = document.createElement("canvas");
+    texCvs.width = 16; texCvs.height = 16;
+    const texCtx = texCvs.getContext("2d");
+    if (Array.isArray(pixels)) {
+      pixels.forEach((color, i) => {
+        texCtx.fillStyle = color || "#000";
+        texCtx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+      });
+    }
+
+    // Item: lower-right, slightly rotated (Minecraft FP style)
+    const scale = 5;
+    ctx.save();
+    ctx.translate(W * 0.42, H * 0.38 + bob);
+    ctx.rotate(-0.35);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(texCvs, 0, 0, 16 * scale, 16 * scale);
+    // Right-edge shadow
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(16 * scale - 5, 0, 5, 16 * scale);
+    // Bottom-edge shadow
+    ctx.fillRect(0, 16 * scale - 4, 16 * scale, 4);
+    ctx.restore();
+
+    // Arm/hand
+    ctx.save();
+    ctx.translate(W * 0.72, H * 0.8 + bob);
+    ctx.rotate(-0.22);
+    ctx.fillStyle = "#d4a574";
+    ctx.fillRect(-20, -12, 40, 70);
+    ctx.fillStyle = "rgba(0,0,0,0.2)";
+    ctx.fillRect(20, -12, 7, 70);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(-20, -12, 7, 70);
+    ctx.restore();
+  }
+
   function updateToolHandPreview() {
-    if (!toolHandItemMesh) return;
-    const cvs = document.createElement("canvas");
-    cvs.width = 16; cvs.height = 16;
-    const ctx = cvs.getContext("2d");
-    currentToolPixels.forEach((color, i) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-    });
-    const tex = new THREE.CanvasTexture(cvs);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    toolHandItemMesh.material.map = tex;
-    toolHandItemMesh.material.needsUpdate = true;
+    drawHandPreview2D("toolHandCanvas", currentToolPixels, "toolsTab", Date.now());
   }
 
   function initToolHandRenderer() {
-    const canvas = document.getElementById("toolHandCanvas");
-    if (!canvas || toolHandRenderer) {
-      if (toolHandRenderer) startToolHandRenderLoop();
-      return;
-    }
-    toolHandScene = new THREE.Scene();
-    toolHandScene.background = new THREE.Color(0x1a1a2e);
-    toolHandCamera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 100);
-    toolHandCamera.position.set(0, 0, 2);
-    toolHandScene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dLight.position.set(1, 2, 2);
-    toolHandScene.add(dLight);
-    // Arm mesh
-    const handMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
-    toolHandArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), handMat);
-    toolHandArmMesh.position.set(0.4, -0.6, -0.5);
-    toolHandArmMesh.rotation.x = -0.3;
-    toolHandScene.add(toolHandArmMesh);
-    // Tool mesh (flat plane showing texture)
-    const initCvs = document.createElement("canvas");
-    initCvs.width = 16; initCvs.height = 16;
-    const initCtx = initCvs.getContext("2d");
-    initCtx.fillStyle = "#8B4513";
-    initCtx.fillRect(0, 0, 16, 16);
-    const initTex = new THREE.CanvasTexture(initCvs);
-    initTex.magFilter = THREE.NearestFilter;
-    initTex.minFilter = THREE.NearestFilter;
-    const toolMat = new THREE.MeshStandardMaterial({ map: initTex, transparent: true });
-    toolHandItemMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.08), toolMat);
-    toolHandItemMesh.position.set(0.4, -0.15, -0.75);
-    toolHandItemMesh.rotation.set(-0.15, 0.3, 0.1);
-    toolHandScene.add(toolHandItemMesh);
-    try {
-      toolHandRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-      toolHandRenderer.setSize(canvas.width, canvas.height);
-    } catch(e) {
-      console.warn("Tool hand renderer failed:", e);
-      return;
-    }
     startToolHandRenderLoop();
   }
 
   function startToolHandRenderLoop() {
-    if (!toolHandRenderer || !toolHandScene || !toolHandCamera) return;
-    let angle = 0;
-    function loop() {
+    function loop(time) {
       const tab = document.getElementById("toolsTab");
       if (!tab || !tab.classList.contains("active")) return;
+      drawHandPreview2D("toolHandCanvas", currentToolPixels, "toolsTab", time);
       requestAnimationFrame(loop);
-      angle += 0.015;
-      if (toolHandArmMesh) toolHandArmMesh.position.y = -0.6 + Math.sin(angle) * 0.025;
-      if (toolHandItemMesh) toolHandItemMesh.position.y = -0.15 + Math.sin(angle) * 0.025;
-      toolHandRenderer.render(toolHandScene, toolHandCamera);
     }
-    loop();
+    requestAnimationFrame(loop);
   }
 
   function initToolUI() {
@@ -3249,79 +3239,21 @@ export function initGame(THREE){
   }
 
   function updateItemHandPreview() {
-    if (!itemHandItemMesh) return;
-    const cvs = document.createElement("canvas");
-    cvs.width = 16; cvs.height = 16;
-    const ctx = cvs.getContext("2d");
-    currentItemPixels.forEach((color, i) => {
-      ctx.fillStyle = color;
-      ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-    });
-    const tex = new THREE.CanvasTexture(cvs);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    itemHandItemMesh.material.map = tex;
-    itemHandItemMesh.material.needsUpdate = true;
+    drawHandPreview2D("itemHandCanvas", currentItemPixels, "itemsTab", Date.now());
   }
 
   function initItemHandRenderer() {
-    const canvas = document.getElementById("itemHandCanvas");
-    if (!canvas || itemHandRenderer) {
-      // Restart render loop if needed
-      if (itemHandRenderer) startItemHandRenderLoop();
-      return;
-    }
-    itemHandScene = new THREE.Scene();
-    itemHandScene.background = new THREE.Color(0x1a1a2e);
-    itemHandCamera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 100);
-    itemHandCamera.position.set(0, 0, 2);
-    itemHandScene.add(new THREE.AmbientLight(0xffffff, 0.8));
-    const dLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    dLight.position.set(1, 2, 2);
-    itemHandScene.add(dLight);
-    // Arm mesh
-    const handMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
-    itemHandArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.25), handMat);
-    itemHandArmMesh.position.set(0.4, -0.6, -0.5);
-    itemHandArmMesh.rotation.x = -0.3;
-    itemHandScene.add(itemHandArmMesh);
-    // Item mesh
-    const initCvs = document.createElement("canvas");
-    initCvs.width = 16; initCvs.height = 16;
-    const initCtx = initCvs.getContext("2d");
-    initCtx.fillStyle = "#cccccc";
-    initCtx.fillRect(0, 0, 16, 16);
-    const initTex = new THREE.CanvasTexture(initCvs);
-    initTex.magFilter = THREE.NearestFilter;
-    initTex.minFilter = THREE.NearestFilter;
-    const itemMat = new THREE.MeshStandardMaterial({ map: initTex, transparent: true });
-    itemHandItemMesh = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.08), itemMat);
-    itemHandItemMesh.position.set(0.4, -0.15, -0.75);
-    itemHandItemMesh.rotation.set(-0.15, 0.3, 0.1);
-    itemHandScene.add(itemHandItemMesh);
-    try {
-      itemHandRenderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-      itemHandRenderer.setSize(canvas.width, canvas.height);
-    } catch(e) {
-      console.warn("Item hand renderer failed:", e);
-      return;
-    }
     startItemHandRenderLoop();
   }
 
   function startItemHandRenderLoop() {
-    if (!itemHandRenderer || !itemHandScene || !itemHandCamera) return;
-    let angle = 0;
-    function loop() {
+    function loop(time) {
       const tab = document.getElementById("itemsTab");
       if (!tab || !tab.classList.contains("active")) return;
+      drawHandPreview2D("itemHandCanvas", currentItemPixels, "itemsTab", time);
       requestAnimationFrame(loop);
-      angle += 0.015;
-      if (itemHandArmMesh) itemHandArmMesh.position.y = -0.6 + Math.sin(angle) * 0.025;
-      if (itemHandItemMesh) itemHandItemMesh.position.y = -0.15 + Math.sin(angle) * 0.025;
-      itemHandRenderer.render(itemHandScene, itemHandCamera);
     }
-    loop();
+    requestAnimationFrame(loop);
   }
 
   function initItemsUI() {
