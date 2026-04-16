@@ -49,7 +49,8 @@ export function initGame(THREE){
     pitch: 0,
     username: "Player",
     nameTag: null,
-    cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front
+    cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front, 3: 360 Free Look
+    isRunning: false,
     inventory: Array(36).fill(null).map(() => ({ type: null, count: 0 })), // 27 inventory + 9 hotbar
     selectedSlot: 27, // Start at first hotbar slot (27-35)
     draggedItem: null,
@@ -78,14 +79,19 @@ export function initGame(THREE){
   fpHand.rotation.x = -0.4;
   fpHandGroup.add(fpHand);
   
-  const fpItem = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshStandardMaterial({color: 0xffffff}));
+  // First person item: different geometry for blocks vs tools/items
+  // Block item (normal 3D cube) - BIGGER
+  const fpBlockItemGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+  // Tool/Item (flat) - BIGGER
+  const fpToolItemGeometry = new THREE.PlaneGeometry(0.6, 0.6);
+  const fpItem = new THREE.Mesh(fpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
   fpItem.position.set(0.6, -0.3, -0.9);
-  fpItem.rotation.set(-0.2, 0.4, 0.1);
+  fpItem.rotation.set(0, 0, 0);
   fpItem.visible = false;
   fpHandGroup.add(fpItem);
   
   camera.add(fpHandGroup);
-  player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem };
+  player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem, blockGeometry: fpBlockItemGeometry, toolGeometry: fpToolItemGeometry };
 
   const RendererClass = THREE.WebGPURenderer ? THREE.WebGPURenderer : THREE.WebGLRenderer;
   const renderer = new RendererClass({ antialias: true });
@@ -120,11 +126,18 @@ export function initGame(THREE){
   armR.position.y += 0.3;
   modelGroup.add(armR);
   
-  const tpItem = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3), new THREE.MeshStandardMaterial({color: 0xffffff}));
+  // Third person item: different geometry for blocks vs tools/items
+  // Block item (normal 3D cube)
+  const tpBlockItemGeometry = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+  // Tool/Item (flat)
+  const tpToolItemGeometry = new THREE.PlaneGeometry(0.35, 0.35);
+  const tpItem = new THREE.Mesh(tpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
   tpItem.position.set(0, -0.4, 0);
+  tpItem.rotation.set(0, 0, 0);
   tpItem.visible = false;
   armR.add(tpItem);
   player.tpItem = tpItem;
+  player.tp = { blockGeometry: tpBlockItemGeometry, toolGeometry: tpToolItemGeometry };
 
   // Legs
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
@@ -224,17 +237,13 @@ export function initGame(THREE){
       camera.position.set(0, 1.6, 0);
       camera.rotation.y = 0;
     } else if (player.cameraMode === 1) {
-      // Third Person Back
+      // Third Person Back (360 capable)
       player.model.visible = true;
       player.fp.handGroup.visible = false;
-      camera.position.set(0, 2.5, 4);
-      camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     } else if (player.cameraMode === 2) {
-      // Third Person Front
+      // Third Person Front (360 capable)
       player.model.visible = true;
       player.fp.handGroup.visible = false;
-      camera.position.set(0, 2.5, -4);
-      camera.lookAt(player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
     }
     // Sync hand/item visibility with the new camera mode
     const heldItem = player.inventory[player.selectedSlot];
@@ -245,6 +254,24 @@ export function initGame(THREE){
       player.fp.item.visible = false;
       player.fp.hand.visible = player.cameraMode === 0;
     }
+  }
+  
+  function pushCameraOutOfBlock(cameraPos) {
+    // Push camera out of blocks in 360 mode
+    const pushDistance = 0.6;
+    let pushed = false;
+    for (const block of blocks3D) {
+      const blockPos = block.mesh.position;
+      const diff = cameraPos.clone().sub(blockPos);
+      const dist = diff.length();
+      if (dist < pushDistance) {
+        const dir = diff.normalize();
+        const newPos = blockPos.clone().add(dir.multiplyScalar(pushDistance));
+        cameraPos.copy(newPos);
+        pushed = true;
+      }
+    }
+    return pushed;
   }
 
   function checkCollision(pos) {
@@ -1596,6 +1623,11 @@ export function initGame(THREE){
         e.preventDefault();
       }
     }
+    
+    // R key to run
+    if (e.code === "KeyR") {
+      player.isRunning = true;
+    }
 
     // Drop item: Q = one item, Shift+Q = entire stack
     if (e.code === "KeyQ") {
@@ -1642,7 +1674,12 @@ export function initGame(THREE){
 
   const keys = {};
   window.addEventListener("keydown", e => keys[e.code] = true);
-  window.addEventListener("keyup", e => keys[e.code] = false);
+  window.addEventListener("keyup", e => {
+    keys[e.code] = false;
+    if (e.code === "KeyR") {
+      player.isRunning = false;
+    }
+  });
   renderer.domElement.addEventListener("click", ()=>renderer.domElement.requestPointerLock());
   document.addEventListener("mousemove", e => {
     if (document.pointerLockElement !== renderer.domElement) return;
@@ -1710,13 +1747,29 @@ export function initGame(THREE){
     for (let i = 0; i < 256; i++) {
       const pixel = document.createElement("div");
       pixel.className = "pixel";
-      pixel.style.backgroundColor = currentPixels[i];
-      pixel.onclick = () => {
+      const color = currentPixels[i];
+      if (color === "transparent") {
+        pixel.style.backgroundColor = "transparent";
+        pixel.style.border = "1px solid #999";
+      } else {
+        pixel.style.backgroundColor = color;
+      }
+      pixel.onclick = (e) => {
+        // Update selection
+        document.querySelectorAll(".pixel").forEach(p => p.classList.remove("selected"));
+        pixel.classList.add("selected");
+        
         const picker = document.getElementById("colorPicker");
         if (!picker) return;
         const color = picker.value;
         currentPixels[i] = color;
-        pixel.style.backgroundColor = color;
+        if (color === "transparent") {
+          pixel.style.backgroundColor = "transparent";
+          pixel.style.border = "1px solid #999";
+        } else {
+          pixel.style.backgroundColor = color;
+          pixel.style.border = "none";
+        }
         
         // Save to server on every pixel click
         const blockSelect = document.getElementById("blockSelect");
@@ -1908,7 +1961,14 @@ export function initGame(THREE){
     }
     const pixels = document.querySelectorAll(".pixel");
     pixels.forEach((p, i) => {
-      p.style.backgroundColor = currentPixels[i];
+      const color = currentPixels[i];
+      if (color === "transparent") {
+        p.style.backgroundColor = "transparent";
+        p.style.border = "1px solid #666";
+      } else {
+        p.style.backgroundColor = color;
+        p.style.border = "none";
+      }
     });
     
     // Explicitly notify server of the update to ensure it saves
@@ -2022,6 +2082,40 @@ export function initGame(THREE){
       const pixels = document.querySelectorAll(".pixel");
       pixels.forEach(p => p.style.backgroundColor = color);
     };
+    
+    // Add transparent button after fill button
+    if (!document.getElementById("transparentButton")) {
+      const transparentBtn = document.createElement("div");
+      transparentBtn.id = "transparentButton";
+      transparentBtn.textContent = "Transparent";
+      transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+      transparentBtn.onclick = () => {
+        currentPixels = Array(256).fill("transparent");
+        const pixels = document.querySelectorAll(".pixel");
+        pixels.forEach(p => {
+          p.style.backgroundColor = "transparent";
+          p.style.border = "1px solid #666";
+        });
+        saveTextureToServer();
+      };
+      fillButton.parentElement.appendChild(transparentBtn);
+    }
+  }
+
+  function saveTextureToServer() {
+    const blockSelect = document.getElementById("blockSelect");
+    const editBlockId = document.getElementById("editBlockId");
+    const sideSelect = document.getElementById("sideSelect");
+    const blockName = blockSelect?.value || editBlockId?.value || "";
+    const side = sideSelect?.value || "front";
+    
+    if (blockName) {
+      fetch("/update-block", {
+        method: "POST",
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
+      }).catch(err => console.error("Save failed:", err));
+    }
   }
 
   const closeDev = document.getElementById("closeDev");
@@ -2098,6 +2192,16 @@ export function initGame(THREE){
   }
 
   function updateSidebar() {
+    // Style all color picker inputs to be bigger
+    const colorPickers = document.querySelectorAll("input[type='color']");
+    colorPickers.forEach(picker => {
+      picker.style.width = "50px";
+      picker.style.height = "40px";
+      picker.style.cursor = "pointer";
+      picker.style.border = "2px solid #666";
+      picker.style.borderRadius = "3px";
+    });
+    
     const list = document.getElementById("blockSidebarList");
     if (!list) return;
     list.innerHTML = "";
@@ -2809,23 +2913,28 @@ export function initGame(THREE){
     if (selectedItem && selectedItem.type) {
       let mat = null;
       let itemName = selectedItem.type;
+      let isBlock = false;
+      let isTool = false;
       
       if (blockMaterials[selectedItem.type]) {
         mat = blockMaterials[selectedItem.type];
-        if (Array.isArray(mat)) {
-          mat = mat[4] || mat[0];
-        }
         itemName = blockTypes[selectedItem.type]?.name || selectedItem.type;
+        isBlock = true;
       } else if (toolTypes[selectedItem.type]) {
         const toolTex = toolTypes[selectedItem.type]?.texture;
         if (toolTex) {
           const cvs = document.createElement("canvas");
           cvs.width = 16; cvs.height = 16;
           const ctx = cvs.getContext("2d");
+          ctx.clearRect(0, 0, 16, 16);
           if (Array.isArray(toolTex)) {
             toolTex.forEach((color, i) => {
-              ctx.fillStyle = color;
-              ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+              if (color === "transparent") {
+                ctx.clearRect(i % 16, Math.floor(i / 16), 1, 1);
+              } else {
+                ctx.fillStyle = color;
+                ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+              }
             });
           } else {
             ctx.fillStyle = toolTex || "#8B4513";
@@ -2834,12 +2943,26 @@ export function initGame(THREE){
           const texture = new THREE.CanvasTexture(cvs);
           texture.magFilter = THREE.NearestFilter;
           texture.minFilter = THREE.NearestFilter;
-          mat = new THREE.MeshStandardMaterial({ map: texture });
+          mat = new THREE.MeshStandardMaterial({ map: texture, transparent: true });
         }
         itemName = toolTypes[selectedItem.type]?.name || selectedItem.type;
+        isTool = true;
       }
       
       if (mat) {
+        // Use appropriate geometry for blocks vs tools/items
+        if (isBlock) {
+          player.fp.item.geometry = player.fp.blockGeometry;
+          player.tpItem.geometry = player.tp.blockGeometry;
+          // Blocks show all sides - rotated to display nicely
+          player.fp.item.rotation.set(0.5, 0.7, 0.3);
+        } else if (isTool) {
+          player.fp.item.geometry = player.fp.toolGeometry;
+          player.tpItem.geometry = player.tp.toolGeometry;
+          // Tools are straight up
+          player.fp.item.rotation.set(0, 0, 0);
+        }
+        
         player.fp.item.visible = player.cameraMode === 0;
         player.fp.hand.visible = false;
         player.tpItem.visible = true;
@@ -2915,12 +3038,19 @@ export function initGame(THREE){
       cvs.height = 16;
       const ctx = cvs.getContext("2d");
       const tex = toolTypes[id]?.texture;
-      if (Array.isArray(tex)) {
+      ctx.clearRect(0, 0, 16, 16);
+      if (Array.isArray(tex) && tex.length > 0) {
         tex.forEach((color, i) => {
-          ctx.fillStyle = color;
-          ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          if (color && color !== "transparent" && color !== "" && color !== "#00000000") {
+            ctx.fillStyle = color;
+            ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+          }
         });
+      } else if (typeof tex === 'string') {
+        ctx.fillStyle = tex;
+        ctx.fillRect(0, 0, 16, 16);
       } else {
+        // Default color if no texture
         ctx.fillStyle = "#8B4513";
         ctx.fillRect(0, 0, 16, 16);
       }
@@ -3004,10 +3134,14 @@ export function initGame(THREE){
       const px = document.createElement("div");
       px.className = "pixel";
       px.style.backgroundColor = currentToolPixels[i];
+      if (currentToolPixels[i] === "transparent") {
+        px.style.border = "1px solid #666";
+      }
       px.onclick = () => {
         const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
         currentToolPixels[i] = color;
         px.style.backgroundColor = color;
+        px.style.border = "";
         update3DToolPreview();
       };
       grid.appendChild(px);
@@ -3117,12 +3251,17 @@ export function initGame(THREE){
     textureCanvas.width = 16;
     textureCanvas.height = 16;
     const ctx = textureCanvas.getContext('2d');
+    ctx.clearRect(0, 0, 16, 16);
     
     for (let i = 0; i < 256; i++) {
       const x = i % 16;
       const y = Math.floor(i / 16);
-      ctx.fillStyle = currentToolPixels[i];
-      ctx.fillRect(x, y, 1, 1);
+      if (currentToolPixels[i] === "transparent") {
+        ctx.clearRect(x, y, 1, 1);
+      } else {
+        ctx.fillStyle = currentToolPixels[i];
+        ctx.fillRect(x, y, 1, 1);
+      }
     }
     
     const texture = new THREE.CanvasTexture(textureCanvas);
@@ -3132,7 +3271,8 @@ export function initGame(THREE){
     const material = new THREE.MeshStandardMaterial({ 
       map: texture,
       metalness: 0.3,
-      roughness: 0.6
+      roughness: 0.6,
+      transparent: true
     });
     
     // Create tool shape (elongated for handles)
@@ -3191,6 +3331,23 @@ export function initGame(THREE){
         document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
         update3DToolPreview();
       };
+      
+      // Add transparent button after fill button
+      if (!document.getElementById("toolTransparentButton")) {
+        const transparentBtn = document.createElement("div");
+        transparentBtn.id = "toolTransparentButton";
+        transparentBtn.textContent = "Transparent";
+        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+        transparentBtn.onclick = () => {
+          currentToolPixels = Array(256).fill("transparent");
+          document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => {
+            p.style.backgroundColor = "transparent";
+            p.style.border = "1px solid #666";
+          });
+          update3DToolPreview();
+        };
+        fillBtn.parentElement.appendChild(transparentBtn);
+      }
     }
 
     const saveBtn = document.getElementById("saveToolBtn");
@@ -3869,49 +4026,51 @@ export function initGame(THREE){
       slot.onclick = (e) => {
         console.log(`Crafting table grid slot ${i} clicked. Shift: ${e.shiftKey}. Dragged item:`, player.draggedItem);
         if (player.draggedItem) {
-          // Place dragged item into this crafting slot (supports stacking)
-          if (!craftingTableGridState[i].type) {
-            // Empty slot - place all items
-            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-            player.draggedItem = null;
-          } else if (craftingTableGridState[i].type === player.draggedItem.type) {
-            // Same type - combine stacks
-            craftingTableGridState[i].count += player.draggedItem.count;
-            player.draggedItem = null;
-          } else {
-            // Different type - swap
-            const temp = { ...craftingTableGridState[i] };
-            craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
-            player.draggedItem = temp;
-          }
-          const dragEl = document.getElementById("dragged-item");
-          if (dragEl && !player.draggedItem) dragEl.remove();
-          if (player.draggedItem) updateDragPos(e);
-          console.log(`Placed into slot ${i}`);
-        } else if (e.shiftKey && player.draggedItem && player.draggedItem.count > 1) {
           // Shift+click while holding: place exactly 1, keep rest held
-          if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
-            if (!craftingTableGridState[i].type) {
-              craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
-            } else {
-              craftingTableGridState[i].count += 1;
-            }
-            player.draggedItem.count -= 1;
-            // Refresh the drag visual to show the new count
-            const dragEl = document.getElementById("dragged-item");
-            if (dragEl) {
-              dragEl.innerHTML = "";
-              const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
-              if (icon) dragEl.appendChild(icon);
-              if (player.draggedItem.count > 1) {
-                const countEl = document.createElement("div");
-                countEl.className = "item-count";
-                countEl.textContent = player.draggedItem.count;
-                dragEl.appendChild(countEl);
+          if (e.shiftKey && player.draggedItem.count > 1) {
+            if (!craftingTableGridState[i].type || craftingTableGridState[i].type === player.draggedItem.type) {
+              if (!craftingTableGridState[i].type) {
+                craftingTableGridState[i] = { type: player.draggedItem.type, count: 1 };
+              } else {
+                craftingTableGridState[i].count += 1;
               }
+              player.draggedItem.count -= 1;
+              // Refresh the drag visual to show the new count
+              const dragEl = document.getElementById("dragged-item");
+              if (dragEl) {
+                dragEl.innerHTML = "";
+                const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+                if (icon) dragEl.appendChild(icon);
+                if (player.draggedItem.count > 1) {
+                  const countEl = document.createElement("div");
+                  countEl.className = "item-count";
+                  countEl.textContent = player.draggedItem.count;
+                  dragEl.appendChild(countEl);
+                }
+              }
+              console.log(`Shift-placed 1 item into slot ${i}`);
             }
+          } else {
+            // Normal place: Place dragged item into this crafting slot (supports stacking)
+            if (!craftingTableGridState[i].type) {
+              // Empty slot - place all items
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = null;
+            } else if (craftingTableGridState[i].type === player.draggedItem.type) {
+              // Same type - combine stacks
+              craftingTableGridState[i].count += player.draggedItem.count;
+              player.draggedItem = null;
+            } else {
+              // Different type - swap
+              const temp = { ...craftingTableGridState[i] };
+              craftingTableGridState[i] = { type: player.draggedItem.type, count: player.draggedItem.count };
+              player.draggedItem = temp;
+            }
+            const dragEl = document.getElementById("dragged-item");
+            if (dragEl && !player.draggedItem) dragEl.remove();
+            if (player.draggedItem) updateDragPos(e);
+            console.log(`Placed into slot ${i}`);
           }
-          console.log(`Shift-placed 1 item into slot ${i}`);
         } else if (craftingTableGridState[i] && craftingTableGridState[i].type) {
           // Normal click: pick up entire stack
           player.draggedItem = { ...craftingTableGridState[i], sourceIdx: -1 };
@@ -4428,7 +4587,14 @@ export function initGame(THREE){
         player.inventory[idx] = { type: null, count: 0 };
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
-        dragEl.appendChild(createBlockIcon(player.draggedItem.type));
+        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        if (icon) dragEl.appendChild(icon);
+        if (player.draggedItem.count > 1) {
+          const countEl = document.createElement("div");
+          countEl.className = "item-count";
+          countEl.textContent = player.draggedItem.count;
+          dragEl.appendChild(countEl);
+        }
         document.body.appendChild(dragEl);
         updateDragPos(e);
       }
@@ -4446,7 +4612,7 @@ export function initGame(THREE){
         const dragEl = document.getElementById("dragged-item");
         if (dragEl) {
           dragEl.innerHTML = "";
-          const icon = createBlockIcon(player.draggedItem.type);
+          const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
           if (icon) dragEl.appendChild(icon);
           if (player.draggedItem.count > 1) {
             const countEl = document.createElement("div");
@@ -4491,17 +4657,16 @@ export function initGame(THREE){
 
   function createBlockIcon(blockName) {
     try {
+      const textures = blockTypes[blockName]?.textures;
+      if (!textures) {
+        // Not a block - return null to allow fallback to tool/item icons
+        return null;
+      }
+      
       const canvas = document.createElement("canvas");
       canvas.width = 16;
       canvas.height = 16;
       const ctx = canvas.getContext("2d");
-      const textures = blockTypes[blockName]?.textures;
-      if (!textures) {
-        console.warn("No textures found for block:", blockName);
-        ctx.fillStyle = "#808080";
-        ctx.fillRect(0, 0, 16, 16);
-        return canvas;
-      }
       const tex = textures.front || textures.top || "#ffffff";
       
       if (Array.isArray(tex)) {
@@ -4516,13 +4681,7 @@ export function initGame(THREE){
       return canvas;
     } catch (e) {
       console.error("Error creating block icon:", e, blockName);
-      const canvas = document.createElement("canvas");
-      canvas.width = 16;
-      canvas.height = 16;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ff00ff";
-      ctx.fillRect(0, 0, 16, 16);
-      return canvas;
+      return null;
     }
   }
 
@@ -4591,6 +4750,11 @@ export function initGame(THREE){
   let fpsLastTime = performance.now();
   const fpsElement = document.getElementById("fpsCounter");
   let lastHealTime = performance.now(); // Track healing timer
+  let lowFpsStartTime = null;
+  let currentFps = 60;
+  const LOW_FPS_THRESHOLD = 30;
+  const GOOD_FPS_THRESHOLD = 35;
+  const LOW_FPS_DURATION = 5000; // 5 seconds in milliseconds
 
   function animate() {
       requestAnimationFrame(animate);
@@ -4602,12 +4766,36 @@ export function initGame(THREE){
       // Rebuild occlusion set when world changes
       if (occlusionDirty) rebuildBlockSet();
 
+      // FPS Counter logic (must run before renderDistSq calculation)
+      frames++;
+      if (now > fpsLastTime + 1000) {
+          currentFps = Math.round((frames * 1000) / (now - fpsLastTime));
+          if (fpsElement) {
+              fpsElement.textContent = `FPS: ${currentFps}`;
+          }
+          
+          // Track low FPS duration
+          if (currentFps <= LOW_FPS_THRESHOLD) {
+              if (lowFpsStartTime === null) {
+                  lowFpsStartTime = now;
+              }
+          } else if (currentFps > GOOD_FPS_THRESHOLD) {
+              lowFpsStartTime = null;
+          }
+          
+          fpsLastTime = now;
+          frames = 0;
+      }
+      
+      // Determine render distance based on FPS
+      const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
+      const renderDistSq = lowFpsActive ? (5 * 5) : (10 * 10);
+
       // Update camera frustum for this frame
       camera.updateMatrixWorld();
       projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       viewFrustum.setFromProjectionMatrix(projScreenMatrix);
 
-      const renderDistSq = 10 * 10;
       const playerPos = player.group.position;
 
       blocks3D.forEach(b => {
@@ -4656,17 +4844,7 @@ export function initGame(THREE){
           }
       });
 
-      // FPS Counter logic
-      frames++;
-      if (now > fpsLastTime + 1000) {
-          if (fpsElement) {
-              fpsElement.textContent = `FPS: ${Math.round((frames * 1000) / (now - fpsLastTime))}`;
-          }
-          fpsLastTime = now;
-          frames = 0;
-      }
-      
-      updateBreaking();
+updateBreaking();
       updateBlockDrops(delta);
 
       // Healing system - heal 0.5 hearts (1 damage point) every second
@@ -4704,8 +4882,10 @@ export function initGame(THREE){
       }
 
       const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];
-      if (isMoving && player.onGround) {
-          animationTime += 0.15;
+      if (isMoving) {
+          // Faster animation speed and work in air too
+          const animSpeed = player.isRunning ? 0.25 : 0.2;
+          animationTime += animSpeed;
           const angle = Math.sin(animationTime) * 0.5;
           player.limbs.legL.rotation.x = angle;
           player.limbs.legR.rotation.x = -angle;
@@ -4732,29 +4912,69 @@ export function initGame(THREE){
               player.fp.handGroup.visible = true;
           }
       } else if (player.cameraMode === 1) {
-          // Third Person Back
+          // Third Person Back (360 capable with full rotation, always looking at player)
           player.model.visible = true;
-          // Compute world position since camera is child of group
-          const offset = new THREE.Vector3(0, 2.5, 5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          // Compute world position - 3 blocks away
+          const offset = new THREE.Vector3(0, 1.6, 3).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
           const worldPos = player.group.position.clone().add(offset);
+          
+          // Push camera out of blocks if colliding
+          let finalPos = worldPos.clone();
+          const searchRadius = 1.2;
+          for (const block of blocks3D) {
+            const blockPos = block.mesh.position;
+            const diff = finalPos.clone().sub(blockPos);
+            const dist = diff.length();
+            if (dist < searchRadius) {
+              const dir = diff.normalize();
+              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
+              break;
+            }
+          }
           
           // To position a child in world space, we can use worldToLocal on the parent
-          camera.position.copy(player.group.worldToLocal(worldPos));
+          camera.position.copy(player.group.worldToLocal(finalPos));
           
-          const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-          camera.lookAt(targetPos);
+          // Look at the player (at local coordinates)
+          camera.lookAt(0, 1.6, 0);
+          
+          // Apply pitch rotation for looking up/down
+          const pitchQuat = new THREE.Quaternion();
+          pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
+          camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 2) {
-          // Third Person Front
+          // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;
-          const offset = new THREE.Vector3(0, 2.5, -5).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          // Compute world position - 3 blocks away
+          const offset = new THREE.Vector3(0, 1.6, -3).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
           const worldPos = player.group.position.clone().add(offset);
           
-          camera.position.copy(player.group.worldToLocal(worldPos));
+          // Push camera out of blocks if colliding
+          let finalPos = worldPos.clone();
+          const searchRadius = 1.2;
+          for (const block of blocks3D) {
+            const blockPos = block.mesh.position;
+            const diff = finalPos.clone().sub(blockPos);
+            const dist = diff.length();
+            if (dist < searchRadius) {
+              const dir = diff.normalize();
+              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
+              break;
+            }
+          }
           
-          const targetPos = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
-          camera.lookAt(targetPos);
+          camera.position.copy(player.group.worldToLocal(finalPos));
+          
+          // Look at the player (at local coordinates)
+          camera.lookAt(0, 1.6, 0);
+          
+          // Apply pitch rotation for looking up/down
+          const pitchQuat = new THREE.Quaternion();
+          pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
+          camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       }
 
+      // Normal mode player movement
       const moveDir = new THREE.Vector3();
       if (keys["KeyW"]) moveDir.z -= 1;
       if (keys["KeyS"]) moveDir.z += 1;
@@ -4776,9 +4996,10 @@ export function initGame(THREE){
       }
 
       if (moveDir.lengthSq() > 0) {
-          // Reduce movement speed while sneaking
+          // Reduce movement speed while sneaking, increase while running
+          const speedBase = player.isRunning ? SPEED * 1.3 : SPEED;
           const speedMul = player.isSneaking ? 0.3 : 1.0;
-          moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(SPEED * speedMul);
+          moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw).multiplyScalar(speedBase * speedMul);
 
           // Current position before move
           const currentPos = player.group.position.clone();
@@ -4794,6 +5015,7 @@ export function initGame(THREE){
           if (canMoveTo(nextZ)) player.group.position.z = nextZ.z;
       }
 
+      // Apply gravity
       player.velocity.y += GRAVITY;
       const nextY = player.group.position.clone();
       nextY.y += player.velocity.y;
@@ -4832,6 +5054,7 @@ export function initGame(THREE){
           player.velocity.y = 0;
       }
 
+      // Handle jumping
       if (keys["Space"] && player.onGround) {
           player.velocity.y = JUMP;
           player.onGround = false;

@@ -1553,7 +1553,7 @@
     },
     "imageUrls": {
       "front": "/textures/dirt_front.png",
-      "top": "/textures/dirt_top.png",
+      "top": "/textures/dirt/top.png",
       "left": "/textures/dirt_left.png",
       "bottom": "/textures/dirt_bottom.png",
       "right": "/textures/dirt_right.png",
