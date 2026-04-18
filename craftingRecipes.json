@@ -96,5 +96,23 @@
     ],
     "output": "pointy_leaves",
     "outputCount": 1
+  },
+  {
+    "id": "glass_1776507371897",
+    "name": "Glass",
+    "type": "3x3",
+    "pattern": [
+      "leaves",
+      "leaves",
+      "leaves",
+      "leaves",
+      "stone",
+      "leaves",
+      "leaves",
+      "leaves",
+      "leaves"
+    ],
+    "output": "glass",
+    "outputCount": 1
   }
 ]

@@ -1957,7 +1957,7 @@ export function initGame(THREE){
       
       // Fallback logic if image fails to load or for new blocks not yet saved
       // THREE.js handles loading asynchronously, so we return the material immediately
-      return new THREE.MeshStandardMaterial({ map: texture });
+      return new THREE.MeshStandardMaterial({ map: texture, transparent: true, alphaTest: 0.5 });
     });
     
     blockMaterials[name] = materials;
