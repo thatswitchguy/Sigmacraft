@@ -114,5 +114,44 @@
     ],
     "output": "glass",
     "outputCount": 1
+  },
+  {
+    "id": "oak_planks_1776552130862",
+    "name": "Oak Planks",
+    "type": "2x2",
+    "pattern": [
+      null,
+      "wood",
+      null,
+      null
+    ],
+    "output": "wooden_planks",
+    "outputCount": 1
+  },
+  {
+    "id": "oak_planks_1776552151561",
+    "name": "Oak Planks",
+    "type": "2x2",
+    "pattern": [
+      null,
+      null,
+      null,
+      "wood"
+    ],
+    "output": "crafting_table",
+    "outputCount": 1
+  },
+  {
+    "id": "oak_planks_1776552167462",
+    "name": "Oak Planks",
+    "type": "2x2",
+    "pattern": [
+      null,
+      null,
+      "wood",
+      null
+    ],
+    "output": "wooden_planks",
+    "outputCount": 1
   }
 ]

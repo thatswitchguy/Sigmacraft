@@ -2,9 +2,11 @@ export function initGame(THREE){
   let blockTypes = {};
   let blockMaterials = {};
   let blockTiming = { default: 1.0 };
+  let blockDrops_mapping = {}; // Map of blockType -> what it drops (defaults to itself)
   const blocks3D = [];
   let occlusionDirty = true;
   let blockPositionSet = new Set();
+  let transparentBlockSet = new Set(); // Track which blocks are transparent for fast lookups
   const viewFrustum = new THREE.Frustum();
   const projScreenMatrix = new THREE.Matrix4();
   const tempBox = new THREE.Box3();
@@ -13,6 +15,7 @@ export function initGame(THREE){
   let toolTypes = {};
   let currentToolPixels = Array(256).fill("#8B4513");
   let editingToolId = null;
+  let transparentMode = false; // Track if we're in transparent picking mode
 
   // Crafting
   let craftingGridState = Array(4).fill(null).map(() => ({ type: null, count: 0 })); // 2x2 inventory crafting grid with stacking
@@ -27,11 +30,19 @@ export function initGame(THREE){
 
   function rebuildBlockSet() {
     blockPositionSet.clear();
+    transparentBlockSet.clear();
     blocks3D.forEach(b => {
       const x = Math.round(b.mesh.position.x);
       const y = Math.round(b.mesh.position.y);
       const z = Math.round(b.mesh.position.z);
-      blockPositionSet.add(`${x},${y},${z}`);
+      const posKey = `${x},${y},${z}`;
+      blockPositionSet.add(posKey);
+      
+      // Also track if this block is transparent
+      const blockType = blockTypes[b.type];
+      if (isBlockTransparent(blockType)) {
+        transparentBlockSet.add(posKey);
+      }
     });
     occlusionDirty = false;
   }
@@ -88,7 +99,7 @@ export function initGame(THREE){
   const fpToolItemGeometry = new THREE.PlaneGeometry(0.6, 0.6);
   const fpItem = new THREE.Mesh(fpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
   fpItem.position.set(0.6, -0.3, -0.9);
-  fpItem.rotation.set(0, 0, 0);
+  fpItem.rotation.set(Math.PI, 0, 0); // Rotate 180° so top faces away from player
   fpItem.visible = false;
   fpHandGroup.add(fpItem);
   
@@ -322,6 +333,7 @@ export function initGame(THREE){
   const raycaster = new THREE.Raycaster();
   let swingTime = 0;
   let isSwinging = false;
+  let isMouseDown = false; // Track if mouse button is currently held
 
   let isBreaking = false;
   let breakStartTime = 0;
@@ -632,7 +644,9 @@ export function initGame(THREE){
   }
 
   function createBlockDrop(position, blockType) {
-    const originalMat = blockMaterials[blockType];
+    // Use custom drop mapping if defined, otherwise drop the block itself
+    const dropType = blockDrops_mapping[blockType] || blockType;
+    const originalMat = blockMaterials[dropType];
     let mat;
     if (!originalMat) {
       mat = new THREE.MeshStandardMaterial({ color: 0x888888 });
@@ -648,7 +662,7 @@ export function initGame(THREE){
     
     const drop = {
       mesh: dropMesh,
-      type: blockType,
+      type: dropType,
       velocity: new THREE.Vector3(
         (Math.random() - 0.5) * 3,
         0.5 + Math.random() * 0.3,
@@ -761,8 +775,8 @@ export function initGame(THREE){
         }
       }
       
-      // Despawn after 2 minutes (120 seconds)
-      if (drop.age > 120) {
+      // Despawn after 1 minute (60 seconds)
+      if (drop.age > 60) {
         scene.remove(drop.mesh);
         blockDrops.splice(i, 1);
       }
@@ -783,6 +797,7 @@ export function initGame(THREE){
   window.addEventListener("mousedown", e => {
     if (document.pointerLockElement !== renderer.domElement) return;
     
+    isMouseDown = true; // Track that mouse button is held
     isSwinging = true;
     swingTime = 0;
 
@@ -894,10 +909,10 @@ export function initGame(THREE){
 
   window.addEventListener("mouseup", e => {
     if (e.button === 0) {
+      isMouseDown = false;
+      // Mining stops when mouse is released, but animation continues until block breaks
       isBreaking = false;
       currentBreakTarget = null;
-      breakingBlock = null;
-      breakingProgress = 0;
       removeBreakingOverlay();
     }
   });
@@ -1063,7 +1078,7 @@ export function initGame(THREE){
   function generateWorld(seed) {
     console.log("Generating world with seed:", seed);
 
-    let spawnHeight = 2; // fallback spawn height
+    let spawnHeight = 6; // fallback spawn height
     let simplex = null;
 
     if (window.SimplexNoise) {
@@ -1072,33 +1087,74 @@ export function initGame(THREE){
       const size = 30;
 
       for (let x = -size; x < size; x++) {
-        for (let z = -size; z < size; z++) {
+       for (let z = -size; z < size; z++) {
 
-          const h = Math.floor(simplex.noise2D(x/20, z/20) * 4) + 7;
+         // Generate a heightmap that varies terrain height (will place surface at different y values)
+         const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 3);
+         const surfaceY = 6 + terrainVariance; // Grass at y 5 or 6
 
-          // Save spawn height at center
-          if (x === 0 && z === 0) {
-            spawnHeight = h;
-          }
+         // Save spawn height at center
+         if (x === 0 && z === 0) {
+           spawnHeight = surfaceY + 1;
+         }
 
-          for (let y = 0; y < h; y++) {
+         // Generate fixed layer structure from y 0 to surface
+         for (let y = 0; y <= surfaceY; y++) {
+           let type = "bedrock";
 
+           if (y === 0) {
+             type = "bedrock";
+           } else if (y === surfaceY) {
+             type = "grass";
+           } else if (y === 1) {
+             type = "stone";
+           } else if (y === 2 || y === 3) {
+             type = "dirt";
+           } else if (y === 4 || y === 5) {
+             // Stone layer - randomly add coal ore
+             const coalChance = Math.random();
+             type = coalChance < 0.08 ? "coal_ore" : "stone"; // 8% coal ore
+           }
+
+           const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
+
+           const mesh = new THREE.Mesh(
+             new THREE.BoxGeometry(1,1,1),
+             mat
+           );
+
+           mesh.position.set(x, y, z);
+
+           scene.add(mesh);
+
+           blocks3D.push({
+             mesh,
+             type,
+             pos: {x, y, z}
+           });
+         }
+       }
+      }
+
+    } else {
+
+      console.warn("SimplexNoise not found, falling back to flat world");
+
+      spawnHeight = 6;
+
+      for (let x = -10; x < 10; x++) {
+        for (let z = -10; z < 10; z++) {
+          // Generate fixed layer structure
+          for (let y = 0; y <= 5; y++) {
             let type = "bedrock";
-
-            if (y === 0)
-              type = "bedrock";
-            else if (y === h-1)
-              type = "grass";
-            else if (y >= h-2)
-              type = "dirt";
-            else
-              type = "stone";
-
-            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
+            if (y === 0) type = "bedrock";
+            else if (y === 1) type = "dirt";
+            else if (y === 2 || y === 3) type = "dirt";
+            else if (y === 4 || y === 5) type = "stone";
 
             const mesh = new THREE.Mesh(
               new THREE.BoxGeometry(1,1,1),
-              mat
+              blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888})
             );
 
             mesh.position.set(x, y, z);
@@ -1110,35 +1166,7 @@ export function initGame(THREE){
               type,
               pos: {x, y, z}
             });
-
           }
-        }
-      }
-
-    } else {
-
-      console.warn("SimplexNoise not found, falling back to flat world");
-
-      spawnHeight = 0;
-
-      for (let x = -10; x < 10; x++) {
-        for (let z = -10; z < 10; z++) {
-
-          const mesh = new THREE.Mesh(
-            new THREE.BoxGeometry(1,1,1),
-            blockMaterials["grass"] || new THREE.MeshStandardMaterial({color: 0x00ff00})
-          );
-
-          mesh.position.set(x, 0, z);
-
-          scene.add(mesh);
-
-          blocks3D.push({
-            mesh,
-            type: "grass",
-            pos: {x, y: 0, z}
-          });
-
         }
       }
     }
@@ -1188,8 +1216,20 @@ export function initGame(THREE){
             const trunkBaseY = groundY + 1;
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, trunkBaseY + ty, z, "wood");
 
+            // Add a layer of leaves on top of the trunk
+            const topTrunkY = trunkBaseY + trunkH - 1;
+            for (let lx = -2; lx <= 2; lx++) {
+              for (let lz = -2; lz <= 2; lz++) {
+                // Skip the center to keep trunk exposed
+                if (lx === 0 && lz === 0) continue;
+                // Skip corners for more natural look
+                if (Math.abs(lx) === 2 && Math.abs(lz) === 2) continue;
+                addBlock3D(x + lx, topTrunkY + 1, z + lz, "leaves");
+              }
+            }
+
             // Canopy starts above the top of the trunk (keeps at least 2 blocks of exposed trunk)
-            const leafBase = trunkBaseY + trunkH;
+            const leafBase = trunkBaseY + trunkH + 1;
             for (let ly = 0; ly <= 3; ly++) {
               const radius = ly <= 1 ? 2 : 1;
               for (let lx = -radius; lx <= radius; lx++) {
@@ -1627,7 +1667,7 @@ export function initGame(THREE){
           player._prevCameraMode = player.cameraMode;
           player.cameraMode = 3; // enter orbit mode
           player.orbit.yaw = player.yaw;
-          player.orbit.pitch = 0;
+          // Note: orbit.pitch is not used for fixed horizontal axis orbit
         } else {
           player.cameraMode = player._prevCameraMode || 0; // restore previous mode
         }
@@ -1698,25 +1738,20 @@ export function initGame(THREE){
     
     // Sensitivity factor
     const sensitivity = 0.002;
-    if (player.cameraMode !== 3) {
-      player.yaw -= e.movementX * sensitivity;
-      player.pitch -= e.movementY * sensitivity;
-      player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+    
+    // F+5 camera now responds to mouse like first person mode
+    player.yaw -= e.movementX * sensitivity;
+    player.pitch -= e.movementY * sensitivity;
+    player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
 
-      // Apply horizontal rotation to the player group
-      player.group.rotation.y = player.yaw;
+    // Apply horizontal rotation to the player group
+    player.group.rotation.y = player.yaw;
 
-      if (socket) {
-        socket.emit("move", { 
-          pos: player.group.position, 
-          rot: { y: player.yaw, pitch: player.pitch } 
-        });
-      }
-    } else {
-      // Orbit camera: rotate around player without changing player orientation
-      player.orbit.yaw -= e.movementX * sensitivity;
-      player.orbit.pitch -= e.movementY * sensitivity;
-      player.orbit.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.orbit.pitch));
+    if (socket) {
+      socket.emit("move", { 
+        pos: player.group.position, 
+        rot: { y: player.yaw, pitch: player.pitch } 
+      });
     }
   });
 
@@ -1778,9 +1813,16 @@ export function initGame(THREE){
         document.querySelectorAll(".pixel").forEach(p => p.classList.remove("selected"));
         pixel.classList.add("selected");
         
-        const picker = document.getElementById("colorPicker");
-        if (!picker) return;
-        const color = picker.value;
+        let color;
+        if (transparentMode) {
+          // In transparent mode, clicking any pixel makes it transparent
+          color = "transparent";
+        } else {
+          const picker = document.getElementById("colorPicker");
+          if (!picker) return;
+          color = picker.value;
+        }
+        
         currentPixels[i] = color;
         if (color === "transparent") {
           pixel.style.backgroundColor = "transparent";
@@ -1847,8 +1889,13 @@ export function initGame(THREE){
         const data = tex[side];
         if (Array.isArray(data)) {
           data.forEach((color, i) => {
-            ctx.fillStyle = color;
-            ctx.fillRect(pos.x + (i % 16), pos.y + Math.floor(i / 16), 1, 1);
+            if (color === "transparent") {
+              // Skip transparent pixels - leave them transparent
+              ctx.clearRect(pos.x + (i % 16), pos.y + Math.floor(i / 16), 1, 1);
+            } else {
+              ctx.fillStyle = color;
+              ctx.fillRect(pos.x + (i % 16), pos.y + Math.floor(i / 16), 1, 1);
+            }
           });
         } else {
           ctx.fillStyle = data || "#ffffff";
@@ -1939,11 +1986,32 @@ export function initGame(THREE){
 
   const textureLoader = new THREE.TextureLoader();
 
+  // Helper function to detect if a block has transparent pixels in its texture data
+  function isBlockTransparent(blockData) {
+    if (!blockData || !blockData.textures) return false;
+    
+    const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+    for (const side of sides) {
+      const texPixels = blockData.textures[side];
+      if (Array.isArray(texPixels)) {
+        // Check if any pixel is marked as "transparent" in the texture data
+        for (const pixel of texPixels) {
+          if (pixel === "transparent") {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   function updateBlockMaterials(name) {
     const data = blockTypes[name];
     if (!data) return;
     
     const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+    // Detect if this block type has any transparent pixels
+    const hasTransparency = isBlockTransparent(data);
     const materials = sides.map(side => {
       // Priority 1: Check for folder-organized textures
       const folderTextureUrl = `/textures/${name}/${side}.png`;
@@ -1955,9 +2023,15 @@ export function initGame(THREE){
       texture.magFilter = THREE.NearestFilter;
       texture.minFilter = THREE.NearestFilter;
       
-      // Fallback logic if image fails to load or for new blocks not yet saved
-      // THREE.js handles loading asynchronously, so we return the material immediately
-      return new THREE.MeshStandardMaterial({ map: texture, transparent: true, alphaTest: 0.5 });
+      // For blocks with transparent pixels, enable transparency rendering
+      // alphaTest cuts off pixels with alpha below threshold (0.1 is more forgiving for transparent blocks)
+      const alphaTestValue = hasTransparency ? 0.1 : 0.5;
+      return new THREE.MeshStandardMaterial({ 
+        map: texture, 
+        transparent: hasTransparency || true, 
+        alphaTest: alphaTestValue,
+        side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide // Double-sided for transparent blocks
+      });
     });
     
     blockMaterials[name] = materials;
@@ -2106,16 +2180,46 @@ export function initGame(THREE){
     if (!document.getElementById("transparentButton")) {
       const transparentBtn = document.createElement("div");
       transparentBtn.id = "transparentButton";
-      transparentBtn.textContent = "Transparent";
-      transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+      transparentBtn.textContent = "Transparent Mode";
+      transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:100px;";
       transparentBtn.onclick = () => {
-        currentPixels = Array(256).fill("transparent");
-        const pixels = document.querySelectorAll(".pixel");
-        pixels.forEach(p => {
-          p.style.backgroundColor = "transparent";
-          p.style.border = "1px solid #666";
-        });
-        saveTextureToServer();
+        // Detect single vs double click
+        let clickCount = transparentBtn.clickCount || 0;
+        clickCount++;
+        transparentBtn.clickCount = clickCount;
+        
+        clearTimeout(transparentBtn.clickTimeout);
+        
+        if (clickCount === 1) {
+          // Single click - wait to see if double click happens
+          transparentBtn.clickTimeout = setTimeout(() => {
+            // Single click confirmed - fill entire face with transparent
+            currentPixels = Array(256).fill("transparent");
+            const pixels = document.querySelectorAll(".pixel");
+            pixels.forEach(p => {
+              p.style.backgroundColor = "transparent";
+              p.style.border = "1px solid #999";
+            });
+            saveTextureToServer();
+            transparentBtn.clickCount = 0;
+          }, 300);
+        } else if (clickCount === 2) {
+          // Double click - toggle transparent mode
+          clearTimeout(transparentBtn.clickTimeout);
+          transparentMode = !transparentMode;
+          if (transparentMode) {
+            // Highlight the button to show mode is active
+            transparentBtn.style.background = "#4a4a4a";
+            transparentBtn.style.border = "2px solid #0f0";
+            transparentBtn.textContent = "Transparent Mode (ON)";
+          } else {
+            // Return to normal styling
+            transparentBtn.style.background = "#888";
+            transparentBtn.style.border = "1px solid #666";
+            transparentBtn.textContent = "Transparent Mode";
+          }
+          transparentBtn.clickCount = 0;
+        }
       };
       fillButton.parentElement.appendChild(transparentBtn);
     }
@@ -2154,6 +2258,7 @@ export function initGame(THREE){
         document.getElementById("devPasswordOverlay").style.display = "none";
         document.getElementById("devOverlay").style.display = "flex";
         updateSidebar();
+        initBlockDropsUI();
         input.value = "";
       } else {
         alert("Incorrect password");
@@ -2169,6 +2274,7 @@ export function initGame(THREE){
           document.getElementById("devPasswordOverlay").style.display = "none";
           document.getElementById("devOverlay").style.display = "flex";
           updateSidebar();
+          initBlockDropsUI();
           devPasswordInput.value = "";
         } else {
           alert("Incorrect password");
@@ -2208,6 +2314,105 @@ export function initGame(THREE){
     } catch(e) {
       return null;
     }
+  }
+
+  function initBlockDropsUI() {
+    // Add block drops configuration to dev overlay
+    const devOverlay = document.getElementById("devOverlay");
+    if (!devOverlay) return;
+
+    // Find or create the block drops section
+    let dropsSection = document.getElementById("blockDropsSection");
+    if (!dropsSection) {
+      dropsSection = document.createElement("div");
+      dropsSection.id = "blockDropsSection";
+      dropsSection.style.cssText = "padding: 15px; border-top: 2px solid #444; margin-top: 15px;";
+      dropsSection.innerHTML = `
+        <h3 style="margin-top: 0; color: #fff;">Block Drops</h3>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+          <select id="blockDropsFrom" style="flex: 1; padding: 5px;">
+            <option value="">Select a block type...</option>
+          </select>
+          <select id="blockDropsTo" style="flex: 1; padding: 5px;">
+            <option value="">Drops as (default: same)</option>
+          </select>
+          <button id="blockDropsSetBtn" style="padding: 5px 10px; background: #4CAF50; color: white; border: none; cursor: pointer;">Set</button>
+          <button id="blockDropsResetBtn" style="padding: 5px 10px; background: #ff6b6b; color: white; border: none; cursor: pointer;">Reset</button>
+        </div>
+        <div id="blockDropsList" style="max-height: 200px; overflow-y: auto; background: #222; padding: 10px; border-radius: 3px; font-size: 12px; color: #ccc;"></div>
+      `;
+      
+      // Insert before blockSidebarList if it exists, otherwise at the end
+      const sidebar = document.getElementById("blockSidebarList");
+      if (sidebar && sidebar.parentNode) {
+        sidebar.parentNode.insertBefore(dropsSection, sidebar);
+      } else {
+        devOverlay.appendChild(dropsSection);
+      }
+    }
+
+    // Populate block type selects
+    const blockTypes_list = Object.keys(blockTypes).filter(id => !id.startsWith('_'));
+    const fromSelect = document.getElementById("blockDropsFrom");
+    const toSelect = document.getElementById("blockDropsTo");
+    
+    // Populate "from" select
+    fromSelect.innerHTML = '<option value="">Select a block type...</option>';
+    blockTypes_list.forEach(blockType => {
+      const option = document.createElement("option");
+      option.value = blockType;
+      option.textContent = blockTypes[blockType].name || blockType;
+      fromSelect.appendChild(option);
+    });
+
+    // Populate "to" select
+    toSelect.innerHTML = '<option value="">Drops as (default: same)</option>';
+    blockTypes_list.forEach(blockType => {
+      const option = document.createElement("option");
+      option.value = blockType;
+      option.textContent = blockTypes[blockType].name || blockType;
+      toSelect.appendChild(option);
+    });
+
+    // Set button click handler
+    document.getElementById("blockDropsSetBtn").onclick = () => {
+      const from = fromSelect.value;
+      const to = toSelect.value;
+      if (!from) {
+        alert("Please select a block type");
+        return;
+      }
+      if (to) {
+        blockDrops_mapping[from] = to;
+      } else {
+        delete blockDrops_mapping[from];
+      }
+      updateBlockDropsList();
+    };
+
+    // Reset button click handler
+    document.getElementById("blockDropsResetBtn").onclick = () => {
+      blockDrops_mapping = {};
+      updateBlockDropsList();
+    };
+
+    updateBlockDropsList();
+  }
+
+  function updateBlockDropsList() {
+    const list = document.getElementById("blockDropsList");
+    if (!list) return;
+    
+    if (Object.keys(blockDrops_mapping).length === 0) {
+      list.innerHTML = '<div style="color: #888;">No custom drops configured</div>';
+      return;
+    }
+
+    list.innerHTML = Object.entries(blockDrops_mapping).map(([from, to]) => 
+      `<div style="padding: 5px; border-bottom: 1px solid #444;">
+        <strong>${blockTypes[from]?.name || from}</strong> → <strong>${blockTypes[to]?.name || to}</strong>
+      </div>`
+    ).join('');
   }
 
   function updateSidebar() {
@@ -4432,6 +4637,10 @@ export function initGame(THREE){
       const materials = [];
       const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
       
+      // Check if this block has transparency
+      const hasTransparency = isBlockTransparent(blockTypes[name]);
+      const alphaTestValue = hasTransparency ? 0.1 : 0.5;
+      
       sides.forEach(side => {
         const data = tex[side];
         if (Array.isArray(data)) {
@@ -4439,16 +4648,33 @@ export function initGame(THREE){
           canvas.width = 16;
           canvas.height = 16;
           const ctx = canvas.getContext('2d');
+          // Enable transparency for canvas
+          ctx.clearRect(0, 0, 16, 16);
           data.forEach((color, i) => {
+            // Skip transparent pixels - they stay transparent on canvas
+            if (color === "transparent") {
+              return;
+            }
             ctx.fillStyle = color;
             ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
           });
           const texture = new THREE.CanvasTexture(canvas);
           texture.magFilter = THREE.NearestFilter;
           texture.minFilter = THREE.NearestFilter;
-          materials.push(new THREE.MeshStandardMaterial({ map: texture }));
+          // Apply transparency settings if block has transparent pixels
+          materials.push(new THREE.MeshStandardMaterial({ 
+            map: texture,
+            transparent: hasTransparency || false,
+            alphaTest: hasTransparency ? alphaTestValue : 0,
+            side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide
+          }));
         } else {
-          materials.push(new THREE.MeshStandardMaterial({ color: data || "#ffffff" }));
+          materials.push(new THREE.MeshStandardMaterial({ 
+            color: data || "#ffffff",
+            transparent: hasTransparency || false,
+            alphaTest: hasTransparency ? alphaTestValue : 0,
+            side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide
+          }));
         }
       });
       
@@ -4825,17 +5051,30 @@ export function initGame(THREE){
               return;
           }
 
-          // Occlusion culling: fully surrounded blocks are never visible
+          // Occlusion culling: fully surrounded by non-transparent blocks are never visible
           const bx = Math.round(b.mesh.position.x);
           const by = Math.round(b.mesh.position.y);
           const bz = Math.round(b.mesh.position.z);
-          const fullyOccluded =
+          
+          // Block is only occluded if all 6 neighbors exist and NONE are transparent
+          const allNeighborsExist = 
               blockPositionSet.has(`${bx+1},${by},${bz}`) &&
               blockPositionSet.has(`${bx-1},${by},${bz}`) &&
               blockPositionSet.has(`${bx},${by+1},${bz}`) &&
               blockPositionSet.has(`${bx},${by-1},${bz}`) &&
               blockPositionSet.has(`${bx},${by},${bz+1}`) &&
               blockPositionSet.has(`${bx},${by},${bz-1}`);
+          
+          // Check if any neighbor is transparent (fast Set lookup)
+          const anyNeighborTransparent = 
+              transparentBlockSet.has(`${bx+1},${by},${bz}`) ||
+              transparentBlockSet.has(`${bx-1},${by},${bz}`) ||
+              transparentBlockSet.has(`${bx},${by+1},${bz}`) ||
+              transparentBlockSet.has(`${bx},${by-1},${bz}`) ||
+              transparentBlockSet.has(`${bx},${by},${bz+1}`) ||
+              transparentBlockSet.has(`${bx},${by},${bz-1}`);
+          
+          const fullyOccluded = allNeighborsExist && !anyNeighborTransparent;
 
           if (fullyOccluded) {
               b.mesh.visible = false;
@@ -4962,47 +5201,26 @@ updateBreaking();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 3) {
-          // Orbit camera: circles around player, always looking at player
+          // F+5 camera: 3 blocks behind and 1 block above, responds to mouse like first person
           player.model.visible = true;
           
-          // Orbit parameters
-          const orbitDistance = 3; // How far away from player
-          const orbitYaw = player.orbit.yaw; // Horizontal rotation around player
-          const orbitPitch = player.orbit.pitch; // Vertical angle (up/down)
+          // Position camera 3 blocks behind and 1 block above the player
+          // The offset is calculated in the player's local coordinate system, then converted to world
+          const offset = new THREE.Vector3(0, 1.0, 3); // 3 blocks back, 1 block up
+          const rotatedOffset = offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          const worldCameraPos = player.group.position.clone().add(rotatedOffset);
           
-          // Player center position (in world space)
-          const playerPos = player.group.position;
-          const lookAtHeight = 1.6; // Height to look at on player
-          const lookAtPos = new THREE.Vector3(playerPos.x, playerPos.y + lookAtHeight, playerPos.z);
+          // Set camera position in world space
+          camera.position.copy(worldCameraPos);
           
-          // Calculate camera position using spherical coordinates (in world space)
-          // The orbit circles around the player:
-          // - Horizontal circle determined by orbitYaw
-          // - Vertical position determined by orbitPitch
-          const cameraWorldX = playerPos.x + Math.sin(orbitYaw) * Math.cos(orbitPitch) * orbitDistance;
-          const cameraWorldY = playerPos.y + lookAtHeight + Math.sin(orbitPitch) * orbitDistance;
-          const cameraWorldZ = playerPos.z - Math.cos(orbitYaw) * Math.cos(orbitPitch) * orbitDistance;
-          
-          const cameraWorldPos = new THREE.Vector3(cameraWorldX, cameraWorldY, cameraWorldZ);
-          
-          // Check collision with blocks and push camera out if colliding
-          let finalWorldPos = cameraWorldPos.clone();
-          for (const block of blocks3D) {
-            const blockPos = block.mesh.position;
-            const diff = finalWorldPos.clone().sub(blockPos);
-            const dist = diff.length();
-            if (dist < 1.2) {
-              const dir = diff.normalize();
-              finalWorldPos = blockPos.clone().add(dir.multiplyScalar(1.2));
-            }
-          }
-          
-          // Convert world position to local position (relative to player group)
-          const localPos = player.group.worldToLocal(finalWorldPos);
-          camera.position.copy(localPos);
-          
-          // Look at the player (in local coordinates relative to player group)
-          camera.lookAt(0, lookAtHeight, 0);
+          // Camera looks forward in the direction player is facing, responding to pitch
+          const lookDirection = new THREE.Vector3(
+            Math.sin(player.yaw) * Math.cos(player.pitch),
+            -Math.sin(player.pitch),
+            -Math.cos(player.yaw) * Math.cos(player.pitch)
+          );
+          const lookAt = camera.position.clone().add(lookDirection);
+          camera.lookAt(lookAt);
       } else if (player.cameraMode === 2) {
           // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;

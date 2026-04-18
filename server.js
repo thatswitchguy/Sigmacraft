@@ -158,8 +158,14 @@ function saveTextureAsImage(blockName, side, textureData) {
     for (let i = 0; i < 256; i++) {
         const x = i % 16;
         const y = Math.floor(i / 16);
-        ctx.fillStyle = textureData[i] || "#ffffff";
-        ctx.fillRect(x, y, 1, 1);
+        const color = textureData[i];
+        if (color === "transparent") {
+            // Skip transparent pixels - leave them as transparent in the PNG
+            ctx.clearRect(x, y, 1, 1);
+        } else {
+            ctx.fillStyle = color || "#ffffff";
+            ctx.fillRect(x, y, 1, 1);
+        }
     }
     
     const fileName = `${side}.png`;
