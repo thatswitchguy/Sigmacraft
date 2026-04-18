@@ -4962,33 +4962,47 @@ updateBreaking();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 3) {
-          // Orbit camera: always look at player, allow rotating around without rotating the player
+          // Orbit camera: circles around player, always looking at player
           player.model.visible = true;
-          const distance = (player.orbit && player.orbit.distance) ? player.orbit.distance : 3;
-          const oy = player.orbit ? player.orbit.yaw : 0;
-          const op = player.orbit ? player.orbit.pitch : 0;
-
-          const x = Math.sin(oy) * Math.cos(op) * distance;
-          const y = Math.sin(op) * distance + 1.6;
-          const z = -Math.cos(oy) * Math.cos(op) * distance;
-          const worldPos = player.group.position.clone().add(new THREE.Vector3(x, y, z));
-
-          // Push camera out of blocks if colliding
-          let finalPos = worldPos.clone();
-          const searchRadius = 1.2;
+          
+          // Orbit parameters
+          const orbitDistance = 3; // How far away from player
+          const orbitYaw = player.orbit.yaw; // Horizontal rotation around player
+          const orbitPitch = player.orbit.pitch; // Vertical angle (up/down)
+          
+          // Player center position (in world space)
+          const playerPos = player.group.position;
+          const lookAtHeight = 1.6; // Height to look at on player
+          const lookAtPos = new THREE.Vector3(playerPos.x, playerPos.y + lookAtHeight, playerPos.z);
+          
+          // Calculate camera position using spherical coordinates (in world space)
+          // The orbit circles around the player:
+          // - Horizontal circle determined by orbitYaw
+          // - Vertical position determined by orbitPitch
+          const cameraWorldX = playerPos.x + Math.sin(orbitYaw) * Math.cos(orbitPitch) * orbitDistance;
+          const cameraWorldY = playerPos.y + lookAtHeight + Math.sin(orbitPitch) * orbitDistance;
+          const cameraWorldZ = playerPos.z - Math.cos(orbitYaw) * Math.cos(orbitPitch) * orbitDistance;
+          
+          const cameraWorldPos = new THREE.Vector3(cameraWorldX, cameraWorldY, cameraWorldZ);
+          
+          // Check collision with blocks and push camera out if colliding
+          let finalWorldPos = cameraWorldPos.clone();
           for (const block of blocks3D) {
             const blockPos = block.mesh.position;
-            const diff = finalPos.clone().sub(blockPos);
+            const diff = finalWorldPos.clone().sub(blockPos);
             const dist = diff.length();
-            if (dist < searchRadius) {
+            if (dist < 1.2) {
               const dir = diff.normalize();
-              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
-              break;
+              finalWorldPos = blockPos.clone().add(dir.multiplyScalar(1.2));
             }
           }
-
-          camera.position.copy(player.group.worldToLocal(finalPos));
-          camera.lookAt(0, 1.6, 0);
+          
+          // Convert world position to local position (relative to player group)
+          const localPos = player.group.worldToLocal(finalWorldPos);
+          camera.position.copy(localPos);
+          
+          // Look at the player (in local coordinates relative to player group)
+          camera.lookAt(0, lookAtHeight, 0);
       } else if (player.cameraMode === 2) {
           // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;
