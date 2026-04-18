@@ -15,7 +15,9 @@ export function initGame(THREE){
   let toolTypes = {};
   let currentToolPixels = Array(256).fill("#8B4513");
   let editingToolId = null;
-  let transparentMode = false; // Track if we're in transparent picking mode
+  let transparentMode = false; // Track if we're in transparent picking mode (blocks)
+  let transparentModeTools = false; // Track transparent mode for tools
+  let transparentModeItems = false; // Track transparent mode for items
 
   // Crafting
   let craftingGridState = Array(4).fill(null).map(() => ({ type: null, count: 0 })); // 2x2 inventory crafting grid with stacking
@@ -650,12 +652,34 @@ export function initGame(THREE){
     const dropType = blockDrops_mapping[blockType] || blockType;
     const originalMat = blockMaterials[dropType];
     let mat;
-    if (!originalMat) {
-      mat = new THREE.MeshStandardMaterial({ color: 0x888888 });
-    } else if (Array.isArray(originalMat)) {
-      mat = originalMat.map(m => m.clone());
+    if (originalMat) {
+      mat = Array.isArray(originalMat) ? originalMat.map(m => m.clone()) : originalMat.clone();
+    } else if (toolTypes[dropType] || itemsData?.[dropType]) {
+      // For tools/items, build a flat canvas texture from their pixel data
+      const pixelData = toolTypes[dropType]?.texture || itemsData?.[dropType]?.texture;
+      const cvs = document.createElement("canvas");
+      cvs.width = 16; cvs.height = 16;
+      const ctx = cvs.getContext("2d");
+      if (Array.isArray(pixelData)) {
+        for (let r = 0; r < 16; r++) {
+          for (let c = 0; c < 16; c++) {
+            const px = pixelData[r * 16 + c];
+            if (px && px !== "transparent") {
+              ctx.fillStyle = px;
+              ctx.fillRect(c, r, 1, 1);
+            }
+          }
+        }
+      } else {
+        ctx.fillStyle = "#8B4513";
+        ctx.fillRect(0, 0, 16, 16);
+      }
+      const tex = new THREE.CanvasTexture(cvs);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, alphaTest: 0.1 });
     } else {
-      mat = originalMat.clone();
+      mat = new THREE.MeshStandardMaterial({ color: 0x888888 });
     }
     const dropMesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), mat);
     dropMesh.position.copy(position);
@@ -2367,14 +2391,41 @@ export function initGame(THREE){
       fromSelect.appendChild(option);
     });
 
-    // Populate "to" select
+    // Populate "to" select (blocks + tools + items)
     toSelect.innerHTML = '<option value="">Drops as (default: same)</option>';
+    const toOptGroupBlocks = document.createElement("optgroup");
+    toOptGroupBlocks.label = "Blocks";
     blockTypes_list.forEach(blockType => {
       const option = document.createElement("option");
       option.value = blockType;
       option.textContent = blockTypes[blockType].name || blockType;
-      toSelect.appendChild(option);
+      toOptGroupBlocks.appendChild(option);
     });
+    toSelect.appendChild(toOptGroupBlocks);
+    const toolIds = Object.keys(toolTypes);
+    if (toolIds.length > 0) {
+      const toOptGroupTools = document.createElement("optgroup");
+      toOptGroupTools.label = "Tools";
+      toolIds.forEach(toolId => {
+        const option = document.createElement("option");
+        option.value = toolId;
+        option.textContent = toolTypes[toolId].name || toolId;
+        toOptGroupTools.appendChild(option);
+      });
+      toSelect.appendChild(toOptGroupTools);
+    }
+    const itemIds = Object.keys(itemsData || {});
+    if (itemIds.length > 0) {
+      const toOptGroupItems = document.createElement("optgroup");
+      toOptGroupItems.label = "Items";
+      itemIds.forEach(itemId => {
+        const option = document.createElement("option");
+        option.value = itemId;
+        option.textContent = (itemsData[itemId]?.name) || itemId;
+        toOptGroupItems.appendChild(option);
+      });
+      toSelect.appendChild(toOptGroupItems);
+    }
 
     // Set button click handler
     document.getElementById("blockDropsSetBtn").onclick = () => {
@@ -3364,10 +3415,20 @@ export function initGame(THREE){
         px.style.border = "1px solid #666";
       }
       px.onclick = () => {
-        const color = document.getElementById("toolColorPicker")?.value || "#8B4513";
+        let color;
+        if (transparentModeTools) {
+          color = "transparent";
+        } else {
+          color = document.getElementById("toolColorPicker")?.value || "#8B4513";
+        }
         currentToolPixels[i] = color;
-        px.style.backgroundColor = color;
-        px.style.border = "";
+        if (color === "transparent") {
+          px.style.backgroundColor = "transparent";
+          px.style.border = "1px solid #666";
+        } else {
+          px.style.backgroundColor = color;
+          px.style.border = "";
+        }
         update3DToolPreview();
       };
       grid.appendChild(px);
@@ -3562,15 +3623,37 @@ export function initGame(THREE){
       if (!document.getElementById("toolTransparentButton")) {
         const transparentBtn = document.createElement("div");
         transparentBtn.id = "toolTransparentButton";
-        transparentBtn.textContent = "Transparent";
-        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+        transparentBtn.textContent = "Transparent Mode";
+        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:100px;";
         transparentBtn.onclick = () => {
-          currentToolPixels = Array(256).fill("transparent");
-          document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => {
-            p.style.backgroundColor = "transparent";
-            p.style.border = "1px solid #666";
-          });
-          update3DToolPreview();
+          let clickCount = transparentBtn.clickCount || 0;
+          clickCount++;
+          transparentBtn.clickCount = clickCount;
+          clearTimeout(transparentBtn.clickTimeout);
+          if (clickCount === 1) {
+            transparentBtn.clickTimeout = setTimeout(() => {
+              currentToolPixels = Array(256).fill("transparent");
+              document.querySelectorAll("#toolPixelGrid .pixel").forEach(p => {
+                p.style.backgroundColor = "transparent";
+                p.style.border = "1px solid #666";
+              });
+              update3DToolPreview();
+              transparentBtn.clickCount = 0;
+            }, 300);
+          } else if (clickCount === 2) {
+            clearTimeout(transparentBtn.clickTimeout);
+            transparentModeTools = !transparentModeTools;
+            if (transparentModeTools) {
+              transparentBtn.style.background = "#4a4a4a";
+              transparentBtn.style.border = "2px solid #0f0";
+              transparentBtn.textContent = "Transparent Mode (ON)";
+            } else {
+              transparentBtn.style.background = "#888";
+              transparentBtn.style.border = "1px solid #666";
+              transparentBtn.textContent = "Transparent Mode";
+            }
+            transparentBtn.clickCount = 0;
+          }
         };
         fillBtn.parentElement.appendChild(transparentBtn);
       }
@@ -3710,9 +3793,20 @@ export function initGame(THREE){
       px.className = "pixel";
       px.style.backgroundColor = currentItemPixels[i];
       px.onclick = () => {
-        const color = document.getElementById("itemColorPicker")?.value || "#8B4513";
+        let color;
+        if (transparentModeItems) {
+          color = "transparent";
+        } else {
+          color = document.getElementById("itemColorPicker")?.value || "#8B4513";
+        }
         currentItemPixels[i] = color;
-        px.style.backgroundColor = color;
+        if (color === "transparent") {
+          px.style.backgroundColor = "transparent";
+          px.style.border = "1px solid #666";
+        } else {
+          px.style.backgroundColor = color;
+          px.style.border = "";
+        }
       };
       grid.appendChild(px);
     }
@@ -3752,14 +3846,36 @@ export function initGame(THREE){
       if (!document.getElementById("itemTransparentButton")) {
         const transparentBtn = document.createElement("div");
         transparentBtn.id = "itemTransparentButton";
-        transparentBtn.textContent = "Transparent";
-        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+        transparentBtn.textContent = "Transparent Mode";
+        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:100px;";
         transparentBtn.onclick = () => {
-          currentItemPixels = Array(256).fill("transparent");
-          document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => {
-            p.style.backgroundColor = "transparent";
-            p.style.border = "1px solid #666";
-          });
+          let clickCount = transparentBtn.clickCount || 0;
+          clickCount++;
+          transparentBtn.clickCount = clickCount;
+          clearTimeout(transparentBtn.clickTimeout);
+          if (clickCount === 1) {
+            transparentBtn.clickTimeout = setTimeout(() => {
+              currentItemPixels = Array(256).fill("transparent");
+              document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => {
+                p.style.backgroundColor = "transparent";
+                p.style.border = "1px solid #666";
+              });
+              transparentBtn.clickCount = 0;
+            }, 300);
+          } else if (clickCount === 2) {
+            clearTimeout(transparentBtn.clickTimeout);
+            transparentModeItems = !transparentModeItems;
+            if (transparentModeItems) {
+              transparentBtn.style.background = "#4a4a4a";
+              transparentBtn.style.border = "2px solid #0f0";
+              transparentBtn.textContent = "Transparent Mode (ON)";
+            } else {
+              transparentBtn.style.background = "#888";
+              transparentBtn.style.border = "1px solid #666";
+              transparentBtn.textContent = "Transparent Mode";
+            }
+            transparentBtn.clickCount = 0;
+          }
         };
         fillBtn.parentElement.appendChild(transparentBtn);
       }
