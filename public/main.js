@@ -49,7 +49,9 @@ export function initGame(THREE){
     pitch: 0,
     username: "Player",
     nameTag: null,
-    cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front, 3: 360 Free Look
+    cameraMode: 0, // 0: First, 1: Third Back, 2: Third Front, 3: Orbit (F+5)
+    // orbit controls used by F+5 camera mode
+    orbit: { yaw: 0, pitch: 0, distance: 3 },
     isRunning: false,
     inventory: Array(36).fill(null).map(() => ({ type: null, count: 0 })), // 27 inventory + 9 hotbar
     selectedSlot: 27, // Start at first hotbar slot (27-35)
@@ -242,6 +244,10 @@ export function initGame(THREE){
       player.fp.handGroup.visible = false;
     } else if (player.cameraMode === 2) {
       // Third Person Front (360 capable)
+      player.model.visible = true;
+      player.fp.handGroup.visible = false;
+    } else if (player.cameraMode === 3) {
+      // Orbit camera
       player.model.visible = true;
       player.fp.handGroup.visible = false;
     }
@@ -1614,11 +1620,17 @@ export function initGame(THREE){
       }
     }
 
-    // Single key press logic for F and 5
+    // Single key press logic for F and 5 -> toggle orbit camera (always looks at player and allows rotation)
     if (e.code === "KeyF" && keys["Digit5"] || e.code === "Digit5" && keys["KeyF"]) {
-      // Prevent rapid switching by checking if we already toggled this press
       if (!e.repeat) {
-        player.cameraMode = (player.cameraMode + 1) % 3;
+        if (player.cameraMode !== 3) {
+          player._prevCameraMode = player.cameraMode;
+          player.cameraMode = 3; // enter orbit mode
+          player.orbit.yaw = player.yaw;
+          player.orbit.pitch = 0;
+        } else {
+          player.cameraMode = player._prevCameraMode || 0; // restore previous mode
+        }
         updateCamera();
         e.preventDefault();
       }
@@ -1686,18 +1698,25 @@ export function initGame(THREE){
     
     // Sensitivity factor
     const sensitivity = 0.002;
-    player.yaw -= e.movementX * sensitivity;
-    player.pitch -= e.movementY * sensitivity;
-    player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
-    
-    // Apply horizontal rotation to the player group
-    player.group.rotation.y = player.yaw;
+    if (player.cameraMode !== 3) {
+      player.yaw -= e.movementX * sensitivity;
+      player.pitch -= e.movementY * sensitivity;
+      player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
 
-    if (socket) {
+      // Apply horizontal rotation to the player group
+      player.group.rotation.y = player.yaw;
+
+      if (socket) {
         socket.emit("move", { 
-            pos: player.group.position, 
-            rot: { y: player.yaw, pitch: player.pitch } 
+          pos: player.group.position, 
+          rot: { y: player.yaw, pitch: player.pitch } 
         });
+      }
+    } else {
+      // Orbit camera: rotate around player without changing player orientation
+      player.orbit.yaw -= e.movementX * sensitivity;
+      player.orbit.pitch -= e.movementY * sensitivity;
+      player.orbit.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.orbit.pitch));
     }
   });
 
@@ -4942,6 +4961,34 @@ updateBreaking();
           const pitchQuat = new THREE.Quaternion();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
+      } else if (player.cameraMode === 3) {
+          // Orbit camera: always look at player, allow rotating around without rotating the player
+          player.model.visible = true;
+          const distance = (player.orbit && player.orbit.distance) ? player.orbit.distance : 3;
+          const oy = player.orbit ? player.orbit.yaw : 0;
+          const op = player.orbit ? player.orbit.pitch : 0;
+
+          const x = Math.sin(oy) * Math.cos(op) * distance;
+          const y = Math.sin(op) * distance + 1.6;
+          const z = -Math.cos(oy) * Math.cos(op) * distance;
+          const worldPos = player.group.position.clone().add(new THREE.Vector3(x, y, z));
+
+          // Push camera out of blocks if colliding
+          let finalPos = worldPos.clone();
+          const searchRadius = 1.2;
+          for (const block of blocks3D) {
+            const blockPos = block.mesh.position;
+            const diff = finalPos.clone().sub(blockPos);
+            const dist = diff.length();
+            if (dist < searchRadius) {
+              const dir = diff.normalize();
+              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
+              break;
+            }
+          }
+
+          camera.position.copy(player.group.worldToLocal(finalPos));
+          camera.lookAt(0, 1.6, 0);
       } else if (player.cameraMode === 2) {
           // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;
