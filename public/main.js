@@ -23,6 +23,8 @@ export function initGame(THREE){
   let craftingRecipes = [];
   let craftingOutput = null;
   let craftingTableOutput = null;
+  let craftingTablePreviewMode = false;
+  let craftingTablePreviewRecipe = null;
   let currentCraftingRecipeId = null;
   let recipePattern = Array(9).fill(null); // Default to 3x3
   let currentRecipeType = "3x3"; // Track whether editing 2x2 or 3x3
@@ -2342,10 +2344,10 @@ export function initGame(THREE){
         <div id="blockDropsList" style="max-height: 200px; overflow-y: auto; background: #222; padding: 10px; border-radius: 3px; font-size: 12px; color: #ccc;"></div>
       `;
       
-      // Insert before blockSidebarList if it exists, otherwise at the end
-      const sidebar = document.getElementById("blockSidebarList");
-      if (sidebar && sidebar.parentNode) {
-        sidebar.parentNode.insertBefore(dropsSection, sidebar);
+      // Insert into the editor-main (right panel) of blocks tab
+      const editorMain = document.querySelector("#blocksTab .editor-main");
+      if (editorMain) {
+        editorMain.appendChild(dropsSection);
       } else {
         devOverlay.appendChild(dropsSection);
       }
@@ -3746,6 +3748,21 @@ export function initGame(THREE){
         currentItemPixels = Array(256).fill(color);
         document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => p.style.backgroundColor = color);
       };
+
+      if (!document.getElementById("itemTransparentButton")) {
+        const transparentBtn = document.createElement("div");
+        transparentBtn.id = "itemTransparentButton";
+        transparentBtn.textContent = "Transparent";
+        transparentBtn.style.cssText = "display:inline-block;padding:4px 8px;margin-left:8px;background:#888;color:white;border:1px solid #666;border-radius:3px;font-size:12px;cursor:pointer;text-align:center;min-width:70px;";
+        transparentBtn.onclick = () => {
+          currentItemPixels = Array(256).fill("transparent");
+          document.querySelectorAll("#itemPixelGrid .pixel").forEach(p => {
+            p.style.backgroundColor = "transparent";
+            p.style.border = "1px solid #666";
+          });
+        };
+        fillBtn.parentElement.appendChild(transparentBtn);
+      }
     }
 
     const saveBtn = document.getElementById("saveItemBtn");
@@ -4227,12 +4244,11 @@ export function initGame(THREE){
     grid.innerHTML = "";
     for (let i = 0; i < 9; i++) {
       const slot = document.createElement("div");
-      slot.className = "slot";
+      slot.className = craftingTablePreviewMode ? "slot preview-slot" : "slot";
       const item = craftingTableGridState[i];
       if (item && item.type) {
         console.log(`Slot ${i}: rendering item ${item.type} x${item.count}`);
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
-        if (icon) slot.appendChild(icon);
+        renderItemIcon(item.type, slot);
         if (item.count > 1) {
           const count = document.createElement("div");
           count.className = "item-count";
@@ -4241,13 +4257,20 @@ export function initGame(THREE){
         }
         // Add hover tooltip
         slot.onmouseenter = (e) => {
-          if (blockTypes[item.type]) {
-            showTooltip(e, blockTypes[item.type].name || item.type);
-          }
+          const name = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData[item.type]?.name || item.type;
+          showTooltip(e, name);
         };
         slot.onmouseleave = hideTooltip;
       }
       slot.onclick = (e) => {
+        if (craftingTablePreviewMode) {
+          craftingTablePreviewMode = false;
+          craftingTablePreviewRecipe = null;
+          craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 }));
+          renderCraftingTableGrid();
+          updateCraftingTableOutput();
+          return;
+        }
         console.log(`Crafting table grid slot ${i} clicked. Shift: ${e.shiftKey}. Dragged item:`, player.draggedItem);
         if (player.draggedItem) {
           // Shift+click while holding: place exactly 1, keep rest held
@@ -4413,9 +4436,159 @@ export function initGame(THREE){
         renderCraftingTableInventory();
         renderCraftingTableHotbar();
         renderInventoryGrid();
+        craftingTablePreviewMode = false;
+        craftingTablePreviewRecipe = null;
         document.getElementById("craftingTableOverlay").style.display = "none";
+        document.getElementById("recipeBookPanel").style.display = "none";
         renderer.domElement.requestPointerLock();
       };
+    }
+
+    const recipeBookBtn = document.getElementById("recipeBookBtn");
+    if (recipeBookBtn && !recipeBookBtn._initDone) {
+      recipeBookBtn._initDone = true;
+      recipeBookBtn.onclick = () => {
+        const panel = document.getElementById("recipeBookPanel");
+        if (panel.style.display === "none") {
+          populateRecipeBook();
+          panel.style.display = "flex";
+        } else {
+          panel.style.display = "none";
+          if (craftingTablePreviewMode) {
+            craftingTablePreviewMode = false;
+            craftingTablePreviewRecipe = null;
+            craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 }));
+            renderCraftingTableGrid();
+            updateCraftingTableOutput();
+          }
+        }
+      };
+    }
+
+    const closeRecipeBook = document.getElementById("closeRecipeBook");
+    if (closeRecipeBook && !closeRecipeBook._initDone) {
+      closeRecipeBook._initDone = true;
+      closeRecipeBook.onclick = () => {
+        document.getElementById("recipeBookPanel").style.display = "none";
+        if (craftingTablePreviewMode) {
+          craftingTablePreviewMode = false;
+          craftingTablePreviewRecipe = null;
+          craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 }));
+          renderCraftingTableGrid();
+          updateCraftingTableOutput();
+        }
+      };
+    }
+  }
+
+  function populateRecipeBook() {
+    const list = document.getElementById("recipeBookList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const seen = new Set();
+    for (const recipe of craftingRecipes) {
+      if (!recipe.output || seen.has(recipe.output)) continue;
+      seen.add(recipe.output);
+
+      const btn = document.createElement("div");
+      btn.className = "recipe-book-item";
+      btn.title = recipe.name || recipe.output;
+
+      renderItemIcon(recipe.output, btn);
+
+      const canCraft = checkCanCraftRecipe(recipe);
+      if (canCraft) btn.classList.add("can-craft");
+
+      btn.onclick = () => {
+        selectRecipeBookEntry(recipe);
+      };
+      list.appendChild(btn);
+    }
+  }
+
+  function checkCanCraftRecipe(recipe) {
+    const invCounts = {};
+    for (let i = 0; i < 36; i++) {
+      const item = player.inventory[i];
+      if (item && item.type) {
+        invCounts[item.type] = (invCounts[item.type] || 0) + item.count;
+      }
+    }
+    for (const ingredient of (recipe.pattern || [])) {
+      if (ingredient) {
+        invCounts[ingredient] = (invCounts[ingredient] || 0) - 1;
+        if (invCounts[ingredient] < 0) return false;
+      }
+    }
+    return true;
+  }
+
+  function quickCraftRecipe(recipe) {
+    const toConsume = {};
+    for (const ingredient of (recipe.pattern || [])) {
+      if (ingredient) toConsume[ingredient] = (toConsume[ingredient] || 0) + 1;
+    }
+    for (const [type, count] of Object.entries(toConsume)) {
+      let remaining = count;
+      for (let i = 35; i >= 0 && remaining > 0; i--) {
+        if (player.inventory[i].type === type) {
+          const take = Math.min(remaining, player.inventory[i].count);
+          player.inventory[i].count -= take;
+          if (player.inventory[i].count <= 0) player.inventory[i] = { type: null, count: 0 };
+          remaining -= take;
+        }
+      }
+    }
+    const outputType = recipe.output;
+    const outputCount = recipe.outputCount || 1;
+    let placed = false;
+    for (let i = 0; i < 36; i++) {
+      if (player.inventory[i].type === outputType && player.inventory[i].count < 64) {
+        player.inventory[i].count += outputCount;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      for (let i = 0; i < 36; i++) {
+        if (!player.inventory[i].type) {
+          player.inventory[i] = { type: outputType, count: outputCount };
+          placed = true;
+          break;
+        }
+      }
+    }
+    renderCraftingTableInventory();
+    renderCraftingTableHotbar();
+    renderInventoryGrid();
+    updateHotbarUI();
+    populateRecipeBook();
+  }
+
+  function selectRecipeBookEntry(recipe) {
+    if (checkCanCraftRecipe(recipe)) {
+      quickCraftRecipe(recipe);
+    } else {
+      // Show recipe in crafting grid as faded preview
+      const pattern = recipe.pattern || [];
+      if (pattern.length === 4) {
+        // 2x2 recipe - place in top-left of 3x3 grid
+        craftingTableGridState = Array(9).fill(null).map(() => ({ type: null, count: 0 }));
+        craftingTableGridState[0] = { type: pattern[0] || null, count: pattern[0] ? 1 : 0 };
+        craftingTableGridState[1] = { type: pattern[1] || null, count: pattern[1] ? 1 : 0 };
+        craftingTableGridState[3] = { type: pattern[2] || null, count: pattern[2] ? 1 : 0 };
+        craftingTableGridState[4] = { type: pattern[3] || null, count: pattern[3] ? 1 : 0 };
+      } else {
+        craftingTableGridState = pattern.map(item => item ? { type: item, count: 1 } : { type: null, count: 0 });
+        if (craftingTableGridState.length < 9) {
+          while (craftingTableGridState.length < 9) craftingTableGridState.push({ type: null, count: 0 });
+        }
+      }
+      craftingTablePreviewMode = true;
+      craftingTablePreviewRecipe = recipe;
+      renderCraftingTableGrid();
+      updateCraftingTableOutput();
     }
   }
 

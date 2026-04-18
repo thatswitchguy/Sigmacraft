@@ -435,23 +435,37 @@
 </div>
 
 <div id="craftingTableOverlay" style="display:none;">
-  <div class="inventory-window">
-    <div class="inventory-header">
-      <h3 style="color: white;">Crafting Table</h3>
-      <button id="closeCraftingTable">&times;</button>
-    </div>
-    <div class="crafting-table-body">
-      <div class="crafting-layout">
-        <div id="craftingTableGrid" class="crafting-table-grid-ui"></div>
-        <div class="crafting-arrow-col">
-          <span class="crafting-arrow">&#10145;</span>
-          <div id="craftingTableOutput" class="slot crafting-output-slot"></div>
-          <button id="craftTableBtn" class="small-btn">Craft</button>
-        </div>
+  <div class="crafting-table-wrapper">
+    <div id="recipeBookPanel" class="recipe-book-panel" style="display:none;">
+      <div class="recipe-book-header">
+        <span>Recipe Book</span>
+        <button id="closeRecipeBook" class="small-btn">&times;</button>
       </div>
-      <div id="craftingTableInventorySection" class="crafting-table-inventory">
-        <div id="craftingTableInventoryGrid" class="inventory-grid"></div>
-        <div id="craftingTableHotbar" class="inventory-grid"></div>
+      <div id="recipeBookList" class="recipe-book-list"></div>
+    </div>
+    <div class="inventory-window">
+      <div class="inventory-header">
+        <h3 style="color: white;">Crafting Table</h3>
+        <button id="closeCraftingTable">&times;</button>
+      </div>
+      <div class="crafting-table-body">
+        <div class="crafting-layout">
+          <div class="crafting-grid-wrapper">
+            <div id="craftingTableGrid" class="crafting-table-grid-ui"></div>
+            <div class="crafting-grid-footer">
+              <button id="recipeBookBtn" class="small-btn recipe-book-btn" title="Recipe Book">&#128214;</button>
+            </div>
+          </div>
+          <div class="crafting-arrow-col">
+            <span class="crafting-arrow">&#10145;</span>
+            <div id="craftingTableOutput" class="slot crafting-output-slot"></div>
+            <button id="craftTableBtn" class="small-btn">Craft</button>
+          </div>
+        </div>
+        <div id="craftingTableInventorySection" class="crafting-table-inventory">
+          <div id="craftingTableInventoryGrid" class="inventory-grid"></div>
+          <div id="craftingTableHotbar" class="inventory-grid"></div>
+        </div>
       </div>
     </div>
   </div>
