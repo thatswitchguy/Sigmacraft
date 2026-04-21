@@ -153,5 +153,23 @@
     ],
     "output": "wooden_planks",
     "outputCount": 1
+  },
+  {
+    "id": "furnace_1776705466988",
+    "name": "Furnace",
+    "type": "3x3",
+    "pattern": [
+      "stone",
+      "stone",
+      "stone",
+      "stone",
+      null,
+      "stone",
+      "stone",
+      "stone",
+      "stone"
+    ],
+    "output": "furnace",
+    "outputCount": 1
   }
 ]

@@ -103,7 +103,7 @@ export function initGame(THREE){
   const fpToolItemGeometry = new THREE.PlaneGeometry(0.6, 0.6);
   const fpItem = new THREE.Mesh(fpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
   fpItem.position.set(0.6, -0.3, -0.9);
-  fpItem.rotation.set(Math.PI, 0, 0); // Rotate 180° so top faces away from player
+  fpItem.rotation.set(0, 0, 0); // Top of block faces towards player
   fpItem.visible = false;
   fpHandGroup.add(fpItem);
   
@@ -824,8 +824,11 @@ export function initGame(THREE){
     if (document.pointerLockElement !== renderer.domElement) return;
     
     isMouseDown = true; // Track that mouse button is held
-    isSwinging = true;
-    swingTime = 0;
+    // Only start swinging if breaking (left click without shift)
+    if (e.button === 0 && !e.shiftKey) {
+      isSwinging = true;
+      swingTime = 0;
+    }
 
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     
@@ -885,6 +888,15 @@ export function initGame(THREE){
         if (overlay) {
           overlay.style.display = "flex";
           initCraftingTableUI();
+        }
+        return;
+      }
+      if (hitBlock && hitBlock.type === "furnace" && e.button === 2) {
+        document.exitPointerLock();
+        const overlay = document.getElementById("furnaceOverlay");
+        if (overlay) {
+          overlay.style.display = "flex";
+          initFurnaceUI();
         }
         return;
       }
@@ -1103,28 +1115,42 @@ export function initGame(THREE){
 
   function generateWorld(seed) {
     console.log("Generating world with seed:", seed);
+    
+    // Show loading screen
+    const loadingScreen = document.getElementById("loadingScreen");
+    if (loadingScreen) {
+      loadingScreen.style.display = "flex";
+    }
 
-    let spawnHeight = 6; // fallback spawn height
+    let spawnHeight = 6;
     let simplex = null;
+    let totalBlocks = 0;
+    let blocksGenerated = 0;
+
+    const updateProgress = () => {
+      if (loadingScreen) {
+        const percent = Math.min(100, Math.floor((blocksGenerated / totalBlocks) * 100));
+        const bar = document.getElementById("loadingBar");
+        const text = document.getElementById("loadingText");
+        if (bar) bar.style.width = percent + "%";
+        if (text) text.textContent = percent + "%";
+      }
+    };
 
     if (window.SimplexNoise) {
-
       simplex = new SimplexNoise(seed || Math.random());
       const size = 30;
+      totalBlocks = (size * 2) * (size * 2) * 9; // Estimate
 
       for (let x = -size; x < size; x++) {
        for (let z = -size; z < size; z++) {
-
-         // Generate a heightmap that varies terrain height (will place surface at different y values)
          const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 3);
-         const surfaceY = 6 + terrainVariance; // Grass at y 5 or 6
+         const surfaceY = 6 + terrainVariance;
 
-         // Save spawn height at center
          if (x === 0 && z === 0) {
            spawnHeight = surfaceY + 1;
          }
 
-         // Generate fixed layer structure from y 0 to surface
          for (let y = 0; y <= surfaceY; y++) {
            let type = "bedrock";
 
@@ -1132,14 +1158,11 @@ export function initGame(THREE){
              type = "bedrock";
            } else if (y === surfaceY) {
              type = "grass";
-           } else if (y === 1) {
-             type = "stone";
-           } else if (y === 2 || y === 3) {
+           } else if (y === surfaceY - 1 || y === surfaceY - 2) {
              type = "dirt";
-           } else if (y === 4 || y === 5) {
-             // Stone layer - randomly add coal ore
+           } else {
              const coalChance = Math.random();
-             type = coalChance < 0.08 ? "coal_ore" : "stone"; // 8% coal ore
+             type = coalChance < 0.08 ? "coal_ore" : "stone";
            }
 
            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
@@ -1150,7 +1173,6 @@ export function initGame(THREE){
            );
 
            mesh.position.set(x, y, z);
-
            scene.add(mesh);
 
            blocks3D.push({
@@ -1158,25 +1180,28 @@ export function initGame(THREE){
              type,
              pos: {x, y, z}
            });
+           
+           blocksGenerated++;
+           if (blocksGenerated % 100 === 0) {
+             updateProgress();
+           }
          }
        }
       }
 
     } else {
-
       console.warn("SimplexNoise not found, falling back to flat world");
-
       spawnHeight = 6;
+      totalBlocks = 20 * 20 * 9;
 
       for (let x = -10; x < 10; x++) {
         for (let z = -10; z < 10; z++) {
-          // Generate fixed layer structure
-          for (let y = 0; y <= 5; y++) {
+          for (let y = 0; y <= 8; y++) {
             let type = "bedrock";
             if (y === 0) type = "bedrock";
-            else if (y === 1) type = "dirt";
-            else if (y === 2 || y === 3) type = "dirt";
-            else if (y === 4 || y === 5) type = "stone";
+            else if (y === 8) type = "grass";
+            else if (y === 7 || y === 6) type = "dirt";
+            else type = "stone";
 
             const mesh = new THREE.Mesh(
               new THREE.BoxGeometry(1,1,1),
@@ -1184,7 +1209,6 @@ export function initGame(THREE){
             );
 
             mesh.position.set(x, y, z);
-
             scene.add(mesh);
 
             blocks3D.push({
@@ -1192,6 +1216,11 @@ export function initGame(THREE){
               type,
               pos: {x, y, z}
             });
+            
+            blocksGenerated++;
+            if (blocksGenerated % 50 === 0) {
+              updateProgress();
+            }
           }
         }
       }
@@ -1283,6 +1312,14 @@ export function initGame(THREE){
     }
 
     occlusionDirty = true;
+    
+    // Hide loading screen when done
+    setTimeout(() => {
+      const loadingScreen = document.getElementById("loadingScreen");
+      if (loadingScreen) {
+        loadingScreen.style.display = "none";
+      }
+    }, 500);
   }
   
   function setupMultiplayer() {
@@ -1436,6 +1473,10 @@ export function initGame(THREE){
         for (let i = 0; i < data.count; i++) {
             createBlockDrop(data.pos, data.type);
         }
+    });
+
+    socket.on("chatMessage", (data) => {
+        addChatMessage(`${data.username}: ${data.message}`);
     });
   }
 
@@ -1651,6 +1692,53 @@ export function initGame(THREE){
       return;
     }
 
+    // Chat: T key to open/close chat
+    if (e.code === "KeyT" && document.pointerLockElement === renderer.domElement) {
+      const chatContainer = document.getElementById("chatContainer");
+      const chatInput = document.getElementById("chatInput");
+      const isOpen = chatInput.style.display !== "none";
+      
+      if (!isOpen) {
+        // Open chat
+        chatInput.style.display = "block";
+        chatInput.focus();
+        chatInput.value = "";
+        e.preventDefault();
+      }
+      return;
+    }
+
+    // Chat input submission
+    const chatInput = document.getElementById("chatInput");
+    if (e.code === "Enter" && chatInput && chatInput.style.display !== "none") {
+      const message = chatInput.value.trim();
+      if (message) {
+        // Handle commands
+        if (message.startsWith("/")) {
+          handleChatCommand(message);
+        } else {
+          // Send regular message
+          addChatMessage(`${player.username}: ${message}`);
+          if (socket) {
+            socket.emit("chatMessage", { username: player.username, message: message });
+          }
+        }
+      }
+      chatInput.value = "";
+      chatInput.style.display = "none";
+      renderer.domElement.requestPointerLock();
+      e.preventDefault();
+      return;
+    }
+
+    // Escape while typing chat
+    if (e.code === "Escape" && chatInput && chatInput.style.display !== "none") {
+      chatInput.style.display = "none";
+      chatInput.value = "";
+      renderer.domElement.requestPointerLock();
+      return;
+    }
+
     // Inventory slots 1-9
     if (e.code && e.code.startsWith("Digit") && e.code !== "Digit0") {
       const slot = parseInt(e.code.replace("Digit", "")) - 1;
@@ -1863,23 +1951,44 @@ export function initGame(THREE){
         const editBlockId = document.getElementById("editBlockId");
         const sideSelect = document.getElementById("sideSelect");
         const blockName = blockSelect?.value || editBlockId?.value || "";
-        const side = sideSelect?.value || "front";
+        let side = sideSelect?.value || "front";
         
         if (blockName) {
-          console.log("Saving texture for", blockName, side);
-          fetch("/update-block", {
-            method: "POST",
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
-          }).then(res => res.json()).then(data => {
-             console.log("Save response:", data);
-             // Update local block types to reflect change immediately
-             if (blockTypes[blockName]) {
-                 blockTypes[blockName].textures[side] = [...currentPixels];
-                 // Rebuild materials for this block
-                 updateBlockMaterials(blockName);
-             }
-          }).catch(err => console.error("Save failed:", err));
+          // If "all" is selected, save to all sides
+          if (side === "all") {
+            const sides = ["top", "bottom", "left", "right", "front", "back"];
+            sides.forEach(s => {
+              console.log("Saving texture for", blockName, s);
+              fetch("/update-block", {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blockName, side: s, textureData: [...currentPixels] })
+              }).then(res => res.json()).then(data => {
+                 console.log("Save response:", data);
+                 // Update local block types to reflect change immediately
+                 if (blockTypes[blockName]) {
+                     blockTypes[blockName].textures[s] = [...currentPixels];
+                     // Rebuild materials for this block
+                     updateBlockMaterials(blockName);
+                 }
+              }).catch(err => console.error("Save failed:", err));
+            });
+          } else {
+            console.log("Saving texture for", blockName, side);
+            fetch("/update-block", {
+              method: "POST",
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
+            }).then(res => res.json()).then(data => {
+               console.log("Save response:", data);
+               // Update local block types to reflect change immediately
+               if (blockTypes[blockName]) {
+                   blockTypes[blockName].textures[side] = [...currentPixels];
+                   // Rebuild materials for this block
+                   updateBlockMaterials(blockName);
+               }
+            }).catch(err => console.error("Save failed:", err));
+          }
         }
       };
       grid.appendChild(pixel);
@@ -2031,6 +2140,45 @@ export function initGame(THREE){
     return false;
   }
 
+  // Create a block net texture (6 sides arranged in a net pattern)
+  function createBlockNetTexture(blockData) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 48;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const sides = {
+      top: { x: 16, y: 0 },
+      bottom: { x: 16, y: 32 },
+      left: { x: 0, y: 16 },
+      front: { x: 16, y: 16 },
+      right: { x: 32, y: 16 },
+      back: { x: 48, y: 16 }
+    };
+
+    // Draw all 6 sides into the net
+    Object.entries(sides).forEach(([side, pos]) => {
+      const pixels = blockData.textures[side];
+      if (Array.isArray(pixels)) {
+        for (let i = 0; i < 256; i++) {
+          const x = i % 16;
+          const y = Math.floor(i / 16);
+          const color = pixels[i];
+          if (color && color !== "transparent") {
+            ctx.fillStyle = color;
+            ctx.fillRect(pos.x + x, pos.y + y, 1, 1);
+          }
+        }
+      }
+    });
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    return texture;
+  }
+
   function updateBlockMaterials(name) {
     const data = blockTypes[name];
     if (!data) return;
@@ -2038,25 +2186,38 @@ export function initGame(THREE){
     const sides = ['right', 'left', 'top', 'bottom', 'front', 'back'];
     // Detect if this block type has any transparent pixels
     const hasTransparency = isBlockTransparent(data);
-    const materials = sides.map(side => {
-      // Priority 1: Check for folder-organized textures
-      const folderTextureUrl = `/textures/${name}/${side}.png`;
-      
-      // Use imageUrls if available (legacy support or specific overrides)
-      const imageUrl = (data.imageUrls && data.imageUrls[side]) || folderTextureUrl;
+    
+    // Create a net texture if we have texturedata, otherwise use folder textures
+    let netTexture = null;
+    try {
+      if (data.textures && Object.keys(data.textures).length > 0) {
+        netTexture = createBlockNetTexture(data);
+      }
+    } catch (e) {
+      console.warn("Could not create net texture for", name, e);
+    }
 
-      const texture = textureLoader.load(imageUrl + '?t=' + Date.now());
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
+    const materials = sides.map((side, index) => {
+      let texture;
       
-      // For blocks with transparent pixels, enable transparency rendering
-      // alphaTest cuts off pixels with alpha below threshold (0.1 is more forgiving for transparent blocks)
+      if (netTexture) {
+        // Use the net texture with UV mapping for this side
+        texture = netTexture;
+      } else {
+        // Fallback to folder-organized textures
+        const folderTextureUrl = `/textures/${name}/${side}.png`;
+        const imageUrl = (data.imageUrls && data.imageUrls[side]) || folderTextureUrl;
+        texture = textureLoader.load(imageUrl + '?t=' + Date.now());
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+      }
+      
       const alphaTestValue = hasTransparency ? 0.1 : 0.5;
       return new THREE.MeshStandardMaterial({ 
         map: texture, 
         transparent: hasTransparency || true, 
         alphaTest: alphaTestValue,
-        side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide // Double-sided for transparent blocks
+        side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide
       });
     });
     
@@ -2118,7 +2279,13 @@ export function initGame(THREE){
     if (!sideSelect) return;
     
     const blockName = blockSelect?.value || editBlockId?.value || "";
-    const side = sideSelect.value;
+    let side = sideSelect.value;
+    
+    // When "all" is selected, show and edit the front texture (and apply to all)
+    if (side === "all") {
+      side = "front";
+    }
+    
     if (blockName && blockTypes[blockName] && blockTypes[blockName].textures[side]) {
       updateGridFromData(blockTypes[blockName].textures[side]);
     }
@@ -2256,14 +2423,40 @@ export function initGame(THREE){
     const editBlockId = document.getElementById("editBlockId");
     const sideSelect = document.getElementById("sideSelect");
     const blockName = blockSelect?.value || editBlockId?.value || "";
-    const side = sideSelect?.value || "front";
+    let side = sideSelect?.value || "front";
     
     if (blockName) {
-      fetch("/update-block", {
-        method: "POST",
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
-      }).catch(err => console.error("Save failed:", err));
+      // If "all" is selected, save to all sides
+      if (side === "all") {
+        const sides = ["top", "bottom", "left", "right", "front", "back"];
+        sides.forEach(s => {
+          fetch("/update-block", {
+            method: "POST",
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blockName, side: s, textureData: [...currentPixels] })
+          }).then(res => res.json()).then(data => {
+             // Update local block types to reflect change immediately
+             if (blockTypes[blockName]) {
+                 blockTypes[blockName].textures[s] = [...currentPixels];
+                 // Rebuild materials for this block
+                 updateBlockMaterials(blockName);
+             }
+          }).catch(err => console.error("Save failed:", err));
+        });
+      } else {
+        fetch("/update-block", {
+          method: "POST",
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blockName, side, textureData: [...currentPixels] })
+        }).then(res => res.json()).then(data => {
+           // Update local block types to reflect change immediately
+           if (blockTypes[blockName]) {
+               blockTypes[blockName].textures[side] = [...currentPixels];
+               // Rebuild materials for this block
+               updateBlockMaterials(blockName);
+           }
+        }).catch(err => console.error("Save failed:", err));
+      }
     }
   }
 
@@ -2610,6 +2803,7 @@ export function initGame(THREE){
       if (tabName === 'tools') initToolUI();
       if (tabName === 'items') initItemsUI();
       if (tabName === 'crafting') initCraftingUI();
+      if (tabName === 'furnace') initFurnaceDevUI();
     };
   });
 
@@ -3819,7 +4013,7 @@ export function initGame(THREE){
     const addBtn = document.getElementById("addItemBtn");
     if (addBtn && !addBtn._initDone) {
       addBtn._initDone = true;
-      addBtn.onclick = () => {
+      addBtn.onclick = async () => {
         const id = prompt("Enter item ID (lowercase, no spaces):");
         if (!id) return;
         const cleanId = id.trim().toLowerCase().replace(/\s+/g, "_");
@@ -3827,10 +4021,17 @@ export function initGame(THREE){
         const name = prompt("Enter item name:");
         if (!name) return;
         itemsData[cleanId] = { name, type: "generic", texture: Array(256).fill("#8B4513") };
-        fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: cleanId, itemName: name, itemType: "generic", textureData: itemsData[cleanId].texture }) }).then(() => {
+        try {
+          const response = await fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: cleanId, itemName: name, itemType: "generic", textureData: itemsData[cleanId].texture }) });
+          if (!response.ok) throw new Error(`Server error: ${response.status}`);
           updateItemsSidebar();
           setupInventoryUI();
-        });
+          alert(`Item '${name}' created successfully!`);
+        } catch (error) {
+          console.error("Error creating item:", error);
+          alert(`Failed to create item: ${error.message}`);
+          delete itemsData[cleanId]; // Remove from local state if server failed
+        }
       };
     }
 
@@ -4287,6 +4488,72 @@ export function initGame(THREE){
       outputSlot.onclick = () => {
         const craftBtn = document.getElementById("craftBtn");
         if (craftBtn) craftBtn.click();
+      };
+    }
+  }
+
+  // Furnace dev mode settings
+  let furnaceDevSettings = {
+    allowedFuels: { coal: true, wood: true, planks: true, sticks: true },
+    fuelBurnTime: 200,
+    smeltingSpeed: 200
+  };
+
+  function initFurnaceDevUI() {
+    // Load furnace settings
+    const allowCoal = document.getElementById("allowCoalFuel");
+    const allowWood = document.getElementById("allowWoodFuel");
+    const allowPlanks = document.getElementById("allowPlanksFuel");
+    const allowSticks = document.getElementById("allowSticksFuel");
+
+    if (allowCoal) allowCoal.checked = furnaceDevSettings.allowedFuels.coal;
+    if (allowWood) allowWood.checked = furnaceDevSettings.allowedFuels.wood;
+    if (allowPlanks) allowPlanks.checked = furnaceDevSettings.allowedFuels.planks;
+    if (allowSticks) allowSticks.checked = furnaceDevSettings.allowedFuels.sticks;
+
+    const fuelBurnInput = document.getElementById("fuelBurnTime");
+    const smeltingSpeedInput = document.getElementById("smeltingSpeed");
+    if (fuelBurnInput) fuelBurnInput.value = furnaceDevSettings.fuelBurnTime;
+    if (smeltingSpeedInput) smeltingSpeedInput.value = furnaceDevSettings.smeltingSpeed;
+
+    // Setup save button
+    const saveBtn = document.getElementById("saveFurnaceSettingsBtn");
+    if (saveBtn && !saveBtn._initDone) {
+      saveBtn._initDone = true;
+      saveBtn.onclick = () => {
+        furnaceDevSettings.allowedFuels.coal = (allowCoal?.checked || false);
+        furnaceDevSettings.allowedFuels.wood = (allowWood?.checked || false);
+        furnaceDevSettings.allowedFuels.planks = (allowPlanks?.checked || false);
+        furnaceDevSettings.allowedFuels.sticks = (allowSticks?.checked || false);
+        furnaceDevSettings.fuelBurnTime = parseInt(fuelBurnInput?.value || "200");
+        furnaceDevSettings.smeltingSpeed = parseInt(smeltingSpeedInput?.value || "200");
+
+        // Update the furnace slot restriction
+        const allowedTypes = Object.keys(furnaceDevSettings.allowedFuels)
+          .filter(key => furnaceDevSettings.allowedFuels[key]);
+        const index = FURNACE_FUEL_TYPES.findIndex(t => furnaceDevSettings.allowedFuels[t]);
+        
+        alert(`Furnace settings saved!\nAllowed fuels: ${allowedTypes.join(", ") || "none"}\nFuel burn time: ${furnaceDevSettings.fuelBurnTime} ticks\nSmelting speed: ${furnaceDevSettings.smeltingSpeed} ticks`);
+      };
+    }
+
+    // Setup reset button
+    const resetBtn = document.getElementById("resetFurnaceSettingsBtn");
+    if (resetBtn && !resetBtn._initDone) {
+      resetBtn._initDone = true;
+      resetBtn.onclick = () => {
+        furnaceDevSettings = {
+          allowedFuels: { coal: true, wood: true, planks: true, sticks: true },
+          fuelBurnTime: 200,
+          smeltingSpeed: 200
+        };
+        if (allowCoal) allowCoal.checked = true;
+        if (allowWood) allowWood.checked = true;
+        if (allowPlanks) allowPlanks.checked = true;
+        if (allowSticks) allowSticks.checked = true;
+        if (fuelBurnInput) fuelBurnInput.value = "200";
+        if (smeltingSpeedInput) smeltingSpeedInput.value = "200";
+        alert("Furnace settings reset to defaults!");
       };
     }
   }
@@ -5101,6 +5368,49 @@ export function initGame(THREE){
     }
   }
 
+  // Chat System Functions
+  function addChatMessage(text) {
+    const chatMessages = document.getElementById("chatMessages");
+    if (!chatMessages) return;
+    
+    const msgLine = document.createElement("div");
+    msgLine.textContent = text;
+    msgLine.style.color = "#fff";
+    msgLine.style.wordWrap = "break-word";
+    chatMessages.appendChild(msgLine);
+    
+    // Auto-scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Keep only last 100 messages
+    while (chatMessages.children.length > 100) {
+      chatMessages.removeChild(chatMessages.firstChild);
+    }
+  }
+
+  function handleChatCommand(command) {
+    const args = command.split(" ");
+    const cmd = args[0].toLowerCase();
+    
+    if (cmd === "/locate" && args[1] === "players") {
+      // Get all player positions
+      let playerList = `Players (${Object.keys(remotePlayers).length + 1}):\n`;
+      playerList += `${player.username}: X=${Math.round(player.group.position.x)} Y=${Math.round(player.group.position.y)} Z=${Math.round(player.group.position.z)}`;
+      
+      Object.entries(remotePlayers).forEach(([id, p]) => {
+        if (p.username) {
+          playerList += `\n${p.username}: X=${Math.round(p.group.position.x)} Y=${Math.round(p.group.position.y)} Z=${Math.round(p.group.position.z)}`;
+        }
+      });
+      
+      addChatMessage(playerList);
+    } else if (cmd === "/help") {
+      addChatMessage("Available commands:\n/locate players - Show all player coordinates");
+    } else {
+      addChatMessage("Unknown command: " + cmd);
+    }
+  }
+
   function updateTooltipPos(e) {
     try {
       const tooltip = document.getElementById("itemTooltip");
@@ -5227,6 +5537,290 @@ export function initGame(THREE){
     };
   }
 
+  // Furnace state
+  let furnaceSlotFuel = { type: null, count: 0 };
+  let furnaceSlotInput = { type: null, count: 0 };
+  let furnaceSlotOutput = { type: null, count: 0 };
+  const FURNACE_FUEL_TYPES = ["coal", "wood", "planks", "sticks"];
+
+  function initFurnaceUI() {
+    console.log("Initializing furnace UI");
+    renderFurnaceSlots();
+    renderFurnaceInventory();
+    renderFurnaceHotbar();
+
+    // Setup close button
+    const closeBtn = document.getElementById("closeFurnace");
+    if (closeBtn && !closeBtn._initDone) {
+      closeBtn._initDone = true;
+      closeBtn.onclick = () => {
+        // Return items back to inventory
+        if (furnaceSlotFuel.type) {
+          let remaining = furnaceSlotFuel.count;
+          for (let j = 0; j < 36 && remaining > 0; j++) {
+            if (player.inventory[j].type === furnaceSlotFuel.type && player.inventory[j].count < 64) {
+              const space = 64 - player.inventory[j].count;
+              const toAdd = Math.min(space, remaining);
+              player.inventory[j].count += toAdd;
+              remaining -= toAdd;
+            }
+          }
+          for (let j = 0; j < 36 && remaining > 0; j++) {
+            if (!player.inventory[j].type) {
+              const toAdd = Math.min(64, remaining);
+              player.inventory[j] = { type: furnaceSlotFuel.type, count: toAdd };
+              remaining -= toAdd;
+            }
+          }
+          furnaceSlotFuel = { type: null, count: 0 };
+        }
+        if (furnaceSlotInput.type) {
+          let remaining = furnaceSlotInput.count;
+          for (let j = 0; j < 36 && remaining > 0; j++) {
+            if (player.inventory[j].type === furnaceSlotInput.type && player.inventory[j].count < 64) {
+              const space = 64 - player.inventory[j].count;
+              const toAdd = Math.min(space, remaining);
+              player.inventory[j].count += toAdd;
+              remaining -= toAdd;
+            }
+          }
+          for (let j = 0; j < 36 && remaining > 0; j++) {
+            if (!player.inventory[j].type) {
+              const toAdd = Math.min(64, remaining);
+              player.inventory[j] = { type: furnaceSlotInput.type, count: toAdd };
+              remaining -= toAdd;
+            }
+          }
+          furnaceSlotInput = { type: null, count: 0 };
+        }
+        renderFurnaceInventory();
+        renderFurnaceHotbar();
+        renderInventoryGrid();
+        document.getElementById("furnaceOverlay").style.display = "none";
+        renderer.domElement.requestPointerLock();
+      };
+    }
+  }
+
+  function renderFurnaceSlots() {
+    renderFurnaceSlot("furnaceSlotBottom", furnaceSlotFuel);
+    renderFurnaceSlot("furnaceSlotTop", furnaceSlotInput);
+    renderFurnaceOutput();
+  }
+
+  function renderFurnaceSlot(elementId, slotData) {
+    const slot = document.getElementById(elementId);
+    if (!slot) return;
+    slot.innerHTML = "";
+    if (slotData && slotData.type) {
+      const icon = createBlockIcon(slotData.type) || createToolIcon(slotData.type);
+      if (icon) slot.appendChild(icon);
+      if (slotData.count > 1) {
+        const count = document.createElement("div");
+        count.className = "item-count";
+        count.textContent = slotData.count;
+        slot.appendChild(count);
+      }
+    }
+
+    // Setup click handler
+    const slotType = elementId === "furnaceSlotBottom" ? "fuel" : "input";
+    slot.onclick = (e) => handleFurnaceSlotClick(e, slotType);
+  }
+
+  function renderFurnaceOutput() {
+    const output = document.getElementById("furnaceOutput");
+    if (!output) return;
+    output.innerHTML = "";
+    if (furnaceSlotOutput && furnaceSlotOutput.type) {
+      const icon = createBlockIcon(furnaceSlotOutput.type) || createToolIcon(furnaceSlotOutput.type);
+      if (icon) output.appendChild(icon);
+      if (furnaceSlotOutput.count > 1) {
+        const count = document.createElement("div");
+        count.className = "item-count";
+        count.textContent = furnaceSlotOutput.count;
+        output.appendChild(count);
+      }
+    }
+    output.onclick = () => {
+      if (furnaceSlotOutput.type && furnaceSlotOutput.count > 0) {
+        let remaining = furnaceSlotOutput.count;
+        // Try to place in existing stacks
+        for (let i = 0; i < 36 && remaining > 0; i++) {
+          if (player.inventory[i].type === furnaceSlotOutput.type && player.inventory[i].count < 64) {
+            const space = 64 - player.inventory[i].count;
+            const toAdd = Math.min(space, remaining);
+            player.inventory[i].count += toAdd;
+            remaining -= toAdd;
+          }
+        }
+        // Place in empty slots
+        for (let i = 0; i < 36 && remaining > 0; i++) {
+          if (!player.inventory[i].type) {
+            const toAdd = Math.min(64, remaining);
+            player.inventory[i] = { type: furnaceSlotOutput.type, count: toAdd };
+            remaining -= toAdd;
+          }
+        }
+        furnaceSlotOutput = { type: null, count: 0 };
+        renderFurnaceSlots();
+        renderFurnaceInventory();
+        renderFurnaceHotbar();
+        renderInventoryGrid();
+      }
+    };
+  }
+
+  function handleFurnaceSlotClick(e, slotType) {
+    const targetSlot = slotType === "fuel" ? furnaceSlotFuel : furnaceSlotInput;
+    const allowedFuels = Object.keys(furnaceDevSettings.allowedFuels).filter(f => furnaceDevSettings.allowedFuels[f]);
+    
+    if (player.draggedItem === null) {
+      if (targetSlot.type) {
+        player.draggedItem = { ...targetSlot, sourceIdx: -1, sourceType: slotType };
+        if (slotType === "fuel") furnaceSlotFuel = { type: null, count: 0 };
+        else furnaceSlotInput = { type: null, count: 0 };
+        
+        const dragEl = document.createElement("div");
+        dragEl.id = "dragged-item";
+        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        if (icon) dragEl.appendChild(icon);
+        if (player.draggedItem.count > 1) {
+          const countEl = document.createElement("div");
+          countEl.className = "item-count";
+          countEl.textContent = player.draggedItem.count;
+          dragEl.appendChild(countEl);
+        }
+        document.body.appendChild(dragEl);
+        renderFurnaceSlots();
+      }
+    } else if (player.draggedItem.sourceType === slotType || (slotType === "fuel" && allowedFuels.includes(player.draggedItem.type))) {
+      // Can place if it's from the same slot or if it's an allowed fuel type going to fuel slot
+      if (slotType === "input" || (slotType === "fuel" && allowedFuels.includes(player.draggedItem.type))) {
+        const slot = slotType === "fuel" ? furnaceSlotFuel : furnaceSlotInput;
+        if (!slot.type) {
+          if (slotType === "fuel") furnaceSlotFuel = { type: player.draggedItem.type, count: player.draggedItem.count };
+          else furnaceSlotInput = { type: player.draggedItem.type, count: player.draggedItem.count };
+          player.draggedItem = null;
+          document.getElementById("dragged-item")?.remove();
+          renderFurnaceSlots();
+        } else if (slot.type === player.draggedItem.type) {
+          slot.count += player.draggedItem.count;
+          player.draggedItem = null;
+          document.getElementById("dragged-item")?.remove();
+          renderFurnaceSlots();
+        }
+      }
+    } else {
+      // Return to inventory
+      let remaining = player.draggedItem.count;
+      for (let i = 0; i < 36 && remaining > 0; i++) {
+        if (player.inventory[i].type === player.draggedItem.type && player.inventory[i].count < 64) {
+          const space = 64 - player.inventory[i].count;
+          const toAdd = Math.min(space, remaining);
+          player.inventory[i].count += toAdd;
+          remaining -= toAdd;
+        }
+      }
+      for (let i = 0; i < 36 && remaining > 0; i++) {
+        if (!player.inventory[i].type) {
+          const toAdd = Math.min(64, remaining);
+          player.inventory[i] = { type: player.draggedItem.type, count: toAdd };
+          remaining -= toAdd;
+        }
+      }
+      player.draggedItem = null;
+      document.getElementById("dragged-item")?.remove();
+      renderFurnaceInventory();
+      renderFurnaceHotbar();
+      renderInventoryGrid();
+    }
+  }
+
+  function renderFurnaceInventory() {
+    const grid = document.getElementById("furnaceInventoryGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = player.inventory[i];
+      if (item && item.type) {
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        if (icon) slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+      }
+      slot.onclick = (e) => handleFurnaceInventoryClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function renderFurnaceHotbar() {
+    const hotbar = document.getElementById("furnaceHotbar");
+    if (!hotbar) return;
+    hotbar.innerHTML = "";
+    for (let i = 27; i < 36; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      if (i === player.selectedSlot) slot.classList.add("selected");
+      const item = player.inventory[i];
+      if (item && item.type) {
+        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        if (icon) slot.appendChild(icon);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+      }
+      slot.onclick = (e) => handleFurnaceInventoryClick(e, i);
+      hotbar.appendChild(slot);
+    }
+  }
+
+  function handleFurnaceInventoryClick(e, idx) {
+    if (player.draggedItem === null) {
+      if (player.inventory[idx].type) {
+        player.draggedItem = { ...player.inventory[idx], sourceIdx: idx, sourceType: "inventory" };
+        player.inventory[idx] = { type: null, count: 0 };
+        const dragEl = document.createElement("div");
+        dragEl.id = "dragged-item";
+        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        if (icon) dragEl.appendChild(icon);
+        if (player.draggedItem.count > 1) {
+          const countEl = document.createElement("div");
+          countEl.className = "item-count";
+          countEl.textContent = player.draggedItem.count;
+          dragEl.appendChild(countEl);
+        }
+        document.body.appendChild(dragEl);
+        renderFurnaceInventory();
+        renderFurnaceHotbar();
+      }
+    } else {
+      const target = player.inventory[idx];
+      if (target.type === player.draggedItem.type) {
+        target.count += player.draggedItem.count;
+      } else {
+        player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
+        if (target.type) {
+          player.inventory[player.draggedItem.sourceIdx] = target;
+        }
+      }
+      player.draggedItem = null;
+      const dragEl = document.getElementById("dragged-item");
+      if (dragEl) dragEl.remove();
+      renderFurnaceInventory();
+      renderFurnaceHotbar();
+    }
+  }
+
   // PHYSICS
   const GRAVITY = -0.015, SPEED = 0.1, JUMP = 0.25;
   const playerWidth = 0.3; // Half-width
@@ -5305,7 +5899,17 @@ export function initGame(THREE){
       if (now > fpsLastTime + 1000) {
           currentFps = Math.round((frames * 1000) / (now - fpsLastTime));
           if (fpsElement) {
-              fpsElement.textContent = `FPS: ${currentFps}`;
+              const px = Math.round(player.group.position.x * 100) / 100;
+              const py = Math.round(player.group.position.y * 100) / 100;
+              const pz = Math.round(player.group.position.z * 100) / 100;
+              fpsElement.textContent = `FPS: ${currentFps}\nX: ${px} Y: ${py} Z: ${pz}`;
+              fpsElement.style.display = "block";
+          }
+          
+          // Show chat container
+          const chatContainer = document.getElementById("chatContainer");
+          if (chatContainer) {
+              chatContainer.style.display = "block";
           }
           
           // Track low FPS duration
@@ -5408,24 +6012,47 @@ updateBreaking();
 
       player.group.rotation.y = player.yaw;
       
-      if (isSwinging) {
-          swingTime += 0.25;
-          const swingAngle = Math.sin(swingTime) * 0.8;
+      // Keep swinging while mining a block OR while actively holding mouse down
+      const shouldContinueSwinging = isSwinging || (isMouseDown && isBreaking);
+      
+      if (shouldContinueSwinging) {
+          swingTime += 0.35; // Faster swing speed for Minecraft-like feel
+          
+          // Minecraft-style swing: quick down swing, then back up
+          // Maps swingTime (0 to π) to a smooth arc that goes down then back up
+          let swingProgress = (swingTime % (Math.PI * 2)) / (Math.PI * 2); // 0 to 1 cycle
+          
+          // Create a more natural swinging motion: quick down, slow back up
+          let swingAngle;
+          if (swingProgress < 0.5) {
+            // Down swing: 0 -> 0.5, angle: 0 -> -π/2 (downward)
+            swingAngle = -Math.sin(swingProgress * Math.PI) * (Math.PI / 2);
+          } else {
+            // Back up: 0.5 -> 1, angle: -π/2 -> 0 (back to neutral)
+            swingAngle = -Math.sin(swingProgress * Math.PI) * (Math.PI / 2);
+          }
           
           // First Person: Bob and Swing
-          player.fp.handGroup.rotation.x = -swingAngle;
-          player.fp.handGroup.rotation.y = swingAngle * 0.3;
-          player.fp.handGroup.position.z = (swingAngle * 0.2);
+          player.fp.handGroup.rotation.x = swingAngle * 0.5;
+          player.fp.handGroup.rotation.y = swingAngle * 0.1;
+          player.fp.handGroup.position.z = (Math.abs(swingAngle) * 0.1);
           
-          // Third Person Arm
-          player.limbs.armR.rotation.x = -0.5 - swingAngle;
+          // Third Person Arm: Swing from extended to down
+          player.limbs.armR.rotation.x = -0.3 + swingAngle;
 
-          if (swingTime > Math.PI) {
+          if (swingTime > Math.PI * 2 && !isMouseDown) {
+              // After full swing cycle, stop if mouse is released
               isSwinging = false;
               player.fp.handGroup.rotation.set(0, 0, 0);
               player.fp.handGroup.position.set(0, 0, 0);
               player.limbs.armR.rotation.x = 0;
           }
+      } else if (!shouldContinueSwinging && swingTime > 0) {
+          // Reset animations when stopping
+          player.fp.handGroup.rotation.set(0, 0, 0);
+          player.fp.handGroup.position.set(0, 0, 0);
+          player.limbs.armR.rotation.x = 0;
+          swingTime = 0;
       }
 
       const isMoving = keys["KeyW"] || keys["KeyS"] || keys["KeyA"] || keys["KeyD"];

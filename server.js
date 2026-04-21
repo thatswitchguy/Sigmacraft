@@ -134,6 +134,13 @@ io.on("connection", (socket) => {
             io.emit("playerHealth", { id: socket.id, health: players[socket.id].health });
         }
     });
+
+    socket.on("chatMessage", (data) => {
+        io.emit("chatMessage", {
+            username: data.username,
+            message: data.message
+        });
+    });
 });
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");

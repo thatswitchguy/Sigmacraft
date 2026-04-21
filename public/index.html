@@ -59,6 +59,7 @@
       <button class="dev-tab" data-tab="tools">Tools</button>
       <button class="dev-tab" data-tab="items">Items</button>
       <button class="dev-tab" data-tab="crafting">Crafting</button>
+      <button class="dev-tab" data-tab="furnace">Furnace</button>
       <button id="fullScreenEditorBtn" class="dev-tab">Blender Mode</button>
     </div>
 
@@ -334,6 +335,47 @@
         </div>
       </div>
 
+      <div id="furnaceTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Furnace Settings</h4>
+            </div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Allowed Fuel Types</label>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <label><input type="checkbox" id="allowCoalFuel" checked> Coal</label>
+                  <label><input type="checkbox" id="allowWoodFuel" checked> Wood</label>
+                  <label><input type="checkbox" id="allowPlanksFuel" checked> Planks</label>
+                  <label><input type="checkbox" id="allowSticksFuel" checked> Sticks</label>
+                </div>
+              </div>
+              <div class="control-group">
+                <label>Fuel Burn Time (ticks)</label>
+                <input type="number" id="fuelBurnTime" value="200" min="1" max="3600">
+              </div>
+              <div class="control-group">
+                <label>Smelting Speed (ticks)</label>
+                <input type="number" id="smeltingSpeed" value="200" min="1" max="3600">
+              </div>
+              <div class="control-group">
+                <label>Smelting Recipes</label>
+                <div id="furnaceRecipesList" style="max-height: 200px; overflow-y: auto; border: 1px solid #555; padding: 8px; margin: 8px 0;">
+                  <p style="color: #999; font-size: 12px;">No recipes configured yet</p>
+                </div>
+              </div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveFurnaceSettingsBtn" class="primary-btn">Save Settings</button>
+              <button id="resetFurnaceSettingsBtn" class="danger-btn">Reset to Defaults</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -471,6 +513,35 @@
   </div>
 </div>
 
+<div id="furnaceOverlay" style="display:none;">
+  <div class="inventory-window">
+    <div class="inventory-header">
+      <h3 style="color: white;">Furnace</h3>
+      <button id="closeFurnace">&times;</button>
+    </div>
+    <div class="crafting-table-body">
+      <div class="furnace-layout">
+        <div class="furnace-input-section">
+          <div class="furnace-slot-label">Fuel</div>
+          <div id="furnaceSlotBottom" class="slot furnace-slot" data-slot="fuel"></div>
+        </div>
+        <div class="furnace-input-section" style="margin-top: 30px;">
+          <div class="furnace-slot-label">Input</div>
+          <div id="furnaceSlotTop" class="slot furnace-slot" data-slot="input"></div>
+        </div>
+        <div class="furnace-arrow-col">
+          <span class="crafting-arrow">▶</span>
+          <div id="furnaceOutput" class="slot crafting-output-slot"></div>
+        </div>
+      </div>
+      <div id="furnaceInventorySection" class="crafting-table-inventory">
+        <div id="furnaceInventoryGrid" class="inventory-grid"></div>
+        <div id="furnaceHotbar" class="inventory-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="crosshair"></div>
 <div id="fpsCounter">FPS: 0</div>
 
@@ -522,6 +593,23 @@
   <div class="death-screen-container">
     <h1 style="color: white;">You Died!</h1>
     <button id="exitToTitleBtn" class="mc-btn death-screen-btn">Exit to Title Screen</button>
+  </div>
+</div>
+
+<!-- Chat System -->
+<div id="chatContainer" style="display: none; position: fixed; bottom: 30px; left: 10px; width: 320px; max-height: 200px; font-family: 'Minecraftia', monospace; z-index: 100;">
+  <div id="chatMessages" style="overflow-y: auto; max-height: 160px; background: rgba(0,0,0,0.7); color: white; font-size: 13px; line-height: 1.4; padding: 4px; border-radius: 2px;"></div>
+  <input type="text" id="chatInput" placeholder="Type message..." style="width: 100%; margin-top: 4px; padding: 4px; background: rgba(0,0,0,0.8); color: white; border: 1px solid #666; font-family: 'Minecraftia', monospace; font-size: 13px; display: none;">
+</div>
+
+<!-- Loading Screen -->
+<div id="loadingScreen" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+  <div style="text-align: center;">
+    <h2 style="color: white; font-family: 'Minecraftia', monospace; margin-bottom: 30px;">Generating World...</h2>
+    <div style="width: 300px; height: 30px; background: rgba(100, 100, 100, 0.5); border: 2px solid #666; border-radius: 4px; overflow: hidden;">
+      <div id="loadingBar" style="width: 0%; height: 100%; background: #4CAF50; transition: width 0.2s;"></div>
+    </div>
+    <p id="loadingText" style="color: white; font-family: 'Minecraftia', monospace; margin-top: 20px;">0%</p>
   </div>
 </div>
 
