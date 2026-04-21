@@ -100,8 +100,11 @@ export function initGame(THREE){
   const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
 
   // First Person Hand/Item
+  // NOTE: clone skinMat for the FP hand so we can disable depth-test on it
+  // without affecting the shared skin material used by the third-person arms,
+  // head, and remote players.
   const fpHandGroup = new THREE.Group();
-  const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), skinMat);
+  const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), skinMat.clone());
   fpHand.position.set(0.5, -0.4, -0.6);
   fpHand.rotation.x = -0.4;
   fpHandGroup.add(fpHand);
@@ -3502,9 +3505,17 @@ export function initGame(THREE){
         player.fp.item.visible = player.cameraMode === 0;
         player.fp.hand.visible = false;
         player.tpItem.visible = true;
-        player.fp.item.material = mat;
-        player.tpItem.material = mat;
-        // Re-apply always-on-top so the new material doesn't clip into blocks
+        // IMPORTANT: clone the material before assigning to the held item, so
+        // when we toggle depthTest/depthWrite on it (to keep the hand on top
+        // of world geometry) we don't mutate the SHARED block material that
+        // every world block of this type uses. Mutating the shared material
+        // caused world blocks to disappear or render incorrectly.
+        const fpMat = Array.isArray(mat) ? mat.map(m => m.clone()) : mat.clone();
+        const tpMat = Array.isArray(mat) ? mat.map(m => m.clone()) : mat.clone();
+        player.fp.item.material = fpMat;
+        player.tpItem.material = tpMat;
+        // Re-apply always-on-top to the cloned FP material only; the TP item
+        // should respect normal depth testing so it doesn't render through walls.
         if (player.fp.makeAlwaysOnTop) player.fp.makeAlwaysOnTop(player.fp.handGroup);
       } else {
         player.fp.item.visible = false;
@@ -6031,9 +6042,11 @@ export function initGame(THREE){
           frames = 0;
       }
       
-      // Determine render distance based on FPS
+      // Determine render distance based on FPS.
+      // Previously this was 10 (and 5 in low-FPS mode), which hid most of the
+      // world. Use a much larger radius so blocks don't pop in/out as you walk.
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      const renderDistSq = lowFpsActive ? (5 * 5) : (10 * 10);
+      const renderDistSq = lowFpsActive ? (40 * 40) : (80 * 80);
 
       // Update camera frustum for this frame
       camera.updateMatrixWorld();
