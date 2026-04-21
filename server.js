@@ -1,14 +1,14 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
-import { createCanvas } from "canvas";
+import { PNG } from "pngjs";
 import { Server } from "socket.io";
 import http from "http";
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -151,6 +151,42 @@ if (!fs.existsSync(TEXTURE_DIR)) {
     fs.mkdirSync(TEXTURE_DIR, { recursive: true });
 }
 
+function parseColor(color) {
+    if (typeof color !== "string") return { r: 255, g: 255, b: 255, a: 255 };
+    let s = color.trim();
+    if (s.startsWith("#")) {
+        s = s.slice(1);
+        if (s.length === 3) s = s.split("").map(c => c + c).join("");
+        if (s.length === 6) {
+            return {
+                r: parseInt(s.slice(0, 2), 16),
+                g: parseInt(s.slice(2, 4), 16),
+                b: parseInt(s.slice(4, 6), 16),
+                a: 255
+            };
+        }
+        if (s.length === 8) {
+            return {
+                r: parseInt(s.slice(0, 2), 16),
+                g: parseInt(s.slice(2, 4), 16),
+                b: parseInt(s.slice(4, 6), 16),
+                a: parseInt(s.slice(6, 8), 16)
+            };
+        }
+    }
+    const m = s.match(/rgba?\(([^)]+)\)/i);
+    if (m) {
+        const parts = m[1].split(",").map(p => p.trim());
+        return {
+            r: parseInt(parts[0]) || 0,
+            g: parseInt(parts[1]) || 0,
+            b: parseInt(parts[2]) || 0,
+            a: parts[3] !== undefined ? Math.round(parseFloat(parts[3]) * 255) : 255
+        };
+    }
+    return { r: 255, g: 255, b: 255, a: 255 };
+}
+
 function saveTextureAsImage(blockName, side, textureData) {
     if (!Array.isArray(textureData)) return null;
     
@@ -159,25 +195,27 @@ function saveTextureAsImage(blockName, side, textureData) {
         fs.mkdirSync(blockDir, { recursive: true });
     }
     
-    const canvas = createCanvas(16, 16);
-    const ctx = canvas.getContext('2d');
-    
+    const png = new PNG({ width: 16, height: 16 });
     for (let i = 0; i < 256; i++) {
-        const x = i % 16;
-        const y = Math.floor(i / 16);
+        const idx = i * 4;
         const color = textureData[i];
-        if (color === "transparent") {
-            // Skip transparent pixels - leave them as transparent in the PNG
-            ctx.clearRect(x, y, 1, 1);
+        if (color === "transparent" || color == null) {
+            png.data[idx] = 0;
+            png.data[idx + 1] = 0;
+            png.data[idx + 2] = 0;
+            png.data[idx + 3] = 0;
         } else {
-            ctx.fillStyle = color || "#ffffff";
-            ctx.fillRect(x, y, 1, 1);
+            const { r, g, b, a } = parseColor(color);
+            png.data[idx] = r;
+            png.data[idx + 1] = g;
+            png.data[idx + 2] = b;
+            png.data[idx + 3] = a;
         }
     }
-    
+
     const fileName = `${side}.png`;
     const filePath = path.join(blockDir, fileName);
-    const buffer = canvas.toBuffer('image/png');
+    const buffer = PNG.sync.write(png);
     fs.writeFileSync(filePath, buffer);
     return `/textures/${blockName}/${fileName}`;
 }

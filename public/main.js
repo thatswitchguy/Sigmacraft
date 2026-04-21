@@ -2,7 +2,17 @@ export function initGame(THREE){
   let blockTypes = {};
   let blockMaterials = {};
   let blockTiming = { default: 1.0 };
-  let blockDrops_mapping = {}; // Map of blockType -> what it drops (defaults to itself)
+  // Map of blockType -> what it drops (defaults to itself).
+  // Persisted to localStorage so dev-mode customizations survive reloads.
+  let blockDrops_mapping = (() => {
+    try {
+      const raw = localStorage.getItem("sigmacraft_blockDrops_mapping");
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) { return {}; }
+  })();
+  function saveBlockDropsMapping() {
+    try { localStorage.setItem("sigmacraft_blockDrops_mapping", JSON.stringify(blockDrops_mapping)); } catch (_) {}
+  }
   const blocks3D = [];
   let occlusionDirty = true;
   let blockPositionSet = new Set();
@@ -109,6 +119,28 @@ export function initGame(THREE){
   
   camera.add(fpHandGroup);
   player.fp = { handGroup: fpHandGroup, hand: fpHand, item: fpItem, blockGeometry: fpBlockItemGeometry, toolGeometry: fpToolItemGeometry };
+
+  // Force the held hand/item to render on top of world geometry so the
+  // player's main hand never clips through nearby blocks.
+  function makeAlwaysOnTop(obj3d) {
+    obj3d.traverse(child => {
+      if (child.isMesh) {
+        child.renderOrder = 9999;
+        const apply = (m) => {
+          if (!m) return;
+          m.depthTest = false;
+          m.depthWrite = false;
+          m.transparent = m.transparent || false;
+          m.needsUpdate = true;
+        };
+        if (Array.isArray(child.material)) child.material.forEach(apply);
+        else apply(child.material);
+      }
+    });
+  }
+  makeAlwaysOnTop(fpHandGroup);
+  // expose so we can re-apply when the held item swaps materials
+  player.fp.makeAlwaysOnTop = makeAlwaysOnTop;
 
   const RendererClass = THREE.WebGPURenderer ? THREE.WebGPURenderer : THREE.WebGLRenderer;
   const renderer = new RendererClass({ antialias: true });
@@ -649,7 +681,10 @@ export function initGame(THREE){
 
   function createBlockDrop(position, blockType) {
     // Use custom drop mapping if defined, otherwise drop the block itself
-    const dropType = blockDrops_mapping[blockType] || blockType;
+    const mapped = Object.prototype.hasOwnProperty.call(blockDrops_mapping, blockType)
+      ? blockDrops_mapping[blockType] : blockType;
+    if (mapped === "__none__") return null; // dev configured "no drop"
+    const dropType = mapped || blockType;
     const originalMat = blockMaterials[dropType];
     let mat;
     if (originalMat) {
@@ -883,21 +918,15 @@ export function initGame(THREE){
       const hit = intersects[0];
       const hitBlock = blocks3D.find(b => b.mesh === hit.object);
       if (hitBlock && hitBlock.type === "crafting_table" && e.button === 2) {
-        document.exitPointerLock();
-        const overlay = document.getElementById("craftingTableOverlay");
-        if (overlay) {
-          overlay.style.display = "flex";
-          initCraftingTableUI();
-        }
+        if (typeof showGameOverlay === "function") showGameOverlay("craftingTableOverlay");
+        else { document.exitPointerLock(); const o = document.getElementById("craftingTableOverlay"); if (o) o.style.display = "flex"; }
+        initCraftingTableUI();
         return;
       }
       if (hitBlock && hitBlock.type === "furnace" && e.button === 2) {
-        document.exitPointerLock();
-        const overlay = document.getElementById("furnaceOverlay");
-        if (overlay) {
-          overlay.style.display = "flex";
-          initFurnaceUI();
-        }
+        if (typeof showGameOverlay === "function") showGameOverlay("furnaceOverlay");
+        else { document.exitPointerLock(); const o = document.getElementById("furnaceOverlay"); if (o) o.style.display = "flex"; }
+        initFurnaceUI();
         return;
       }
       const slot = player.inventory[player.selectedSlot];
@@ -1113,7 +1142,7 @@ export function initGame(THREE){
     };
   }
 
-  function generateWorld(seed) {
+  async function generateWorld(seed) {
     console.log("Generating world with seed:", seed);
     
     // Show loading screen
@@ -1127,15 +1156,19 @@ export function initGame(THREE){
     let totalBlocks = 0;
     let blocksGenerated = 0;
 
-    const updateProgress = () => {
+    const updateProgress = (label) => {
       if (loadingScreen) {
-        const percent = Math.min(100, Math.floor((blocksGenerated / totalBlocks) * 100));
+        const percent = Math.min(100, Math.floor((blocksGenerated / Math.max(1, totalBlocks)) * 100));
         const bar = document.getElementById("loadingBar");
         const text = document.getElementById("loadingText");
         if (bar) bar.style.width = percent + "%";
-        if (text) text.textContent = percent + "%";
+        if (text) text.textContent = (label ? label + " " : "") + percent + "%";
       }
     };
+    // Yield helper: lets the browser actually paint the updated bar
+    const yieldFrame = () => new Promise(r => setTimeout(r, 0));
+    updateProgress("Generating terrain");
+    await yieldFrame();
 
     if (window.SimplexNoise) {
       simplex = new SimplexNoise(seed || Math.random());
@@ -1182,12 +1215,17 @@ export function initGame(THREE){
            });
            
            blocksGenerated++;
-           if (blocksGenerated % 100 === 0) {
-             updateProgress();
-           }
          }
        }
+       // After each X column, update progress and yield to the browser so
+       // the loading bar paints in real time.
+       if (x % 2 === 0) {
+         updateProgress("Generating terrain");
+         await yieldFrame();
+       }
       }
+      updateProgress("Generating terrain");
+      await yieldFrame();
 
     } else {
       console.warn("SimplexNoise not found, falling back to flat world");
@@ -1218,13 +1256,18 @@ export function initGame(THREE){
             });
             
             blocksGenerated++;
-            if (blocksGenerated % 50 === 0) {
-              updateProgress();
-            }
           }
+        }
+        if (x % 2 === 0) {
+          updateProgress("Generating terrain");
+          await yieldFrame();
         }
       }
     }
+
+    blocksGenerated = totalBlocks;
+    updateProgress("Generating trees");
+    await yieldFrame();
 
     // Tree generation pass (after terrain)
     if (simplex) {
@@ -1246,6 +1289,8 @@ export function initGame(THREE){
         return n - Math.floor(n);
       };
 
+      const treeRows = size * 2;
+      let treeRow = 0;
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
@@ -1301,8 +1346,24 @@ export function initGame(THREE){
             }
           }
         }
+        treeRow++;
+        if (treeRow % 4 === 0) {
+          const pct = Math.floor((treeRow / treeRows) * 100);
+          const bar = document.getElementById("loadingBar");
+          const text = document.getElementById("loadingText");
+          if (bar) bar.style.width = pct + "%";
+          if (text) text.textContent = "Generating trees " + pct + "%";
+          await yieldFrame();
+        }
       }
     }
+
+    // Final 100% before hiding
+    const bar = document.getElementById("loadingBar");
+    const text = document.getElementById("loadingText");
+    if (bar) bar.style.width = "100%";
+    if (text) text.textContent = "Finalizing 100%";
+    await yieldFrame();
 
     // ✅ FIX: spawn player ABOVE ground
     playerSpawnHeight = spawnHeight;
@@ -1752,9 +1813,8 @@ export function initGame(THREE){
 
     if (e.code === "KeyE") {
       const inv = document.getElementById("inventoryOverlay");
-      if (inv.style.display === "none") {
-        inv.style.display = "flex";
-        document.exitPointerLock();
+      if (inv.style.display === "none" || inv.style.display === "") {
+        showGameOverlay("inventoryOverlay");
       } else {
         inv.style.display = "none";
         hideTooltip();
@@ -1769,8 +1829,7 @@ export function initGame(THREE){
         dev.style.display = "none";
         renderer.domElement.requestPointerLock();
       } else if (devPassword) {
-        devPassword.style.display = "flex";
-        document.exitPointerLock();
+        showGameOverlay("devPasswordOverlay");
       }
     }
 
@@ -2474,8 +2533,7 @@ export function initGame(THREE){
     devPasswordSubmit.onclick = () => {
       const input = document.getElementById("devPasswordInput");
       if (input.value === "Banana@123") {
-        document.getElementById("devPasswordOverlay").style.display = "none";
-        document.getElementById("devOverlay").style.display = "flex";
+        showGameOverlay("devOverlay");
         updateSidebar();
         initBlockDropsUI();
         input.value = "";
@@ -2490,8 +2548,7 @@ export function initGame(THREE){
       if (e.key === "Enter") {
         e.preventDefault();
         if (devPasswordInput.value === "Banana@123") {
-          document.getElementById("devPasswordOverlay").style.display = "none";
-          document.getElementById("devOverlay").style.display = "flex";
+          showGameOverlay("devOverlay");
           updateSidebar();
           initBlockDropsUI();
           devPasswordInput.value = "";
@@ -2585,7 +2642,7 @@ export function initGame(THREE){
     });
 
     // Populate "to" select (blocks + tools + items)
-    toSelect.innerHTML = '<option value="">Drops as (default: same)</option>';
+    toSelect.innerHTML = '<option value="">Drops as (default: same)</option><option value="__none__">(no drop)</option>';
     const toOptGroupBlocks = document.createElement("optgroup");
     toOptGroupBlocks.label = "Blocks";
     blockTypes_list.forEach(blockType => {
@@ -2628,17 +2685,22 @@ export function initGame(THREE){
         alert("Please select a block type");
         return;
       }
-      if (to) {
+      if (to === "__none__") {
+        // explicit "no drop"
+        blockDrops_mapping[from] = "__none__";
+      } else if (to) {
         blockDrops_mapping[from] = to;
       } else {
         delete blockDrops_mapping[from];
       }
+      saveBlockDropsMapping();
       updateBlockDropsList();
     };
 
     // Reset button click handler
     document.getElementById("blockDropsResetBtn").onclick = () => {
       blockDrops_mapping = {};
+      saveBlockDropsMapping();
       updateBlockDropsList();
     };
 
@@ -2654,11 +2716,14 @@ export function initGame(THREE){
       return;
     }
 
-    list.innerHTML = Object.entries(blockDrops_mapping).map(([from, to]) => 
-      `<div style="padding: 5px; border-bottom: 1px solid #444;">
-        <strong>${blockTypes[from]?.name || from}</strong> → <strong>${blockTypes[to]?.name || to}</strong>
-      </div>`
-    ).join('');
+    list.innerHTML = Object.entries(blockDrops_mapping).map(([from, to]) => {
+      const toLabel = to === "__none__"
+        ? '<em style="color:#ff9999;">(no drop)</em>'
+        : (blockTypes[to]?.name || toolTypes[to]?.name || itemsData?.[to]?.name || to);
+      return `<div style="padding: 5px; border-bottom: 1px solid #444;">
+        <strong>${blockTypes[from]?.name || from}</strong> → <strong>${toLabel}</strong>
+      </div>`;
+    }).join('');
   }
 
   function updateSidebar() {
@@ -3439,6 +3504,8 @@ export function initGame(THREE){
         player.tpItem.visible = true;
         player.fp.item.material = mat;
         player.tpItem.material = mat;
+        // Re-apply always-on-top so the new material doesn't clip into blocks
+        if (player.fp.makeAlwaysOnTop) player.fp.makeAlwaysOnTop(player.fp.handGroup);
       } else {
         player.fp.item.visible = false;
         player.fp.hand.visible = player.cameraMode === 0;
@@ -5377,6 +5444,7 @@ export function initGame(THREE){
     msgLine.textContent = text;
     msgLine.style.color = "#fff";
     msgLine.style.wordWrap = "break-word";
+    msgLine.style.transition = "opacity 0.5s";
     chatMessages.appendChild(msgLine);
     
     // Auto-scroll to bottom
@@ -5386,6 +5454,10 @@ export function initGame(THREE){
     while (chatMessages.children.length > 100) {
       chatMessages.removeChild(chatMessages.firstChild);
     }
+
+    // Auto-remove after 5 seconds (with brief fade)
+    setTimeout(() => { try { msgLine.style.opacity = "0"; } catch(_) {} }, 4500);
+    setTimeout(() => { try { msgLine.remove(); } catch(_) {} }, 5000);
   }
 
   function handleChatCommand(command) {
@@ -5826,16 +5898,50 @@ export function initGame(THREE){
   const playerWidth = 0.3; // Half-width
   const playerHeight = 1.8;
 
+  // Centralized list of game overlays (only one should be visible at a time).
+  const GAME_OVERLAY_IDS = [
+      "inventoryOverlay",
+      "craftingTableOverlay",
+      "furnaceOverlay",
+      "devOverlay",
+      "devPasswordOverlay",
+      "newBlockOverlay",
+      "newToolOverlay",
+      "optionsOverlay"
+  ];
+
+  function isAnyGameOverlayOpen() {
+      return GAME_OVERLAY_IDS.some(id => {
+          const el = document.getElementById(id);
+          return el && el.style.display === "flex";
+      });
+  }
+
+  // Hides every game overlay. Optionally skips one (the one being opened).
+  function closeAllGameOverlays(except) {
+      GAME_OVERLAY_IDS.forEach(id => {
+          if (id === except) return;
+          const el = document.getElementById(id);
+          if (el) el.style.display = "none";
+      });
+  }
+
+  // Wrapper used everywhere we want to show one of the listed overlays.
+  function showGameOverlay(id) {
+      closeAllGameOverlays(id);
+      const el = document.getElementById(id);
+      if (el) el.style.display = "flex";
+      try { document.exitPointerLock(); } catch(_) {}
+  }
+  // expose for inline handlers if needed
+  window.showGameOverlay = showGameOverlay;
+  window.closeAllGameOverlays = closeAllGameOverlays;
+
   document.addEventListener("pointerlockchange", () => {
       if (document.pointerLockElement !== renderer.domElement) {
-          const inventoryVisible = document.getElementById("inventoryOverlay").style.display === "flex";
-          const devVisible = document.getElementById("devOverlay").style.display === "flex";
-          const passVisible = document.getElementById("devPasswordOverlay").style.display === "flex";
-          const craftTableVisible = document.getElementById("craftingTableOverlay")?.style.display === "flex";
-          
-          if (!inventoryVisible && !devVisible && !passVisible && !craftTableVisible) {
+          if (!isAnyGameOverlayOpen()) {
               const pause = document.getElementById("pauseMenu");
-              if (pause.style.display === "none") {
+              if (pause && pause.style.display === "none") {
                   togglePauseMenu();
               }
           }
@@ -6074,6 +6180,24 @@ updateBreaking();
 
       // Update sneak state (Shift) before camera adjustments
       player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
+
+      // Visibly crouch the player model when sneaking: lower the body and
+      // tilt the upper body forward, similar to Minecraft's sneak pose.
+      if (player.model) {
+          const sneakOffset = player.isSneaking ? -0.25 : 0;
+          const sneakTilt = player.isSneaking ? 0.45 : 0;
+          // Smoothly lerp into pose
+          player.model.position.y += (sneakOffset - player.model.position.y) * 0.3;
+          if (player.limbs) {
+              const tiltLerp = (cur, target) => cur + (target - cur) * 0.3;
+              // Tilt the body parts forward visually by rotating limbs around X
+              // (legs already animate; only adjust offset rotation)
+              player.limbs.armL.rotation.z = tiltLerp(player.limbs.armL.rotation.z || 0, player.isSneaking ? -0.15 : 0);
+              player.limbs.armR.rotation.z = tiltLerp(player.limbs.armR.rotation.z || 0, player.isSneaking ? 0.15 : 0);
+          }
+          // Tilt the entire upper-body group forward
+          player.model.rotation.x = player.model.rotation.x + (sneakTilt - player.model.rotation.x) * 0.3;
+      }
 
       if (player.cameraMode === 0) {
           // First Person: Camera follows head pitch and inherits group rotation
