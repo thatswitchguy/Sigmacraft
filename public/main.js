@@ -6042,11 +6042,8 @@ export function initGame(THREE){
           frames = 0;
       }
       
-      // Determine render distance based on FPS.
-      // Previously this was 10 (and 5 in low-FPS mode), which hid most of the
-      // world. Use a much larger radius so blocks don't pop in/out as you walk.
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      const renderDistSq = lowFpsActive ? (40 * 40) : (80 * 80);
+      const renderDistSq = lowFpsActive ? (5 * 5) : (10 * 10);
 
       // Update camera frustum for this frame
       camera.updateMatrixWorld();
