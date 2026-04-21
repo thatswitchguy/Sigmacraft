@@ -943,6 +943,9 @@ select, input[type="color"], button, input {
   text-shadow: 2px 2px #000;
   z-index: 1000;
   pointer-events: none;
+  /* Render the FPS / X / Y / Z lines stacked instead of side-by-side. */
+  white-space: pre-line;
+  line-height: 1.3;
 }
 
 #pauseMenu {

@@ -1767,6 +1767,7 @@ export function initGame(THREE){
         chatInput.style.display = "block";
         chatInput.focus();
         chatInput.value = "";
+        refreshChatContainerVisibility();
         e.preventDefault();
       }
       return;
@@ -1790,6 +1791,7 @@ export function initGame(THREE){
       }
       chatInput.value = "";
       chatInput.style.display = "none";
+      refreshChatContainerVisibility();
       renderer.domElement.requestPointerLock();
       e.preventDefault();
       return;
@@ -1799,6 +1801,7 @@ export function initGame(THREE){
     if (e.code === "Escape" && chatInput && chatInput.style.display !== "none") {
       chatInput.style.display = "none";
       chatInput.value = "";
+      refreshChatContainerVisibility();
       renderer.domElement.requestPointerLock();
       return;
     }
@@ -4570,70 +4573,141 @@ export function initGame(THREE){
     }
   }
 
-  // Furnace dev mode settings
+  // Furnace dev mode settings.
+  // The dev tab now only configures input -> output smelting recipes. Fuel
+  // settings have been removed; the furnace smelts instantly when an input
+  // matches a configured recipe. Older saves may still contain `allowedFuels`
+  // — it's kept on the object so existing UI code referencing it doesn't
+  // break, but it is no longer surfaced in the dev tab.
   let furnaceDevSettings = {
     allowedFuels: { coal: true, wood: true, planks: true, sticks: true },
-    fuelBurnTime: 200,
-    smeltingSpeed: 200
+    recipes: {} // { inputType: outputType }
   };
 
+  // Persist recipes across reloads.
+  try {
+    const saved = JSON.parse(localStorage.getItem("furnaceRecipes") || "null");
+    if (saved && typeof saved === "object") furnaceDevSettings.recipes = saved;
+  } catch(_) {}
+  function saveFurnaceRecipes() {
+    try { localStorage.setItem("furnaceRecipes", JSON.stringify(furnaceDevSettings.recipes)); } catch(_) {}
+  }
+
+  // Build the option list of every block / tool the user can pick from.
+  function getAllItemOptions() {
+    const opts = [];
+    Object.keys(blockTypes).forEach(id => opts.push({ id, name: blockTypes[id]?.name || id }));
+    Object.keys(toolTypes).forEach(id => opts.push({ id, name: (toolTypes[id]?.name || id) + " (tool)" }));
+    opts.sort((a, b) => a.name.localeCompare(b.name));
+    return opts;
+  }
+
+  function renderFurnaceRecipesList() {
+    const list = document.getElementById("furnaceRecipesList");
+    if (!list) return;
+    list.innerHTML = "";
+    const entries = Object.entries(furnaceDevSettings.recipes);
+    if (entries.length === 0) {
+      list.innerHTML = `<p style="color:#999; font-size:12px; margin:0;">No recipes configured yet.</p>`;
+      return;
+    }
+    entries.forEach(([input, output]) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #444;";
+      const inputName = blockTypes[input]?.name || toolTypes[input]?.name || input;
+      const outputName = blockTypes[output]?.name || toolTypes[output]?.name || output;
+      row.innerHTML = `
+        <span style="flex:1; color:#fff;">${inputName}</span>
+        <span style="color:#888;">→</span>
+        <span style="flex:1; color:#fff;">${outputName}</span>
+      `;
+      const del = document.createElement("button");
+      del.textContent = "×";
+      del.title = "Remove recipe";
+      del.style.cssText = "background:#a33; color:white; border:none; padding:2px 8px; cursor:pointer;";
+      del.onclick = () => {
+        delete furnaceDevSettings.recipes[input];
+        saveFurnaceRecipes();
+        renderFurnaceRecipesList();
+      };
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
   function initFurnaceDevUI() {
-    // Load furnace settings
-    const allowCoal = document.getElementById("allowCoalFuel");
-    const allowWood = document.getElementById("allowWoodFuel");
-    const allowPlanks = document.getElementById("allowPlanksFuel");
-    const allowSticks = document.getElementById("allowSticksFuel");
+    const inputSel = document.getElementById("furnaceRecipeInput");
+    const outputSel = document.getElementById("furnaceRecipeOutput");
+    if (inputSel && outputSel) {
+      inputSel.innerHTML = "";
+      outputSel.innerHTML = "";
+      const opts = getAllItemOptions();
+      opts.forEach(o => {
+        const a = document.createElement("option");
+        a.value = o.id; a.textContent = o.name;
+        inputSel.appendChild(a);
+        const b = document.createElement("option");
+        b.value = o.id; b.textContent = o.name;
+        outputSel.appendChild(b);
+      });
+    }
 
-    if (allowCoal) allowCoal.checked = furnaceDevSettings.allowedFuels.coal;
-    if (allowWood) allowWood.checked = furnaceDevSettings.allowedFuels.wood;
-    if (allowPlanks) allowPlanks.checked = furnaceDevSettings.allowedFuels.planks;
-    if (allowSticks) allowSticks.checked = furnaceDevSettings.allowedFuels.sticks;
+    renderFurnaceRecipesList();
 
-    const fuelBurnInput = document.getElementById("fuelBurnTime");
-    const smeltingSpeedInput = document.getElementById("smeltingSpeed");
-    if (fuelBurnInput) fuelBurnInput.value = furnaceDevSettings.fuelBurnTime;
-    if (smeltingSpeedInput) smeltingSpeedInput.value = furnaceDevSettings.smeltingSpeed;
-
-    // Setup save button
-    const saveBtn = document.getElementById("saveFurnaceSettingsBtn");
-    if (saveBtn && !saveBtn._initDone) {
-      saveBtn._initDone = true;
-      saveBtn.onclick = () => {
-        furnaceDevSettings.allowedFuels.coal = (allowCoal?.checked || false);
-        furnaceDevSettings.allowedFuels.wood = (allowWood?.checked || false);
-        furnaceDevSettings.allowedFuels.planks = (allowPlanks?.checked || false);
-        furnaceDevSettings.allowedFuels.sticks = (allowSticks?.checked || false);
-        furnaceDevSettings.fuelBurnTime = parseInt(fuelBurnInput?.value || "200");
-        furnaceDevSettings.smeltingSpeed = parseInt(smeltingSpeedInput?.value || "200");
-
-        // Update the furnace slot restriction
-        const allowedTypes = Object.keys(furnaceDevSettings.allowedFuels)
-          .filter(key => furnaceDevSettings.allowedFuels[key]);
-        const index = FURNACE_FUEL_TYPES.findIndex(t => furnaceDevSettings.allowedFuels[t]);
-        
-        alert(`Furnace settings saved!\nAllowed fuels: ${allowedTypes.join(", ") || "none"}\nFuel burn time: ${furnaceDevSettings.fuelBurnTime} ticks\nSmelting speed: ${furnaceDevSettings.smeltingSpeed} ticks`);
+    const addBtn = document.getElementById("addFurnaceRecipeBtn");
+    if (addBtn && !addBtn._initDone) {
+      addBtn._initDone = true;
+      addBtn.onclick = () => {
+        const inp = document.getElementById("furnaceRecipeInput")?.value;
+        const out = document.getElementById("furnaceRecipeOutput")?.value;
+        if (!inp || !out) return;
+        if (inp === out) {
+          alert("Input and output must be different.");
+          return;
+        }
+        furnaceDevSettings.recipes[inp] = out;
+        saveFurnaceRecipes();
+        renderFurnaceRecipesList();
       };
     }
 
-    // Setup reset button
     const resetBtn = document.getElementById("resetFurnaceSettingsBtn");
     if (resetBtn && !resetBtn._initDone) {
       resetBtn._initDone = true;
       resetBtn.onclick = () => {
-        furnaceDevSettings = {
-          allowedFuels: { coal: true, wood: true, planks: true, sticks: true },
-          fuelBurnTime: 200,
-          smeltingSpeed: 200
-        };
-        if (allowCoal) allowCoal.checked = true;
-        if (allowWood) allowWood.checked = true;
-        if (allowPlanks) allowPlanks.checked = true;
-        if (allowSticks) allowSticks.checked = true;
-        if (fuelBurnInput) fuelBurnInput.value = "200";
-        if (smeltingSpeedInput) smeltingSpeedInput.value = "200";
-        alert("Furnace settings reset to defaults!");
+        if (!confirm("Clear ALL smelting recipes?")) return;
+        furnaceDevSettings.recipes = {};
+        saveFurnaceRecipes();
+        renderFurnaceRecipesList();
       };
     }
+  }
+
+  // Smelting engine. When an input is sitting in the cooking slot and a
+  // matching recipe exists, convert one input -> one output and try again
+  // (loops until the slot is empty or the input has no recipe). Output
+  // stacks merge; if there's already a different output type sitting there
+  // we stop until the player collects it.
+  function tryFurnaceSmelt() {
+    if (!furnaceSlotInput || !furnaceSlotInput.type || furnaceSlotInput.count <= 0) return;
+    const recipe = furnaceDevSettings.recipes[furnaceSlotInput.type];
+    if (!recipe) return;
+    while (furnaceSlotInput.count > 0) {
+      // Output slot must be empty or hold the same recipe output (and have room).
+      if (furnaceSlotOutput.type && furnaceSlotOutput.type !== recipe) break;
+      if (furnaceSlotOutput.count >= 64) break;
+      if (!furnaceSlotOutput.type) {
+        furnaceSlotOutput = { type: recipe, count: 1 };
+      } else {
+        furnaceSlotOutput.count += 1;
+      }
+      furnaceSlotInput.count -= 1;
+      if (furnaceSlotInput.count <= 0) {
+        furnaceSlotInput = { type: null, count: 0 };
+        break;
+      }
+    }
+    if (typeof renderFurnaceSlots === "function") renderFurnaceSlots();
   }
 
   // ─── CRAFTING TABLE (3x3) ──────────────────────────────────────────────────
@@ -5447,6 +5521,27 @@ export function initGame(THREE){
   }
 
   // Chat System Functions
+  function isChatInputOpen() {
+    const chatInput = document.getElementById("chatInput");
+    return !!(chatInput && chatInput.style.display !== "none");
+  }
+
+  // Show/hide the chat container based on whether anything is in it.
+  // The container should only be visible if there is at least one message
+  // OR if the chat input is currently open (so the user can see what they
+  // are typing).
+  function refreshChatContainerVisibility() {
+    const chatContainer = document.getElementById("chatContainer");
+    const chatMessages = document.getElementById("chatMessages");
+    if (!chatContainer) return;
+    const hasMessages = chatMessages && chatMessages.children.length > 0;
+    if (hasMessages || isChatInputOpen()) {
+      chatContainer.style.display = "block";
+    } else {
+      chatContainer.style.display = "none";
+    }
+  }
+
   function addChatMessage(text) {
     const chatMessages = document.getElementById("chatMessages");
     if (!chatMessages) return;
@@ -5457,6 +5552,7 @@ export function initGame(THREE){
     msgLine.style.wordWrap = "break-word";
     msgLine.style.transition = "opacity 0.5s";
     chatMessages.appendChild(msgLine);
+    refreshChatContainerVisibility();
     
     // Auto-scroll to bottom
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -5466,9 +5562,13 @@ export function initGame(THREE){
       chatMessages.removeChild(chatMessages.firstChild);
     }
 
-    // Auto-remove after 5 seconds (with brief fade)
+    // Auto-remove after 5 seconds (with brief fade). When the last message
+    // disappears, also hide the empty chat container.
     setTimeout(() => { try { msgLine.style.opacity = "0"; } catch(_) {} }, 4500);
-    setTimeout(() => { try { msgLine.remove(); } catch(_) {} }, 5000);
+    setTimeout(() => {
+      try { msgLine.remove(); } catch(_) {}
+      refreshChatContainerVisibility();
+    }, 5000);
   }
 
   function handleChatCommand(command) {
@@ -5487,11 +5587,164 @@ export function initGame(THREE){
       });
       
       addChatMessage(playerList);
+    } else if (cmd === "/give") {
+      // /give <block|item|tool>  -> opens a clickable picker
+      const category = (args[1] || "").toLowerCase();
+      if (!["block", "item", "tool"].includes(category)) {
+        addChatMessage("Usage: /give <block|item|tool>");
+      } else {
+        openGivePicker(category);
+      }
     } else if (cmd === "/help") {
-      addChatMessage("Available commands:\n/locate players - Show all player coordinates");
+      addChatMessage("Available commands:\n/locate players - Show all player coordinates\n/give <block|item|tool> - Open picker to give yourself an item (dev mode)");
     } else {
       addChatMessage("Unknown command: " + cmd);
     }
+  }
+
+  // ─── /give PICKER ─────────────────────────────────────────────────────────
+  // Opens an overlay listing every block / tool / item in the game. The user
+  // clicks to select one and then presses Enter to confirm. Confirmation
+  // requires the dev-mode password.
+  let givePickerSelected = null;
+  let givePickerCategory = null;
+
+  function openGivePicker(category) {
+    givePickerCategory = category;
+    givePickerSelected = null;
+
+    let overlay = document.getElementById("givePickerOverlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "givePickerOverlay";
+      overlay.style.cssText = "display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:2000; align-items:center; justify-content:center;";
+      overlay.innerHTML = `
+        <div style="background:#2b2b2b; border:2px solid #555; padding:18px; width:560px; max-height:80vh; display:flex; flex-direction:column; font-family:'Minecraftia', monospace; color:white;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 id="givePickerTitle" style="margin:0;">Give item</h3>
+            <button id="givePickerClose" style="background:#a33; color:white; border:none; padding:4px 10px; cursor:pointer;">&times;</button>
+          </div>
+          <div style="font-size:12px; color:#bbb; margin-bottom:8px;">
+            Click an item to select it. Press <b>Enter</b> to confirm (you'll be asked for the dev password).
+          </div>
+          <div id="givePickerSelectedLabel" style="margin-bottom:8px; font-size:13px;">Selected: <i>none</i></div>
+          <div id="givePickerGrid" style="display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; overflow-y:auto; padding:4px; background:rgba(0,0,0,0.3); flex:1;"></div>
+          <div style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+            <button id="givePickerCancel" class="mc-btn" style="padding:6px 14px;">Cancel</button>
+            <button id="givePickerConfirm" class="mc-btn" style="padding:6px 14px;">Give (Enter)</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector("#givePickerClose").onclick = closeGivePicker;
+      overlay.querySelector("#givePickerCancel").onclick = closeGivePicker;
+      overlay.querySelector("#givePickerConfirm").onclick = confirmGivePicker;
+      overlay.addEventListener("keydown", (e) => {
+        if (e.code === "Enter") { e.preventDefault(); confirmGivePicker(); }
+        else if (e.code === "Escape") { closeGivePicker(); }
+      });
+      overlay.tabIndex = -1;
+    }
+
+    // Title
+    overlay.querySelector("#givePickerTitle").textContent =
+      `Give ${category}`;
+    overlay.querySelector("#givePickerSelectedLabel").innerHTML = "Selected: <i>none</i>";
+
+    // Build the grid based on the category.
+    const grid = overlay.querySelector("#givePickerGrid");
+    grid.innerHTML = "";
+    const entries = [];
+    if (category === "block" || category === "item") {
+      Object.keys(blockTypes).forEach(id => entries.push({ id, kind: "block", name: blockTypes[id]?.name || id }));
+    }
+    if (category === "tool" || category === "item") {
+      Object.keys(toolTypes).forEach(id => entries.push({ id, kind: "tool", name: toolTypes[id]?.name || id }));
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    entries.forEach(entry => {
+      const cell = document.createElement("div");
+      cell.style.cssText = "background:rgba(139,139,139,0.4); border:2px solid #333; padding:4px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px;";
+      const icon = (entry.kind === "block" ? createBlockIcon(entry.id) : null)
+                   || createToolIcon(entry.id);
+      if (icon) {
+        icon.style.width = "32px";
+        icon.style.height = "32px";
+        icon.style.imageRendering = "pixelated";
+        cell.appendChild(icon);
+      }
+      const label = document.createElement("div");
+      label.textContent = entry.name;
+      label.style.cssText = "font-size:10px; text-align:center; word-break:break-word; line-height:1.1;";
+      cell.appendChild(label);
+      cell.title = entry.id;
+      cell.onclick = () => {
+        givePickerSelected = entry;
+        // Highlight
+        grid.querySelectorAll("div").forEach(d => { d.style.borderColor = "#333"; });
+        cell.style.borderColor = "#fff";
+        overlay.querySelector("#givePickerSelectedLabel").innerHTML =
+          `Selected: <b>${entry.name}</b> <span style="color:#888;">(${entry.kind})</span>`;
+      };
+      grid.appendChild(cell);
+    });
+
+    if (entries.length === 0) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "color:#888; padding:20px; grid-column: span 8; text-align:center;";
+      empty.textContent = `No ${category}s available.`;
+      grid.appendChild(empty);
+    }
+
+    if (typeof showGameOverlay === "function") showGameOverlay("givePickerOverlay");
+    else { try { document.exitPointerLock(); } catch(_) {} overlay.style.display = "flex"; }
+    setTimeout(() => overlay.focus(), 50);
+  }
+
+  function closeGivePicker() {
+    const overlay = document.getElementById("givePickerOverlay");
+    if (overlay) overlay.style.display = "none";
+    givePickerSelected = null;
+    givePickerCategory = null;
+    try { renderer.domElement.requestPointerLock(); } catch(_) {}
+  }
+
+  function confirmGivePicker() {
+    if (!givePickerSelected) {
+      addChatMessage("Pick an item first.");
+      return;
+    }
+    const password = window.prompt("Enter dev mode password to /give:");
+    if (password === null) return; // cancelled
+    if (password !== "Banana@123") {
+      addChatMessage("Wrong dev password — /give cancelled.");
+      return;
+    }
+    const sel = givePickerSelected;
+    // Add 64 of the selected item to the player's inventory.
+    let remaining = 64;
+    for (let i = 0; i < 36 && remaining > 0; i++) {
+      if (player.inventory[i].type === sel.id && player.inventory[i].count < 64) {
+        const space = 64 - player.inventory[i].count;
+        const toAdd = Math.min(space, remaining);
+        player.inventory[i].count += toAdd;
+        remaining -= toAdd;
+      }
+    }
+    for (let i = 0; i < 36 && remaining > 0; i++) {
+      if (!player.inventory[i].type) {
+        const toAdd = Math.min(64, remaining);
+        player.inventory[i] = { type: sel.id, count: toAdd };
+        remaining -= toAdd;
+      }
+    }
+    const given = 64 - remaining;
+    addChatMessage(`Gave ${given}× ${sel.name}.`);
+    if (typeof renderInventoryGrid === "function") renderInventoryGrid();
+    if (typeof updateHotbarUI === "function") updateHotbarUI();
+    closeGivePicker();
   }
 
   function updateTooltipPos(e) {
@@ -5589,19 +5842,38 @@ export function initGame(THREE){
         // Not a block - return null to allow fallback to tool/item icons
         return null;
       }
-      
+
       const canvas = document.createElement("canvas");
       canvas.width = 16;
       canvas.height = 16;
       const ctx = canvas.getContext("2d");
-      const tex = textures.front || textures.top || "#ffffff";
-      
+
+      // Pick the best available face. Block textures are keyed by side
+      // (north/south/east/west/top/bottom). The "front" face the player
+      // typically sees is the side face — try those first, then fall back
+      // to top, bottom, or whatever the block actually defines. This fixes
+      // empty/blank inventory icons for blocks that don't have a "front" key.
+      const sideOrder = ["north", "south", "east", "west", "top", "bottom"];
+      let tex = null;
+      for (const side of sideOrder) {
+        if (textures[side]) { tex = textures[side]; break; }
+      }
+      if (!tex) {
+        const firstKey = Object.keys(textures)[0];
+        if (firstKey) tex = textures[firstKey];
+      }
+      if (!tex) tex = "#ffffff";
+
+      ctx.clearRect(0, 0, 16, 16);
       if (Array.isArray(tex)) {
         tex.forEach((color, i) => {
+          // Skip transparent / empty / invalid pixels rather than letting
+          // ctx.fillStyle silently fall back to the previous color.
+          if (!color || color === "transparent" || color === "#00000000") return;
           ctx.fillStyle = color;
           ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
         });
-      } else {
+      } else if (typeof tex === "string") {
         ctx.fillStyle = tex;
         ctx.fillRect(0, 0, 16, 16);
       }
@@ -5631,6 +5903,9 @@ export function initGame(THREE){
     renderFurnaceSlots();
     renderFurnaceInventory();
     renderFurnaceHotbar();
+    // Smelt anything already in the cooking slot (e.g. left over from a
+    // previous session) the moment the UI opens.
+    if (typeof tryFurnaceSmelt === "function") tryFurnaceSmelt();
 
     // Setup close button
     const closeBtn = document.getElementById("closeFurnace");
@@ -5777,22 +6052,45 @@ export function initGame(THREE){
         document.body.appendChild(dragEl);
         renderFurnaceSlots();
       }
-    } else if (player.draggedItem.sourceType === slotType || (slotType === "fuel" && allowedFuels.includes(player.draggedItem.type))) {
-      // Can place if it's from the same slot or if it's an allowed fuel type going to fuel slot
-      if (slotType === "input" || (slotType === "fuel" && allowedFuels.includes(player.draggedItem.type))) {
-        const slot = slotType === "fuel" ? furnaceSlotFuel : furnaceSlotInput;
-        if (!slot.type) {
-          if (slotType === "fuel") furnaceSlotFuel = { type: player.draggedItem.type, count: player.draggedItem.count };
-          else furnaceSlotInput = { type: player.draggedItem.type, count: player.draggedItem.count };
-          player.draggedItem = null;
-          document.getElementById("dragged-item")?.remove();
-          renderFurnaceSlots();
-        } else if (slot.type === player.draggedItem.type) {
-          slot.count += player.draggedItem.count;
-          player.draggedItem = null;
-          document.getElementById("dragged-item")?.remove();
-          renderFurnaceSlots();
+    } else if (
+      // Input slot: accept any item.
+      slotType === "input" ||
+      // Fuel slot: only accept allowed fuels (configured in dev mode).
+      (slotType === "fuel" && allowedFuels.includes(player.draggedItem.type))
+    ) {
+      const slot = slotType === "fuel" ? furnaceSlotFuel : furnaceSlotInput;
+      if (!slot.type) {
+        if (slotType === "fuel") furnaceSlotFuel = { type: player.draggedItem.type, count: player.draggedItem.count };
+        else furnaceSlotInput = { type: player.draggedItem.type, count: player.draggedItem.count };
+        player.draggedItem = null;
+        document.getElementById("dragged-item")?.remove();
+        renderFurnaceSlots();
+        if (typeof tryFurnaceSmelt === "function") tryFurnaceSmelt();
+      } else if (slot.type === player.draggedItem.type) {
+        slot.count += player.draggedItem.count;
+        player.draggedItem = null;
+        document.getElementById("dragged-item")?.remove();
+        renderFurnaceSlots();
+        if (typeof tryFurnaceSmelt === "function") tryFurnaceSmelt();
+      } else {
+        // Different item type already in slot — swap with the dragged item.
+        const old = { ...slot };
+        if (slotType === "fuel") furnaceSlotFuel = { type: player.draggedItem.type, count: player.draggedItem.count };
+        else furnaceSlotInput = { type: player.draggedItem.type, count: player.draggedItem.count };
+        player.draggedItem = { ...old, sourceIdx: -1, sourceType: slotType };
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) {
+          dragEl.innerHTML = "";
+          const icon = createBlockIcon(old.type) || createToolIcon(old.type);
+          if (icon) dragEl.appendChild(icon);
+          if (old.count > 1) {
+            const c = document.createElement("div");
+            c.className = "item-count"; c.textContent = old.count;
+            dragEl.appendChild(c);
+          }
         }
+        renderFurnaceSlots();
+        if (typeof tryFurnaceSmelt === "function") tryFurnaceSmelt();
       }
     } else {
       // Return to inventory
@@ -5918,7 +6216,8 @@ export function initGame(THREE){
       "devPasswordOverlay",
       "newBlockOverlay",
       "newToolOverlay",
-      "optionsOverlay"
+      "optionsOverlay",
+      "givePickerOverlay"
   ];
 
   function isAnyGameOverlayOpen() {
@@ -6023,11 +6322,6 @@ export function initGame(THREE){
               fpsElement.style.display = "block";
           }
           
-          // Show chat container
-          const chatContainer = document.getElementById("chatContainer");
-          if (chatContainer) {
-              chatContainer.style.display = "block";
-          }
           
           // Track low FPS duration
           if (currentFps <= LOW_FPS_THRESHOLD) {

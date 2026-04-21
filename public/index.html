@@ -345,32 +345,22 @@
           <div class="editor-main">
             <div class="editor-controls">
               <div class="control-group">
-                <label>Allowed Fuel Types</label>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                  <label><input type="checkbox" id="allowCoalFuel" checked> Coal</label>
-                  <label><input type="checkbox" id="allowWoodFuel" checked> Wood</label>
-                  <label><input type="checkbox" id="allowPlanksFuel" checked> Planks</label>
-                  <label><input type="checkbox" id="allowSticksFuel" checked> Sticks</label>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Fuel Burn Time (ticks)</label>
-                <input type="number" id="fuelBurnTime" value="200" min="1" max="3600">
-              </div>
-              <div class="control-group">
-                <label>Smelting Speed (ticks)</label>
-                <input type="number" id="smeltingSpeed" value="200" min="1" max="3600">
-              </div>
-              <div class="control-group">
                 <label>Smelting Recipes</label>
-                <div id="furnaceRecipesList" style="max-height: 200px; overflow-y: auto; border: 1px solid #555; padding: 8px; margin: 8px 0;">
-                  <p style="color: #999; font-size: 12px;">No recipes configured yet</p>
+                <p style="color:#999; font-size:12px; margin:4px 0 8px 0;">
+                  Configure what each input item turns into when placed in the
+                  furnace's cooking slot.
+                </p>
+                <div id="furnaceRecipesList" style="max-height: 280px; overflow-y: auto; border: 1px solid #555; padding: 8px; margin: 8px 0; background: rgba(0,0,0,0.2);"></div>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+                  <select id="furnaceRecipeInput" class="mc-select" style="flex:1;"></select>
+                  <span style="color:#888;">→</span>
+                  <select id="furnaceRecipeOutput" class="mc-select" style="flex:1;"></select>
+                  <button id="addFurnaceRecipeBtn" class="primary-btn" style="padding:4px 12px;">Add</button>
                 </div>
               </div>
             </div>
             <div class="action-buttons">
-              <button id="saveFurnaceSettingsBtn" class="primary-btn">Save Settings</button>
-              <button id="resetFurnaceSettingsBtn" class="danger-btn">Reset to Defaults</button>
+              <button id="resetFurnaceSettingsBtn" class="danger-btn">Clear All Recipes</button>
             </div>
           </div>
         </div>
