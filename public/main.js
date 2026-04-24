@@ -253,57 +253,58 @@ export async function initGame(THREE, gameRendererIntegration){
   scene.add(sun);
 
   // Build Minecraft Player Model
+  // Head (direct child of modelGroup)
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
   head.position.y = 1.6;
   modelGroup.add(head);
 
-  // Body
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
-  body.position.y = 1.1;
-  modelGroup.add(body);
+  // Torso group — pivot at waist (y=0.8). Body + arms are children so
+  // rotating this group tilts them all together (connected sneak pose).
+  const torsoGroup = new THREE.Group();
+  torsoGroup.position.y = 0.8;
+  modelGroup.add(torsoGroup);
 
-  // Arms
+  // Body (relative to torsoGroup: center 0.3 above waist → world y=1.1)
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
+  body.position.y = 0.3;
+  torsoGroup.add(body);
+
+  // Arms (relative to torsoGroup: shoulder at 0.6 above waist → world y=1.4)
   const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
-  armL.position.set(-0.3, 1.1, 0);
-  armL.geometry.translate(0, -0.3, 0); // Move pivot to top
-  armL.position.y += 0.3;
-  modelGroup.add(armL);
+  armL.position.set(-0.3, 0.6, 0);
+  armL.geometry.translate(0, -0.3, 0); // pivot to shoulder top
+  torsoGroup.add(armL);
 
   const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
-  armR.position.set(0.3, 1.1, 0);
-  armR.geometry.translate(0, -0.3, 0); // Move pivot to top
-  armR.position.y += 0.3;
-  modelGroup.add(armR);
-  
-  // Third person item: different geometry for blocks vs tools/items
-  // Block item (normal 3D cube)
-  const tpBlockItemGeometry = new THREE.BoxGeometry(0.35, 0.35, 0.35);
-  // Tool/Item (flat)
-  const tpToolItemGeometry = new THREE.PlaneGeometry(0.35, 0.35);
-  const tpItem = new THREE.Mesh(tpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
-  tpItem.position.set(0, -0.4, 0);
-  tpItem.rotation.set(0, 0, 0);
+  armR.position.set(0.3, 0.6, 0);
+  armR.geometry.translate(0, -0.3, 0); // pivot to shoulder top
+  torsoGroup.add(armR);
+
+  // Third-person held item attached to right hand
+  const tpBlockItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+  const tpToolItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.02); // flat for tools/items
+  const tpItem = new THREE.Mesh(tpBlockItemGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  tpItem.position.set(0.06, -0.55, -0.2); // end of arm, slightly forward
   tpItem.visible = false;
   armR.add(tpItem);
   player.tpItem = tpItem;
   player.tp = { blockGeometry: tpBlockItemGeometry, toolGeometry: tpToolItemGeometry };
 
-  // Legs
+  // Legs (direct children of modelGroup, pivot at waist y=0.8)
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legL.position.set(-0.1, 0.5, 0);
-  legL.geometry.translate(0, -0.3, 0); // Move pivot to top
-  legL.position.y += 0.3;
+  legL.position.set(-0.1, 0.8, 0);
+  legL.geometry.translate(0, -0.3, 0); // pivot to top
   modelGroup.add(legL);
 
   const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-  legR.position.set(0.1, 0.5, 0);
-  legR.geometry.translate(0, -0.3, 0); // Move pivot to top
-  legR.position.y += 0.3;
+  legR.position.set(0.1, 0.8, 0);
+  legR.geometry.translate(0, -0.3, 0); // pivot to top
   modelGroup.add(legR);
 
   player.group.add(modelGroup);
   player.model = modelGroup;
-  player.limbs = { armL, armR, legL, legR, head, body };
+  player.torsoGroup = torsoGroup;
+  player.limbs = { armL, armR, legL, legR, head, body, torsoGroup };
 
   // Create Name Tag
   function createNameTag(name) {
@@ -1546,11 +1547,14 @@ export async function initGame(THREE, gameRendererIntegration){
           const heldType = data.heldType;
           if (heldType) {
             p.tpItem.visible = true;
+            const isBlock = !!blockMaterials[heldType];
+            p.tpItem.geometry = isBlock
+              ? (p.tpItem.userData.blockGeo || p.tpItem.geometry)
+              : (p.tpItem.userData.toolGeo  || p.tpItem.geometry);
             let mat = null;
-            if (blockMaterials[heldType]) {
-              mat = Array.isArray(blockMaterials[heldType])
-                ? blockMaterials[heldType][0].clone()
-                : blockMaterials[heldType].clone();
+            if (isBlock) {
+              const bm = blockMaterials[heldType];
+              mat = Array.isArray(bm) ? bm[0].clone() : bm.clone();
             } else {
               const toolTex = toolTypes[heldType]?.texture || itemsData?.[heldType]?.texture;
               if (toolTex) {
@@ -1571,7 +1575,7 @@ export async function initGame(THREE, gameRendererIntegration){
                 const tex = new THREE.CanvasTexture(cvs);
                 tex.magFilter = THREE.NearestFilter;
                 tex.minFilter = THREE.NearestFilter;
-                mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true });
+                mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
               }
             }
             if (mat) p.tpItem.material = mat;
@@ -1765,12 +1769,13 @@ export async function initGame(THREE, gameRendererIntegration){
     setUVs(legR, legUVs);
 
     // Held-item mesh attached to the right arm of this remote player
-    const tpItemGeo = new THREE.BoxGeometry(0.12, 0.12, 0.6);
-    const tpItemMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
-    const tpItem = new THREE.Mesh(tpItemGeo, tpItemMat);
-    // Position in front of the hand (along the arm's local -Z forward)
-    tpItem.position.set(0, -0.55, -0.35);
+    const rBlockGeo = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    const rToolGeo  = new THREE.BoxGeometry(0.25, 0.25, 0.02);
+    const tpItem = new THREE.Mesh(rBlockGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    tpItem.position.set(0.06, -0.55, -0.2); // end of arm, slightly forward
     tpItem.visible = false;
+    tpItem.userData.blockGeo = rBlockGeo;
+    tpItem.userData.toolGeo  = rToolGeo;
     armR.add(tpItem);
 
     remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, tpItem, username: data.username };
@@ -1798,12 +1803,12 @@ export async function initGame(THREE, gameRendererIntegration){
                 
                 function createBoxMaterialsForRemote(uvs) {
                     return [
-                        extractAndApplySkinPart(mesh, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),    // +X = right
-                        extractAndApplySkinPart(mesh, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),        // -X = left
-                        extractAndApplySkinPart(mesh, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),            // +Y = top
-                        extractAndApplySkinPart(mesh, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h), // -Y = bottom
-                        extractAndApplySkinPart(mesh, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),        // +Z = game BACK
-                        extractAndApplySkinPart(mesh, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)     // -Z = game FRONT
+                        extractAndApplySkinPart(null, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
+                        extractAndApplySkinPart(null, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
+                        extractAndApplySkinPart(null, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
+                        extractAndApplySkinPart(null, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
+                        extractAndApplySkinPart(null, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),
+                        extractAndApplySkinPart(null, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)
                     ];
                 }
                 
@@ -2078,16 +2083,18 @@ export async function initGame(THREE, gameRendererIntegration){
   document.addEventListener("mousemove", e => {
     if (document.pointerLockElement !== renderer.domElement) return;
     
-    // Sensitivity factor
     const sensitivity = 0.002;
-    
-    // F+5 camera now responds to mouse like first person mode
-    player.yaw -= e.movementX * sensitivity;
-    player.pitch -= e.movementY * sensitivity;
-    player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
 
-    // Apply horizontal rotation to the player group
-    player.group.rotation.y = player.yaw;
+    if (player.cameraMode === 3) {
+      // F+5 orbit: mouse X orbits around the player
+      player.orbit.yaw -= e.movementX * sensitivity;
+    } else {
+      // Normal first/third person
+      player.yaw -= e.movementX * sensitivity;
+      player.pitch -= e.movementY * sensitivity;
+      player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, player.pitch));
+      player.group.rotation.y = player.yaw;
+    }
 
     if (socket) {
       const heldSlotForEmit = player.inventory[player.selectedSlot];
@@ -6783,30 +6790,22 @@ updateBreaking();
       // Update sneak state (Shift) before camera adjustments
       player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
 
-      // Minecraft-accurate sneak pose: tilt torso forward, head compensates,
-      // arms spread, whole model lowers — never rotate the whole modelGroup.
+      // Minecraft sneak pose: torsoGroup tilts forward (arms follow), head compensates.
+      // 0 transition — instant snap with no lerp.
       if (player.model) {
-          const lerp = (a, b, t) => a + (b - a) * t;
-          const sneakY   = player.isSneaking ? -0.2  : 0;
-          player.model.position.y = lerp(player.model.position.y, sneakY, 0.35);
-          // Don't rotate the whole model
-          player.model.rotation.x = lerp(player.model.rotation.x, 0, 0.35);
-          if (player.limbs) {
-              // Body tilts forward ~28° (0.5 rad) like Minecraft
-              const bodyTilt = player.isSneaking ? 0.5 : 0;
-              if (player.limbs.body) {
-                  player.limbs.body.rotation.x = lerp(player.limbs.body.rotation.x || 0, bodyTilt, 0.35);
-              }
-              // Head tilts back to stay roughly horizontal
-              if (player.limbs.head) {
-                  player.limbs.head.rotation.x = lerp(player.limbs.head.rotation.x || 0, -bodyTilt * 0.85, 0.35);
-              }
-              // Arms spread outward like Minecraft sneak
-              player.limbs.armL.rotation.z = lerp(player.limbs.armL.rotation.z || 0, player.isSneaking ? -0.4 : 0, 0.35);
-              player.limbs.armR.rotation.z = lerp(player.limbs.armR.rotation.z || 0, player.isSneaking ?  0.4 : 0, 0.35);
-              // Arms drop slightly forward
-              player.limbs.armL.rotation.x = lerp(player.limbs.armL.rotation.x || 0, player.isSneaking ? 0.4 : (player.limbs.armL.rotation.x < 0.01 ? 0 : player.limbs.armL.rotation.x), 0.35);
-              player.limbs.armR.rotation.x = lerp(player.limbs.armR.rotation.x || 0, player.isSneaking ? 0.4 : (player.limbs.armR.rotation.x < 0.01 ? 0 : player.limbs.armR.rotation.x), 0.35);
+          player.model.rotation.x = 0;
+          if (player.isSneaking) {
+              player.model.position.y = -0.2;
+              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0.5;
+              if (player.limbs.head)       player.limbs.head.rotation.x = -0.42;
+              player.limbs.armL.rotation.z = -0.4;
+              player.limbs.armR.rotation.z =  0.4;
+          } else {
+              player.model.position.y = 0;
+              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0;
+              if (player.limbs.head)       player.limbs.head.rotation.x = 0;
+              player.limbs.armL.rotation.z = 0;
+              player.limbs.armR.rotation.z = 0;
           }
       }
 
@@ -6852,12 +6851,9 @@ updateBreaking();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 3) {
-          // F+5 orbit camera: slowly circles the player in a flat horizontal ring
+          // F+5 orbit camera: circles the player, mouse X controls the orbit angle
           player.model.visible = true;
           if (player.fp && player.fp.handGroup) player.fp.handGroup.visible = false;
-
-          // Auto-spin the orbit yaw each frame
-          player.orbit.yaw = (player.orbit.yaw || 0) + 0.008;
 
           const orbitDist = 5;
           const orbitHeight = 2.5;

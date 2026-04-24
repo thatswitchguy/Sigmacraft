@@ -1486,3 +1486,26 @@ select, input[type="color"], button, input {
   border-radius: 2px;
   border: none;
 }
+
+/* Video Settings collapsible sections */
+#pauseVideo details > summary { list-style: none; user-select: none; }
+#pauseVideo details > summary::-webkit-details-marker { display: none; }
+#pauseVideo details[open] summary .vs-arrow { transform: rotate(90deg); }
+#pauseVideo details summary .vs-arrow {
+  display: inline-block;
+  font-size: 10px;
+  margin-right: 4px;
+  transition: transform 0.15s;
+}
+#pauseVideo .setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2c2c2c;
+  color: #eee;
+  font-size: 13px;
+  gap: 8px;
+}
+#pauseVideo .setting-item:last-child { border-bottom: none; }
+#pauseVideo .setting-item label { flex: 1; }
+#pauseVideo .setting-item span { min-width: 36px; text-align: right; color: #aaa; font-size: 12px; }

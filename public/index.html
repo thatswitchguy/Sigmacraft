@@ -547,145 +547,161 @@
     </div>
     <div id="pauseVideo" style="display:none;">
       <h2>Video Settings</h2>
-      <div style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
-        <!-- Display Settings -->
-        <div class="settings-group">
-          <h3 style="margin-top: 0; color: #4CAF50;">Display</h3>
-          <div class="setting-item">
-            <label>Max Framerate (FPS)</label>
-            <select id="maxFpsSelect" class="mc-select">
-              <option value="30">30 FPS</option>
-              <option value="60" selected>60 FPS</option>
-              <option value="120">120 FPS</option>
-              <option value="240">240 FPS</option>
-              <option value="0">Unlimited</option>
-            </select>
-          </div>
-          <div class="setting-item">
-            <label>VSync</label>
-            <input type="checkbox" id="vsyncCheck" checked>
-          </div>
-          <div class="setting-item">
-            <label>Resolution Scale</label>
-            <input type="range" id="resolutionSlider" min="50" max="150" value="100" class="mc-slider">
-            <span id="resolutionValue">100%</span>
-          </div>
-          <div class="setting-item">
-            <label>Brightness</label>
-            <input type="range" id="brightnessSlider" min="50" max="150" value="100" class="mc-slider">
-            <span id="brightnessValue">100%</span>
-          </div>
-          <div class="setting-item">
-            <label>Contrast</label>
-            <input type="range" id="contrastSlider" min="50" max="150" value="100" class="mc-slider">
-            <span id="contrastValue">100%</span>
-          </div>
-          <div class="setting-item">
-            <label>Gamma</label>
-            <input type="range" id="gammaSlider" min="50" max="150" value="100" class="mc-slider">
-            <span id="gammaValue">100%</span>
-          </div>
-        </div>
+      <div style="max-height:420px;overflow-y:auto;padding-right:8px;">
 
-        <!-- Graphics Settings -->
-        <div class="settings-group">
-          <h3 style="color: #4CAF50;">Graphics</h3>
-          <div class="setting-item">
-            <label>Render Distance (Chunks)</label>
-            <input type="range" id="renderDistanceSlider" min="2" max="8" value="4" class="mc-slider">
-            <span id="renderDistanceValue">4</span>
-          </div>
-          <div class="setting-item">
-            <label>Chunk Distance</label>
-            <input type="range" id="chunkDistanceSlider" min="4" max="16" value="8" class="mc-slider">
-            <span id="chunkDistanceValue">8</span>
-          </div>
-          <div class="setting-item">
-            <label>Anti-aliasing (MSAA)</label>
-            <select id="msaaSelect" class="mc-select">
-              <option value="0">Off</option>
-              <option value="2">2x</option>
-              <option value="4" selected>4x</option>
-              <option value="8">8x</option>
-            </select>
-          </div>
-          <div class="setting-item">
-            <label>Shadows</label>
-            <input type="checkbox" id="shadowsEnabledCheck" checked>
-          </div>
-          <div class="setting-item">
-            <label>Shadow Quality</label>
-            <select id="shadowQualitySelect" class="mc-select">
-              <option value="1024">Low (1024)</option>
-              <option value="2048" selected>Medium (2048)</option>
-              <option value="4096">High (4096)</option>
-            </select>
-          </div>
-          <div class="setting-item">
-            <label>Shadow Distance</label>
-            <input type="range" id="shadowDistanceSlider" min="20" max="100" value="50" class="mc-slider">
-            <span id="shadowDistanceValue">50</span>
-          </div>
-        </div>
+        <!-- Display -->
+        <details open style="margin-bottom:6px;">
+          <summary style="cursor:pointer;padding:6px 8px;background:#2a2a2a;border:2px solid #555;color:#4CAF50;font-family:inherit;font-size:14px;list-style:none;display:flex;align-items:center;gap:4px;">
+            <span class="vs-arrow">&#9658;</span> Display
+          </summary>
+          <ul style="margin:0;padding:0;list-style:none;background:#1a1a1a;border:2px solid #444;border-top:none;">
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Max Framerate</label>
+              <select id="maxFpsSelect" class="mc-select">
+                <option value="30">30 FPS</option>
+                <option value="60" selected>60 FPS</option>
+                <option value="120">120 FPS</option>
+                <option value="240">240 FPS</option>
+                <option value="0">Unlimited</option>
+              </select>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>VSync</label>
+              <input type="checkbox" id="vsyncCheck" checked>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Resolution Scale</label>
+              <input type="range" id="resolutionSlider" min="50" max="150" value="100" class="mc-slider">
+              <span id="resolutionValue">100%</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Brightness</label>
+              <input type="range" id="brightnessSlider" min="50" max="150" value="100" class="mc-slider">
+              <span id="brightnessValue">100%</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Contrast</label>
+              <input type="range" id="contrastSlider" min="50" max="150" value="100" class="mc-slider">
+              <span id="contrastValue">100%</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Gamma</label>
+              <input type="range" id="gammaSlider" min="50" max="150" value="100" class="mc-slider">
+              <span id="gammaValue">100%</span>
+            </li>
+          </ul>
+        </details>
+
+        <!-- Graphics -->
+        <details open style="margin-bottom:6px;">
+          <summary style="cursor:pointer;padding:6px 8px;background:#2a2a2a;border:2px solid #555;color:#4CAF50;font-family:inherit;font-size:14px;list-style:none;display:flex;align-items:center;gap:4px;">
+            <span class="vs-arrow">&#9658;</span> Graphics
+          </summary>
+          <ul style="margin:0;padding:0;list-style:none;background:#1a1a1a;border:2px solid #444;border-top:none;">
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Render Distance</label>
+              <input type="range" id="renderDistanceSlider" min="2" max="8" value="4" class="mc-slider">
+              <span id="renderDistanceValue">4</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Chunk Distance</label>
+              <input type="range" id="chunkDistanceSlider" min="4" max="16" value="8" class="mc-slider">
+              <span id="chunkDistanceValue">8</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Anti-aliasing (MSAA)</label>
+              <select id="msaaSelect" class="mc-select">
+                <option value="0">Off</option>
+                <option value="2">2x</option>
+                <option value="4" selected>4x</option>
+                <option value="8">8x</option>
+              </select>
+            </li>
+            <li style="padding:2px 10px 2px 20px;color:#aaa;font-size:11px;background:#1a1a1a;">Shadows</li>
+            <li class="setting-item" style="padding:5px 10px 5px 28px;">
+              <label>Enabled</label>
+              <input type="checkbox" id="shadowsEnabledCheck" checked>
+            </li>
+            <li class="setting-item" style="padding:5px 10px 5px 28px;">
+              <label>Quality</label>
+              <select id="shadowQualitySelect" class="mc-select">
+                <option value="1024">Low (1024)</option>
+                <option value="2048" selected>Medium (2048)</option>
+                <option value="4096">High (4096)</option>
+              </select>
+            </li>
+            <li class="setting-item" style="padding:5px 10px 5px 28px;">
+              <label>Distance</label>
+              <input type="range" id="shadowDistanceSlider" min="20" max="100" value="50" class="mc-slider">
+              <span id="shadowDistanceValue">50</span>
+            </li>
+          </ul>
+        </details>
 
         <!-- Effects -->
-        <div class="settings-group">
-          <h3 style="color: #4CAF50;">Effects</h3>
-          <div class="setting-item">
-            <label>Particles</label>
-            <input type="checkbox" id="particlesEnabledCheck" checked>
-          </div>
-          <div class="setting-item">
-            <label>Ambient Occlusion</label>
-            <input type="checkbox" id="aoCheck">
-          </div>
-          <div class="setting-item">
-            <label>Bloom</label>
-            <input type="checkbox" id="bloomCheck">
-          </div>
-          <div class="setting-item">
-            <label>Reflections</label>
-            <input type="checkbox" id="reflectionsCheck">
-          </div>
-          <div class="setting-item">
-            <label>Fluid Render Quality</label>
-            <select id="fluidQualitySelect" class="mc-select">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high" selected>High</option>
-            </select>
-          </div>
-        </div>
+        <details style="margin-bottom:6px;">
+          <summary style="cursor:pointer;padding:6px 8px;background:#2a2a2a;border:2px solid #555;color:#4CAF50;font-family:inherit;font-size:14px;list-style:none;display:flex;align-items:center;gap:4px;">
+            <span class="vs-arrow">&#9658;</span> Effects
+          </summary>
+          <ul style="margin:0;padding:0;list-style:none;background:#1a1a1a;border:2px solid #444;border-top:none;">
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Particles</label>
+              <input type="checkbox" id="particlesEnabledCheck" checked>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Ambient Occlusion</label>
+              <input type="checkbox" id="aoCheck">
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Bloom</label>
+              <input type="checkbox" id="bloomCheck">
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Reflections</label>
+              <input type="checkbox" id="reflectionsCheck">
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Fluid Quality</label>
+              <select id="fluidQualitySelect" class="mc-select">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high" selected>High</option>
+              </select>
+            </li>
+          </ul>
+        </details>
 
         <!-- Performance -->
-        <div class="settings-group">
-          <h3 style="color: #4CAF50;">Performance</h3>
-          <div class="setting-item">
-            <label>Level of Detail (LOD)</label>
-            <input type="checkbox" id="lodEnabledCheck" checked>
-          </div>
-          <div class="setting-item">
-            <label>HUD Scale</label>
-            <input type="range" id="hudScaleSlider" min="50" max="200" value="100" class="mc-slider">
-            <span id="hudScaleValue">100%</span>
-          </div>
-          <div class="setting-item">
-            <label>
-              <input type="checkbox" id="hideHandCheck"> Hide Hand
-            </label>
-          </div>
-          <div class="setting-item">
-            <label>
-              <input type="checkbox" id="debugInfoCheck"> Show Debug Info
-            </label>
-          </div>
-        </div>
-      </div>
+        <details style="margin-bottom:6px;">
+          <summary style="cursor:pointer;padding:6px 8px;background:#2a2a2a;border:2px solid #555;color:#4CAF50;font-family:inherit;font-size:14px;list-style:none;display:flex;align-items:center;gap:4px;">
+            <span class="vs-arrow">&#9658;</span> Performance
+          </summary>
+          <ul style="margin:0;padding:0;list-style:none;background:#1a1a1a;border:2px solid #444;border-top:none;">
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Level of Detail (LOD)</label>
+              <input type="checkbox" id="lodEnabledCheck" checked>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>HUD Scale</label>
+              <input type="range" id="hudScaleSlider" min="50" max="200" value="100" class="mc-slider">
+              <span id="hudScaleValue">100%</span>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Hide Hand</label>
+              <input type="checkbox" id="hideHandCheck">
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Show Debug Info</label>
+              <input type="checkbox" id="debugInfoCheck">
+            </li>
+          </ul>
+        </details>
 
-      <div class="settings-buttons" style="margin-top: 10px; display: flex; gap: 5px;">
-        <button class="mc-btn" id="autoDetectSettingsBtn" style="flex: 1;">Auto Detect</button>
-        <button class="mc-btn" id="resetSettingsBtn" style="flex: 1;">Reset</button>
-        <button class="mc-btn" id="backFromVideoBtn" style="flex: 1;">Back</button>
+      </div>
+      <div class="settings-buttons" style="margin-top:10px;display:flex;gap:5px;">
+        <button class="mc-btn" id="autoDetectSettingsBtn" style="flex:1;">Auto Detect</button>
+        <button class="mc-btn" id="resetSettingsBtn" style="flex:1;">Reset</button>
+        <button class="mc-btn" id="backFromVideoBtn" style="flex:1;">Back</button>
       </div>
     </div>
     <div id="pauseGame" style="display:none;">
