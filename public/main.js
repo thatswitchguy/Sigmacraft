@@ -1,4 +1,29 @@
-export function initGame(THREE){
+import { createAdapter } from './threeBabylonAdapter.js';
+
+export async function initGame(THREE, gameRendererIntegration){
+  // Initialize Babylon.js renderer if provided
+  let babylonRenderer = null;
+  let threeAdapter = null;
+  let videoSettingsManager = null;
+  let chunkManager = null;
+
+  if (gameRendererIntegration) {
+    babylonRenderer = gameRendererIntegration.getBabylonRenderer();
+    videoSettingsManager = gameRendererIntegration.getVideoSettings();
+    chunkManager = gameRendererIntegration.getChunkManager();
+    
+    // Initialize Babylon renderer and wait for the WebGPU engine to be ready
+    if (babylonRenderer?.init) {
+      await babylonRenderer.init();
+    }
+    
+    // Create compatibility adapter
+    if (babylonRenderer) {
+      threeAdapter = createAdapter(babylonRenderer);
+      threeAdapter.setupEventHandling();
+    }
+  }
+
   let blockTypes = {};
   let blockMaterials = {};
   let blockTiming = { default: 1.0 };
@@ -7,8 +32,11 @@ export function initGame(THREE){
   let blockDrops_mapping = (() => {
     try {
       const raw = localStorage.getItem("sigmacraft_blockDrops_mapping");
-      return raw ? JSON.parse(raw) : {};
-    } catch (_) { return {}; }
+      const mapping = raw ? JSON.parse(raw) : {};
+      // Set default drops if not already configured
+      if (!mapping.coal_ore) mapping.coal_ore = "coal";
+      return mapping;
+    } catch (_) { return { coal_ore: "coal" }; }
   })();
   function saveBlockDropsMapping() {
     try { localStorage.setItem("sigmacraft_blockDrops_mapping", JSON.stringify(blockDrops_mapping)); } catch (_) {}
@@ -61,10 +89,76 @@ export function initGame(THREE){
     occlusionDirty = false;
   }
   
+  // Helper function to create block geometry with face culling (only visible faces)
+  function createBlockGeometry(blockX, blockY, blockZ) {
+    // Check which faces are exposed (not touching other blocks)
+    const neighbors = {
+      top: blockPositionSet.has(`${blockX},${blockY+1},${blockZ}`),
+      bottom: blockPositionSet.has(`${blockX},${blockY-1},${blockZ}`),
+      front: blockPositionSet.has(`${blockX},${blockY},${blockZ+1}`),
+      back: blockPositionSet.has(`${blockX},${blockY},${blockZ-1}`),
+      right: blockPositionSet.has(`${blockX+1},${blockY},${blockZ}`),
+      left: blockPositionSet.has(`${blockX-1},${blockY},${blockZ}`)
+    };
+    
+    // If all 6 faces are exposed, use standard geometry (no optimization needed)
+    if (!Object.values(neighbors).some(v => v)) {
+      return new THREE.BoxGeometry(1, 1, 1);
+    }
+    
+    // For partially occluded blocks, create custom geometry
+    const geometry = new THREE.BufferGeometry();
+    const vertices = [];
+    const indices = [];
+    const normals = [];
+    
+    const s = 0.5; // half-size
+    
+    // Helper to add a face if it's not occluded
+    const addFace = (v1, v2, v3, v4, isOccluded, nx, ny, nz) => {
+      if (isOccluded) return;
+      
+      const startIdx = vertices.length / 3;
+      vertices.push(...v1, ...v2, ...v3, ...v4);
+      indices.push(startIdx, startIdx+1, startIdx+2, startIdx, startIdx+2, startIdx+3);
+      
+      // Add normals for all 4 vertices
+      for (let i = 0; i < 4; i++) {
+        normals.push(nx, ny, nz);
+      }
+    };
+    
+    // Add faces if not occluded by neighbors
+    // Right face (x=+0.5)
+    addFace([s,-s,-s], [s,s,-s], [s,s,s], [s,-s,s], neighbors.right, 1, 0, 0);
+    // Left face (x=-0.5)
+    addFace([-s,-s,s], [-s,s,s], [-s,s,-s], [-s,-s,-s], neighbors.left, -1, 0, 0);
+    // Top face (y=+0.5)
+    addFace([-s,s,-s], [s,s,-s], [s,s,s], [-s,s,s], neighbors.top, 0, 1, 0);
+    // Bottom face (y=-0.5)
+    addFace([-s,-s,s], [s,-s,s], [s,-s,-s], [-s,-s,-s], neighbors.bottom, 0, -1, 0);
+    // Front face (z=+0.5)
+    addFace([-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s], neighbors.front, 0, 0, 1);
+    // Back face (z=-0.5)
+    addFace([s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s], neighbors.back, 0, 0, -1);
+    
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+    
+    // If no faces were added, return an empty geometry (shouldn't happen normally)
+    if (indices.length === 0) {
+      return new THREE.BoxGeometry(0.001, 0.001, 0.001); // Invisible block
+    }
+    
+    return geometry;
+  }
+  
   let breakingBlock = null;
   let breakingProgress = 0;
   let breakingOverlay = null;
   const blockDrops = [];
+
 
   const player = { 
     group: new THREE.Group(), 
@@ -87,7 +181,10 @@ export function initGame(THREE){
     invincibleTime: 0
   };
 
+  let uiState = 'playing'; // 'playing', 'paused', 'chat', 'overlay'
+
   const scene = new THREE.Scene();
+
   scene.background = new THREE.Color(0x87ceeb);
   
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -345,27 +442,26 @@ export function initGame(THREE){
       }
     }
     
-    // Check collision with player position
+    // Check collision with player position using precise bounding boxes
     const playerPos = player.group.position;
-    
-    // Allow placing blocks directly beneath if there's >0.5 blocks of space
-    const yDiff = playerPos.y - pos.y;
-    const playerRadius = 0.4; // Player hitbox horizontal radius
-    const isDirectlyBelow = Math.abs(playerPos.x - pos.x) < playerRadius && 
-                           Math.abs(playerPos.z - pos.z) < playerRadius;
-    
-    if (isDirectlyBelow && yDiff > 0.5) {
-      // Allow placement directly below with sufficient gap
-      return false;
-    }
-    
-    // Standard collision check
-    if (Math.abs(playerPos.x - pos.x) < 1.5 &&
-        Math.abs(playerPos.y - pos.y) < 2.0 &&
-        Math.abs(playerPos.z - pos.z) < 1.5) {
-      return true;
-    }
-    return false;
+    const blockMinX = pos.x - 0.5;
+    const blockMaxX = pos.x + 0.5;
+    const blockMinY = pos.y - 0.5;
+    const blockMaxY = pos.y + 0.5;
+    const blockMinZ = pos.z - 0.5;
+    const blockMaxZ = pos.z + 0.5;
+    const playerMinX = playerPos.x - playerWidth;
+    const playerMaxX = playerPos.x + playerWidth;
+    const playerMinY = playerPos.y;
+    const playerMaxY = playerPos.y + playerHeight;
+    const playerMinZ = playerPos.z - playerWidth;
+    const playerMaxZ = playerPos.z + playerWidth;
+
+    const overlapsX = blockMaxX > playerMinX && blockMinX < playerMaxX;
+    const overlapsY = blockMaxY > playerMinY && blockMinY < playerMaxY;
+    const overlapsZ = blockMaxZ > playerMinZ && blockMinZ < playerMaxZ;
+
+    return overlapsX && overlapsY && overlapsZ;
   }
 
   // RAYCAST
@@ -790,7 +886,16 @@ export function initGame(THREE){
           drop.velocity.set(0, 0, 0);
         }
       } else {
-        drop.mesh.position.y = drop.groundY + 0.7 + Math.sin(drop.bobPhase + drop.age * 2) * 0.2;
+        // Check if the ground below still exists (in case blocks were removed)
+        const currentGroundY = getGroundHeight(drop.mesh.position.x, drop.mesh.position.z, drop.groundY);
+        if (currentGroundY < drop.groundY - 0.5) {
+          // Ground was removed, start falling again
+          drop.grounded = false;
+          drop.velocity.set(0, 0, 0);
+        } else {
+          // Still grounded, bob gently
+          drop.mesh.position.y = drop.groundY + 0.7 + Math.sin(drop.bobPhase + drop.age * 2) * 0.2;
+        }
       }
       
       drop.mesh.rotation.y += delta * 1.5;
@@ -1042,6 +1147,10 @@ export function initGame(THREE){
   };
 
     function togglePauseMenu() {
+        // Don't allow opening pause menu if chat is active
+        const chatInput = document.getElementById("chatInput");
+        if (chatInput && chatInput.style.display !== "none") return;
+        
         const pause = document.getElementById("pauseMenu");
         if (pause.style.display === "none") {
             pause.style.display = "flex";
@@ -1180,7 +1289,7 @@ export function initGame(THREE){
 
       for (let x = -size; x < size; x++) {
        for (let z = -size; z < size; z++) {
-         const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 3);
+         const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 4);
          const surfaceY = 6 + terrainVariance;
 
          if (x === 0 && z === 0) {
@@ -1198,7 +1307,7 @@ export function initGame(THREE){
              type = "dirt";
            } else {
              const coalChance = Math.random();
-             type = coalChance < 0.08 ? "coal_ore" : "stone";
+             type = coalChance < 0.15 ? "coal_ore" : "stone";
            }
 
            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
@@ -1319,20 +1428,8 @@ export function initGame(THREE){
             const trunkBaseY = groundY + 1;
             for (let ty = 0; ty < trunkH; ty++) addBlock3D(x, trunkBaseY + ty, z, "wood");
 
-            // Add a layer of leaves on top of the trunk
-            const topTrunkY = trunkBaseY + trunkH - 1;
-            for (let lx = -2; lx <= 2; lx++) {
-              for (let lz = -2; lz <= 2; lz++) {
-                // Skip the center to keep trunk exposed
-                if (lx === 0 && lz === 0) continue;
-                // Skip corners for more natural look
-                if (Math.abs(lx) === 2 && Math.abs(lz) === 2) continue;
-                addBlock3D(x + lx, topTrunkY + 1, z + lz, "leaves");
-              }
-            }
-
-            // Canopy starts above the top of the trunk (keeps at least 2 blocks of exposed trunk)
-            const leafBase = trunkBaseY + trunkH + 1;
+            // Canopy starts above the top of the trunk
+            const leafBase = trunkBaseY + trunkH;
             for (let ly = 0; ly <= 3; ly++) {
               const radius = ly <= 1 ? 2 : 1;
               for (let lx = -radius; lx <= radius; lx++) {
@@ -1624,7 +1721,7 @@ export function initGame(THREE){
     setUVs(legL, legUVs);
     setUVs(legR, legUVs);
 
-    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR } };
+    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, username: data.username };
 
     // Apply skin if it exists - use proper texture extraction like the player model
     fetch("/skin").then(r => r.json()).then(res => {
@@ -1749,6 +1846,50 @@ export function initGame(THREE){
 
   // Handle Camera Toggle and Inventory
   window.addEventListener("keydown", e => {
+    // Pause menu check - disable all controls while paused
+    const pauseMenu = document.getElementById("pauseMenu");
+    if (pauseMenu && pauseMenu.style.display === "flex") {
+      if (e.code === "Escape") {
+        togglePauseMenu();
+        e.preventDefault();
+      }
+      return; // Block all other controls while paused
+    }
+
+    // Chat check - disable all controls while chat is open
+    const chatInput = document.getElementById("chatInput");
+    const isChatOpen = chatInput && chatInput.style.display !== "none";
+    if (isChatOpen) {
+      // Allow Enter and Escape keys in chat
+      if (e.code === "Enter") {
+        const message = chatInput.value.trim();
+        if (message) {
+          // Handle commands
+          if (message.startsWith("/")) {
+            handleChatCommand(message);
+          } else {
+            // Send regular message
+            addChatMessage(`${player.username}: ${message}`);
+            if (socket) {
+              socket.emit("chatMessage", { username: player.username, message: message });
+            }
+          }
+        }
+        chatInput.value = "";
+        chatInput.style.display = "none";
+        refreshChatContainerVisibility();
+        renderer.domElement.requestPointerLock();
+        e.preventDefault();
+      } else if (e.code === "Escape") {
+        chatInput.style.display = "none";
+        chatInput.value = "";
+        refreshChatContainerVisibility();
+        renderer.domElement.requestPointerLock();
+        e.preventDefault();
+      }
+      return; // Block all other controls while chat is open
+    }
+
     if (e.code === "Escape") {
       const titleScreen = document.getElementById("titleScreen");
       if (titleScreen.style.display !== "none") return;
@@ -1756,53 +1897,23 @@ export function initGame(THREE){
       return;
     }
 
-    // Chat: T key to open/close chat
+    // Chat: T key to open chat - with auto focus on input
     if (e.code === "KeyT" && document.pointerLockElement === renderer.domElement) {
       const chatContainer = document.getElementById("chatContainer");
-      const chatInput = document.getElementById("chatInput");
-      const isOpen = chatInput.style.display !== "none";
-      
+      const chatInputElem = document.getElementById("chatInput");
+      const isOpen = chatInputElem.style.display !== "none";
+
       if (!isOpen) {
-        // Open chat
-        chatInput.style.display = "block";
-        chatInput.focus();
-        chatInput.value = "";
+        e.preventDefault(); // stop "t" being typed
+        document.exitPointerLock(); // Release pointer lock so mouse is visible
+
+        chatInputElem.style.display = "block";
+        chatInputElem.value = ""; // Start with empty so user can type immediately
+        chatInputElem.focus(); // Auto focus on the input
+        chatInputElem.click(); // Click on it to ensure it's active
+
         refreshChatContainerVisibility();
-        e.preventDefault();
       }
-      return;
-    }
-
-    // Chat input submission
-    const chatInput = document.getElementById("chatInput");
-    if (e.code === "Enter" && chatInput && chatInput.style.display !== "none") {
-      const message = chatInput.value.trim();
-      if (message) {
-        // Handle commands
-        if (message.startsWith("/")) {
-          handleChatCommand(message);
-        } else {
-          // Send regular message
-          addChatMessage(`${player.username}: ${message}`);
-          if (socket) {
-            socket.emit("chatMessage", { username: player.username, message: message });
-          }
-        }
-      }
-      chatInput.value = "";
-      chatInput.style.display = "none";
-      refreshChatContainerVisibility();
-      renderer.domElement.requestPointerLock();
-      e.preventDefault();
-      return;
-    }
-
-    // Escape while typing chat
-    if (e.code === "Escape" && chatInput && chatInput.style.display !== "none") {
-      chatInput.style.display = "none";
-      chatInput.value = "";
-      refreshChatContainerVisibility();
-      renderer.domElement.requestPointerLock();
       return;
     }
 
@@ -2581,7 +2692,18 @@ export function initGame(THREE){
       canvas.width = 16;
       canvas.height = 16;
       const ctx = canvas.getContext("2d");
-      const texData = blockTypes[id]?.textures?.top;
+      const textures = blockTypes[id]?.textures;
+      if (!textures) return null;
+      // Prefer front/north side for inventory icons
+      const sideOrder = ["front", "north", "south", "east", "west", "top", "bottom"];
+      let texData = null;
+      for (const side of sideOrder) {
+        if (textures[side]) { texData = textures[side]; break; }
+      }
+      if (!texData) {
+        const firstKey = Object.keys(textures)[0];
+        if (firstKey) texData = textures[firstKey];
+      }
       if (!texData) return null;
       if (Array.isArray(texData)) {
         texData.forEach((color, i) => {
@@ -2684,31 +2806,38 @@ export function initGame(THREE){
     }
 
     // Set button click handler
-    document.getElementById("blockDropsSetBtn").onclick = () => {
-      const from = fromSelect.value;
-      const to = toSelect.value;
-      if (!from) {
-        alert("Please select a block type");
-        return;
-      }
-      if (to === "__none__") {
-        // explicit "no drop"
-        blockDrops_mapping[from] = "__none__";
-      } else if (to) {
-        blockDrops_mapping[from] = to;
-      } else {
-        delete blockDrops_mapping[from];
-      }
-      saveBlockDropsMapping();
-      updateBlockDropsList();
-    };
+    const setBtn = document.getElementById("blockDropsSetBtn");
+    const resetBtn = document.getElementById("blockDropsResetBtn");
+    
+    if (setBtn) {
+      setBtn.onclick = () => {
+        const from = fromSelect.value;
+        const to = toSelect.value;
+        if (!from) {
+          alert("Please select a block type");
+          return;
+        }
+        if (to === "__none__") {
+          // explicit "no drop"
+          blockDrops_mapping[from] = "__none__";
+        } else if (to) {
+          blockDrops_mapping[from] = to;
+        } else {
+          delete blockDrops_mapping[from];
+        }
+        saveBlockDropsMapping();
+        updateBlockDropsList();
+      };
+    }
 
     // Reset button click handler
-    document.getElementById("blockDropsResetBtn").onclick = () => {
-      blockDrops_mapping = {};
-      saveBlockDropsMapping();
-      updateBlockDropsList();
-    };
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        blockDrops_mapping = {};
+        saveBlockDropsMapping();
+        updateBlockDropsList();
+      };
+    }
 
     updateBlockDropsList();
   }
@@ -4580,7 +4709,7 @@ export function initGame(THREE){
   // — it's kept on the object so existing UI code referencing it doesn't
   // break, but it is no longer surfaced in the dev tab.
   let furnaceDevSettings = {
-    allowedFuels: { coal: true, wood: true, planks: true, sticks: true },
+    allowedFuels: { coal: true, wood: true, wooden_planks: true, stick: true },
     recipes: {} // { inputType: outputType }
   };
 
@@ -4893,6 +5022,10 @@ export function initGame(THREE){
     if (craftTableBtn && !craftTableBtn._initDone) {
       craftTableBtn._initDone = true;
       craftTableBtn.onclick = () => {
+        if (craftingTablePreviewMode) {
+          addChatMessage("Cannot craft while recipe preview is active. Place the required ingredients first.");
+          return;
+        }
         if (!craftingTableOutput) {
           console.warn("No crafting table output available");
           return;
@@ -4934,6 +5067,10 @@ export function initGame(THREE){
     if (tableOutputSlot && !tableOutputSlot._initDone) {
       tableOutputSlot._initDone = true;
       tableOutputSlot.onclick = () => {
+        if (craftingTablePreviewMode) {
+          addChatMessage("Place the required ingredients into the crafting grid before collecting the output.");
+          return;
+        }
         const craftTableBtn = document.getElementById("craftTableBtn");
         if (craftTableBtn) craftTableBtn.click();
       };
@@ -5571,32 +5708,122 @@ export function initGame(THREE){
     }, 5000);
   }
 
+  function normalizeLookupKey(text) {
+    return (text || "").replace(/\s+/g, "").toLowerCase();
+  }
+
+  function getDisplayNameForItem(itemId) {
+    return blockTypes[itemId]?.name || toolTypes[itemId]?.name || itemsData?.[itemId]?.name || itemId;
+  }
+
+  function resolveGiveTarget(rawValue) {
+    const searchKey = normalizeLookupKey(rawValue);
+    if (!searchKey) return null;
+
+    const allIds = [
+      ...Object.keys(blockTypes || {}),
+      ...Object.keys(toolTypes || {}),
+      ...Object.keys(itemsData || {})
+    ];
+
+    for (const id of allIds) {
+      if (normalizeLookupKey(id) === searchKey) return id;
+    }
+
+    for (const id of allIds) {
+      const name = normalizeLookupKey(blockTypes[id]?.name || toolTypes[id]?.name || itemsData[id]?.name || id);
+      if (name === searchKey) return id;
+    }
+
+    return null;
+  }
+
+  function giveItemToPlayer(itemId, count = 64) {
+    if (!itemId) return 0;
+    let remaining = count;
+
+    for (let i = 0; i < 36 && remaining > 0; i++) {
+      if (player.inventory[i].type === itemId && player.inventory[i].count < 64) {
+        const space = 64 - player.inventory[i].count;
+        const toAdd = Math.min(space, remaining);
+        player.inventory[i].count += toAdd;
+        remaining -= toAdd;
+      }
+    }
+
+    for (let i = 0; i < 36 && remaining > 0; i++) {
+      if (!player.inventory[i].type || player.inventory[i].count === 0) {
+        const toAdd = Math.min(64, remaining);
+        player.inventory[i] = { type: itemId, count: toAdd };
+        remaining -= toAdd;
+      }
+    }
+
+    if (remaining === count) return 0;
+    if (typeof renderInventoryGrid === "function") renderInventoryGrid();
+    if (typeof updateHotbarUI === "function") updateHotbarUI();
+    return count - remaining;
+  }
+
   function handleChatCommand(command) {
     const args = command.split(" ");
     const cmd = args[0].toLowerCase();
     
-    if (cmd === "/locate" && args[1] === "players") {
-      // Get all player positions
-      let playerList = `Players (${Object.keys(remotePlayers).length + 1}):\n`;
-      playerList += `${player.username}: X=${Math.round(player.group.position.x)} Y=${Math.round(player.group.position.y)} Z=${Math.round(player.group.position.z)}`;
+    if (cmd === "/tp") {
+      // /tp <x,y,z> command - teleport to coordinates
+      if (args.length < 2) {
+        addChatMessage("Usage: /tp <x,y,z>");
+        return;
+      }
       
-      Object.entries(remotePlayers).forEach(([id, p]) => {
-        if (p.username) {
-          playerList += `\n${p.username}: X=${Math.round(p.group.position.x)} Y=${Math.round(p.group.position.y)} Z=${Math.round(p.group.position.z)}`;
-        }
+      const coordString = args[1];
+      const coords = coordString.split(",").map(c => {
+        const num = parseFloat(c.trim());
+        return isNaN(num) ? null : Math.round(num); // Round coordinates
       });
       
+      if (coords.length !== 3 || coords.some(c => c === null)) {
+        addChatMessage("Invalid coordinates. Usage: /tp <x,y,z>");
+        return;
+      }
+      
+      const [x, y, z] = coords;
+      player.group.position.set(x, y, z);
+      addChatMessage(`Teleported to ${x}, ${y}, ${z}`);
+      return;
+    } else if (cmd === "/locate" && args.slice(1).join(" ").trim().toLowerCase() === "players") {
+      const playerCount = 1 + Object.keys(remotePlayers).length;
+      let playerList = `Players (${playerCount}):\n`;
+      playerList += `${player.username}: X=${Math.round(player.group.position.x)} Y=${Math.round(player.group.position.y)} Z=${Math.round(player.group.position.z)}`;
+
+      Object.entries(remotePlayers).forEach(([id, p]) => {
+        const name = p.username || p.name || id;
+        playerList += `\n${name}: X=${Math.round(p.group.position.x)} Y=${Math.round(p.group.position.y)} Z=${Math.round(p.group.position.z)}`;
+      });
+
       addChatMessage(playerList);
     } else if (cmd === "/give") {
-      // /give <block|item|tool>  -> opens a clickable picker
-      const category = (args[1] || "").toLowerCase();
-      if (!["block", "item", "tool"].includes(category)) {
-        addChatMessage("Usage: /give <block|item|tool>");
+      const payload = command.slice(cmd.length).trim();
+      const normalized = normalizeLookupKey(payload);
+      if (["block", "item", "tool"].includes(normalized)) {
+        openGivePicker(normalized);
+      } else if (!payload) {
+        addChatMessage("Usage: /give <block|item|tool> or /give <item name>");
       } else {
-        openGivePicker(category);
+        const targetId = resolveGiveTarget(payload);
+        if (!targetId) {
+          addChatMessage(`Unknown item: ${payload}. Try /give <block|item|tool> or use an exact item name.`);
+        } else {
+          const given = giveItemToPlayer(targetId);
+          if (given) {
+            addChatMessage(`Gave ${given}× ${getDisplayNameForItem(targetId)}.`);
+          } else {
+            addChatMessage(`Inventory full. Could not give ${getDisplayNameForItem(targetId)}.`);
+          }
+        }
       }
     } else if (cmd === "/help") {
-      addChatMessage("Available commands:\n/locate players - Show all player coordinates\n/give <block|item|tool> - Open picker to give yourself an item (dev mode)");
+      addChatMessage("Available commands:\n/tp <x,y,z> - Teleport to coordinates\n/locate players - Show all player coordinates\n/give <block|item|tool> - Open picker to give yourself an item");
     } else {
       addChatMessage("Unknown command: " + cmd);
     }
@@ -5625,7 +5852,7 @@ export function initGame(THREE){
             <button id="givePickerClose" style="background:#a33; color:white; border:none; padding:4px 10px; cursor:pointer;">&times;</button>
           </div>
           <div style="font-size:12px; color:#bbb; margin-bottom:8px;">
-            Click an item to select it. Press <b>Enter</b> to confirm (you'll be asked for the dev password).
+            Click an item to select it. Press <b>Enter</b> to confirm.
           </div>
           <div id="givePickerSelectedLabel" style="margin-bottom:8px; font-size:13px;">Selected: <i>none</i></div>
           <div id="givePickerGrid" style="display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; overflow-y:auto; padding:4px; background:rgba(0,0,0,0.3); flex:1;"></div>
@@ -5716,34 +5943,13 @@ export function initGame(THREE){
       addChatMessage("Pick an item first.");
       return;
     }
-    const password = window.prompt("Enter dev mode password to /give:");
-    if (password === null) return; // cancelled
-    if (password !== "Banana@123") {
-      addChatMessage("Wrong dev password — /give cancelled.");
-      return;
-    }
     const sel = givePickerSelected;
-    // Add 64 of the selected item to the player's inventory.
-    let remaining = 64;
-    for (let i = 0; i < 36 && remaining > 0; i++) {
-      if (player.inventory[i].type === sel.id && player.inventory[i].count < 64) {
-        const space = 64 - player.inventory[i].count;
-        const toAdd = Math.min(space, remaining);
-        player.inventory[i].count += toAdd;
-        remaining -= toAdd;
-      }
+    const given = giveItemToPlayer(sel.id);
+    if (given) {
+      addChatMessage(`Gave ${given}× ${sel.name}.`);
+    } else {
+      addChatMessage(`Inventory full. Could not give ${sel.name}.`);
     }
-    for (let i = 0; i < 36 && remaining > 0; i++) {
-      if (!player.inventory[i].type) {
-        const toAdd = Math.min(64, remaining);
-        player.inventory[i] = { type: sel.id, count: toAdd };
-        remaining -= toAdd;
-      }
-    }
-    const given = 64 - remaining;
-    addChatMessage(`Gave ${given}× ${sel.name}.`);
-    if (typeof renderInventoryGrid === "function") renderInventoryGrid();
-    if (typeof updateHotbarUI === "function") updateHotbarUI();
     closeGivePicker();
   }
 
@@ -5848,12 +6054,8 @@ export function initGame(THREE){
       canvas.height = 16;
       const ctx = canvas.getContext("2d");
 
-      // Pick the best available face. Block textures are keyed by side
-      // (north/south/east/west/top/bottom). The "front" face the player
-      // typically sees is the side face — try those first, then fall back
-      // to top, bottom, or whatever the block actually defines. This fixes
-      // empty/blank inventory icons for blocks that don't have a "front" key.
-      const sideOrder = ["north", "south", "east", "west", "top", "bottom"];
+      // Prefer the front face for inventory icons, with fallbacks
+      const sideOrder = ["front", "north", "south", "east", "west", "top", "bottom"];
       let tex = null;
       for (const side of sideOrder) {
         if (textures[side]) { tex = textures[side]; break; }
@@ -5896,7 +6098,7 @@ export function initGame(THREE){
   let furnaceSlotFuel = { type: null, count: 0 };
   let furnaceSlotInput = { type: null, count: 0 };
   let furnaceSlotOutput = { type: null, count: 0 };
-  const FURNACE_FUEL_TYPES = ["coal", "wood", "planks", "sticks"];
+  const FURNACE_FUEL_TYPES = ["coal", "wood", "wooden_planks", "stick"];
 
   function initFurnaceUI() {
     console.log("Initializing furnace UI");
@@ -5970,9 +6172,14 @@ export function initGame(THREE){
     const slot = document.getElementById(elementId);
     if (!slot) return;
     slot.innerHTML = "";
-    if (slotData && slotData.type) {
+    if (slotData && slotData.type && slotData.count > 0) {
       const icon = createBlockIcon(slotData.type) || createToolIcon(slotData.type);
-      if (icon) slot.appendChild(icon);
+      if (icon) {
+        icon.style.width = "100%";
+        icon.style.height = "100%";
+        icon.style.imageRendering = "pixelated";
+        slot.appendChild(icon);
+      }
       if (slotData.count > 1) {
         const count = document.createElement("div");
         count.className = "item-count";
@@ -6238,6 +6445,13 @@ export function initGame(THREE){
 
   // Wrapper used everywhere we want to show one of the listed overlays.
   function showGameOverlay(id) {
+      // Don't show overlays if chat or pause menu is open
+      const chatInput = document.getElementById("chatInput");
+      const pauseMenu = document.getElementById("pauseMenu");
+      if ((chatInput && chatInput.style.display !== "none") ||
+          (pauseMenu && pauseMenu.style.display === "flex")) {
+        return; // Blocked by chat or pause menu
+      }
       closeAllGameOverlays(id);
       const el = document.getElementById(id);
       if (el) el.style.display = "flex";
@@ -6296,8 +6510,8 @@ export function initGame(THREE){
   let lastHealTime = performance.now(); // Track healing timer
   let lowFpsStartTime = null;
   let currentFps = 60;
-  const LOW_FPS_THRESHOLD = 30;
-  const GOOD_FPS_THRESHOLD = 35;
+  const LOW_FPS_THRESHOLD = 35;
+  const GOOD_FPS_THRESHOLD = 40;
   const LOW_FPS_DURATION = 5000; // 5 seconds in milliseconds
 
   function animate() {
@@ -6315,9 +6529,9 @@ export function initGame(THREE){
       if (now > fpsLastTime + 1000) {
           currentFps = Math.round((frames * 1000) / (now - fpsLastTime));
           if (fpsElement) {
-              const px = Math.round(player.group.position.x * 100) / 100;
-              const py = Math.round(player.group.position.y * 100) / 100;
-              const pz = Math.round(player.group.position.z * 100) / 100;
+              const px = Math.round(player.group.position.x);
+              const py = Math.round(player.group.position.y);
+              const pz = Math.round(player.group.position.z);
               fpsElement.textContent = `FPS: ${currentFps}\nX: ${px} Y: ${py} Z: ${pz}`;
               fpsElement.style.display = "block";
           }

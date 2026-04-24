@@ -52,10 +52,10 @@
       "wooden_planks",
       "wooden_planks",
       null,
-      "wooden_planks",
+      "stick",
       null,
       null,
-      "wooden_planks",
+      "stick",
       null
     ],
     "output": "wooden_pickaxe",
@@ -98,24 +98,6 @@
     "outputCount": 1
   },
   {
-    "id": "glass_1776507371897",
-    "name": "Glass",
-    "type": "3x3",
-    "pattern": [
-      "leaves",
-      "leaves",
-      "leaves",
-      "leaves",
-      "stone",
-      "leaves",
-      "leaves",
-      "leaves",
-      "leaves"
-    ],
-    "output": "glass",
-    "outputCount": 1
-  },
-  {
     "id": "oak_planks_1776552130862",
     "name": "Oak Planks",
     "type": "2x2",
@@ -126,7 +108,7 @@
       null
     ],
     "output": "wooden_planks",
-    "outputCount": 1
+    "outputCount": 4
   },
   {
     "id": "oak_planks_1776552151561",
@@ -139,7 +121,7 @@
       "wood"
     ],
     "output": "wooden_planks",
-    "outputCount": 1
+    "outputCount": 4
   },
   {
     "id": "oak_planks_1776552167462",
@@ -152,7 +134,7 @@
       null
     ],
     "output": "wooden_planks",
-    "outputCount": 1
+    "outputCount": 4
   },
   {
     "id": "furnace_1776705466988",
@@ -170,6 +152,91 @@
       "stone"
     ],
     "output": "furnace",
+    "outputCount": 1
+  },
+  {
+    "id": "sticks_1776800945686",
+    "name": "Sticks",
+    "type": "2x2",
+    "pattern": [
+      "wooden_planks",
+      null,
+      "wooden_planks",
+      null
+    ],
+    "output": "stick",
+    "outputCount": 1
+  },
+  {
+    "id": "sticks_1776800980586",
+    "name": "Sticks",
+    "type": "3x3",
+    "pattern": [
+      null,
+      null,
+      null,
+      null,
+      "wooden_planks",
+      null,
+      null,
+      "wooden_planks",
+      null
+    ],
+    "output": "stick",
+    "outputCount": 1
+  },
+  {
+    "id": "wooden_axe_1776801412233",
+    "name": "Wooden axe",
+    "type": "3x3",
+    "pattern": [
+      "wooden_planks",
+      "wooden_planks",
+      null,
+      "wooden_planks",
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "wooden_axe",
+    "outputCount": 1
+  },
+  {
+    "id": "cobblestone_1776983366730",
+    "name": "Cobblestone",
+    "type": "3x3",
+    "pattern": [
+      null,
+      null,
+      null,
+      null,
+      "stone",
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": "cobblestone",
+    "outputCount": 1
+  },
+  {
+    "id": "correct_1776985543713",
+    "name": "correct",
+    "type": "3x3",
+    "pattern": [
+      "leaves",
+      "leaves",
+      "leaves",
+      "leaves",
+      "wooden_planks",
+      "leaves",
+      "wooden_planks",
+      "leaves",
+      "wooden_planks"
+    ],
+    "output": "correct",
     "outputCount": 1
   }
 ]

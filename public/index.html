@@ -541,31 +541,152 @@
       <h2>Game Paused</h2>
       <div class="pause-buttons">
         <button class="mc-btn" id="resumeBtn">Resume</button>
+        <button class="mc-btn" id="videoSettingsBtn">Video Settings</button>
         <button class="mc-btn" id="quitBtn">Save and Quit to Title</button>
       </div>
     </div>
     <div id="pauseVideo" style="display:none;">
       <h2>Video Settings</h2>
-      <div class="settings-group">
-        <label>Framerate</label>
-        <select id="framerateSelect" class="mc-select">
-          <option value="30">30 FPS</option>
-          <option value="60" selected>60 FPS</option>
-          <option value="120">120 FPS</option>
-          <option value="0">Unlimited</option>
-        </select>
+      <div style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
+        <!-- Display Settings -->
+        <div class="settings-group">
+          <h3 style="margin-top: 0; color: #4CAF50;">Display</h3>
+          <div class="setting-item">
+            <label>Max Framerate (FPS)</label>
+            <select id="maxFpsSelect" class="mc-select">
+              <option value="30">30 FPS</option>
+              <option value="60" selected>60 FPS</option>
+              <option value="120">120 FPS</option>
+              <option value="240">240 FPS</option>
+              <option value="0">Unlimited</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>VSync</label>
+            <input type="checkbox" id="vsyncCheck" checked>
+          </div>
+          <div class="setting-item">
+            <label>Resolution Scale</label>
+            <input type="range" id="resolutionSlider" min="50" max="150" value="100" class="mc-slider">
+            <span id="resolutionValue">100%</span>
+          </div>
+          <div class="setting-item">
+            <label>Brightness</label>
+            <input type="range" id="brightnessSlider" min="50" max="150" value="100" class="mc-slider">
+            <span id="brightnessValue">100%</span>
+          </div>
+          <div class="setting-item">
+            <label>Contrast</label>
+            <input type="range" id="contrastSlider" min="50" max="150" value="100" class="mc-slider">
+            <span id="contrastValue">100%</span>
+          </div>
+          <div class="setting-item">
+            <label>Gamma</label>
+            <input type="range" id="gammaSlider" min="50" max="150" value="100" class="mc-slider">
+            <span id="gammaValue">100%</span>
+          </div>
+        </div>
+
+        <!-- Graphics Settings -->
+        <div class="settings-group">
+          <h3 style="color: #4CAF50;">Graphics</h3>
+          <div class="setting-item">
+            <label>Render Distance (Chunks)</label>
+            <input type="range" id="renderDistanceSlider" min="2" max="8" value="4" class="mc-slider">
+            <span id="renderDistanceValue">4</span>
+          </div>
+          <div class="setting-item">
+            <label>Chunk Distance</label>
+            <input type="range" id="chunkDistanceSlider" min="4" max="16" value="8" class="mc-slider">
+            <span id="chunkDistanceValue">8</span>
+          </div>
+          <div class="setting-item">
+            <label>Anti-aliasing (MSAA)</label>
+            <select id="msaaSelect" class="mc-select">
+              <option value="0">Off</option>
+              <option value="2">2x</option>
+              <option value="4" selected>4x</option>
+              <option value="8">8x</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>Shadows</label>
+            <input type="checkbox" id="shadowsEnabledCheck" checked>
+          </div>
+          <div class="setting-item">
+            <label>Shadow Quality</label>
+            <select id="shadowQualitySelect" class="mc-select">
+              <option value="1024">Low (1024)</option>
+              <option value="2048" selected>Medium (2048)</option>
+              <option value="4096">High (4096)</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>Shadow Distance</label>
+            <input type="range" id="shadowDistanceSlider" min="20" max="100" value="50" class="mc-slider">
+            <span id="shadowDistanceValue">50</span>
+          </div>
+        </div>
+
+        <!-- Effects -->
+        <div class="settings-group">
+          <h3 style="color: #4CAF50;">Effects</h3>
+          <div class="setting-item">
+            <label>Particles</label>
+            <input type="checkbox" id="particlesEnabledCheck" checked>
+          </div>
+          <div class="setting-item">
+            <label>Ambient Occlusion</label>
+            <input type="checkbox" id="aoCheck">
+          </div>
+          <div class="setting-item">
+            <label>Bloom</label>
+            <input type="checkbox" id="bloomCheck">
+          </div>
+          <div class="setting-item">
+            <label>Reflections</label>
+            <input type="checkbox" id="reflectionsCheck">
+          </div>
+          <div class="setting-item">
+            <label>Fluid Render Quality</label>
+            <select id="fluidQualitySelect" class="mc-select">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high" selected>High</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Performance -->
+        <div class="settings-group">
+          <h3 style="color: #4CAF50;">Performance</h3>
+          <div class="setting-item">
+            <label>Level of Detail (LOD)</label>
+            <input type="checkbox" id="lodEnabledCheck" checked>
+          </div>
+          <div class="setting-item">
+            <label>HUD Scale</label>
+            <input type="range" id="hudScaleSlider" min="50" max="200" value="100" class="mc-slider">
+            <span id="hudScaleValue">100%</span>
+          </div>
+          <div class="setting-item">
+            <label>
+              <input type="checkbox" id="hideHandCheck"> Hide Hand
+            </label>
+          </div>
+          <div class="setting-item">
+            <label>
+              <input type="checkbox" id="debugInfoCheck"> Show Debug Info
+            </label>
+          </div>
+        </div>
       </div>
-      <div class="settings-group">
-        <label>Brightness</label>
-        <input type="range" id="brightnessSlider" min="50" max="150" value="100" class="mc-slider">
-        <span id="brightnessValue">100%</span>
+
+      <div class="settings-buttons" style="margin-top: 10px; display: flex; gap: 5px;">
+        <button class="mc-btn" id="autoDetectSettingsBtn" style="flex: 1;">Auto Detect</button>
+        <button class="mc-btn" id="resetSettingsBtn" style="flex: 1;">Reset</button>
+        <button class="mc-btn" id="backFromVideoBtn" style="flex: 1;">Back</button>
       </div>
-      <div class="settings-group">
-        <label>Contrast</label>
-        <input type="range" id="contrastSlider" min="50" max="150" value="100" class="mc-slider">
-        <span id="contrastValue">100%</span>
-      </div>
-      <button class="mc-btn" onclick="document.getElementById('pauseVideo').style.display='none';document.getElementById('pauseMain').style.display='block';">Back</button>
     </div>
     <div id="pauseGame" style="display:none;">
       <h2>Game Settings</h2>
@@ -593,7 +714,7 @@
 </div>
 
 <!-- Loading Screen -->
-<div id="loadingScreen" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); z-index: 1000; display: flex; align-items: center; justify-content: center;">
+<div id="loadingScreen" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgb(0, 0, 0); z-index: 1000; display: flex; align-items: center; justify-content: center;">
   <div style="text-align: center;">
     <h2 style="color: white; font-family: 'Minecraftia', monospace; margin-bottom: 30px;">Generating World...</h2>
     <div style="width: 300px; height: 30px; background: rgba(100, 100, 100, 0.5); border: 2px solid #666; border-radius: 4px; overflow: hidden;">
@@ -604,11 +725,25 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@5.52.0/babylon.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@5.52.0/babylon.loaders.min.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script type="module">
   import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.webgpu.js';
+  import GameRendererIntegration from './gameRenderer.js';
+  import VideoSettingsUI from './videoSettingsUI.js';
   import { initGame } from './main.js';
-  initGame(THREE);
+  
+  // Initialize the new rendering system
+  const gameRenderer = new GameRendererIntegration();
+  window.gameRenderer = gameRenderer;
+  
+  // Initialize video settings UI
+  const videoSettingsUI = new VideoSettingsUI(gameRenderer.getVideoSettings());
+  window.videoSettingsUI = videoSettingsUI;
+  
+  // Initialize the game with three.js (will use our new rendering backend)
+  await initGame(THREE, gameRenderer);
 </script>
 
 </body>
