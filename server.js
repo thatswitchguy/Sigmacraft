@@ -65,7 +65,8 @@ io.on("connection", (socket) => {
         if (players[socket.id]) {
             players[socket.id].pos = data.pos;
             players[socket.id].rot = data.rot;
-            socket.broadcast.emit("playerMoved", { id: socket.id, pos: data.pos, rot: data.rot });
+            players[socket.id].heldType = data.heldType || null;
+            socket.broadcast.emit("playerMoved", { id: socket.id, pos: data.pos, rot: data.rot, heldType: data.heldType || null });
         }
     });
 

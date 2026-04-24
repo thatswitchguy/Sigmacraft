@@ -303,7 +303,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
   player.group.add(modelGroup);
   player.model = modelGroup;
-  player.limbs = { armL, armR, legL, legR };
+  player.limbs = { armL, armR, legL, legR, head, body };
 
   // Create Name Tag
   function createNameTag(name) {
@@ -1540,6 +1540,45 @@ export async function initGame(THREE, gameRendererIntegration){
         if (p.limbs && p.limbs.head) {
           p.limbs.head.rotation.x = data.rot.pitch;
         }
+
+        // Update the held-item mesh on this remote player's right arm
+        if (p.tpItem) {
+          const heldType = data.heldType;
+          if (heldType) {
+            p.tpItem.visible = true;
+            let mat = null;
+            if (blockMaterials[heldType]) {
+              mat = Array.isArray(blockMaterials[heldType])
+                ? blockMaterials[heldType][0].clone()
+                : blockMaterials[heldType].clone();
+            } else {
+              const toolTex = toolTypes[heldType]?.texture || itemsData?.[heldType]?.texture;
+              if (toolTex) {
+                const cvs = document.createElement("canvas");
+                cvs.width = 16; cvs.height = 16;
+                const ctx2 = cvs.getContext("2d");
+                if (Array.isArray(toolTex)) {
+                  toolTex.forEach((color, i) => {
+                    if (color && color !== "transparent" && color !== "#00000000") {
+                      ctx2.fillStyle = color;
+                      ctx2.fillRect(i % 16, Math.floor(i / 16), 1, 1);
+                    }
+                  });
+                } else {
+                  ctx2.fillStyle = toolTex;
+                  ctx2.fillRect(0, 0, 16, 16);
+                }
+                const tex = new THREE.CanvasTexture(cvs);
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true });
+              }
+            }
+            if (mat) p.tpItem.material = mat;
+          } else {
+            p.tpItem.visible = false;
+          }
+        }
       }
     });
 
@@ -1725,7 +1764,16 @@ export async function initGame(THREE, gameRendererIntegration){
     setUVs(legL, legUVs);
     setUVs(legR, legUVs);
 
-    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, username: data.username };
+    // Held-item mesh attached to the right arm of this remote player
+    const tpItemGeo = new THREE.BoxGeometry(0.12, 0.12, 0.6);
+    const tpItemMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+    const tpItem = new THREE.Mesh(tpItemGeo, tpItemMat);
+    // Position in front of the hand (along the arm's local -Z forward)
+    tpItem.position.set(0, -0.55, -0.35);
+    tpItem.visible = false;
+    armR.add(tpItem);
+
+    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, tpItem, username: data.username };
 
     // Apply skin if it exists - use proper texture extraction like the player model
     fetch("/skin").then(r => r.json()).then(res => {
@@ -2042,9 +2090,13 @@ export async function initGame(THREE, gameRendererIntegration){
     player.group.rotation.y = player.yaw;
 
     if (socket) {
+      const heldSlotForEmit = player.inventory[player.selectedSlot];
+      const heldTypeForEmit = (heldSlotForEmit && heldSlotForEmit.type && heldSlotForEmit.count > 0)
+        ? heldSlotForEmit.type : null;
       socket.emit("move", { 
         pos: player.group.position, 
-        rot: { y: player.yaw, pitch: player.pitch } 
+        rot: { y: player.yaw, pitch: player.pitch },
+        heldType: heldTypeForEmit
       });
     }
   });
@@ -3595,8 +3647,9 @@ export async function initGame(THREE, gameRendererIntegration){
         mat = blockMaterials[selectedItem.type];
         itemName = blockTypes[selectedItem.type]?.name || selectedItem.type;
         isBlock = true;
-      } else if (toolTypes[selectedItem.type]) {
-        const toolTex = toolTypes[selectedItem.type]?.texture;
+      } else if (toolTypes[selectedItem.type] || itemsData?.[selectedItem.type]) {
+        const entry = toolTypes[selectedItem.type] || itemsData?.[selectedItem.type];
+        const toolTex = entry?.texture;
         if (toolTex) {
           const cvs = document.createElement("canvas");
           cvs.width = 16; cvs.height = 16;
@@ -3604,12 +3657,9 @@ export async function initGame(THREE, gameRendererIntegration){
           ctx.clearRect(0, 0, 16, 16);
           if (Array.isArray(toolTex)) {
             toolTex.forEach((color, i) => {
-              if (color === "transparent") {
-                ctx.clearRect(i % 16, Math.floor(i / 16), 1, 1);
-              } else {
-                ctx.fillStyle = color;
-                ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
-              }
+              if (!color || color === "transparent" || color === "#00000000") return;
+              ctx.fillStyle = color;
+              ctx.fillRect(i % 16, Math.floor(i / 16), 1, 1);
             });
           } else {
             ctx.fillStyle = toolTex || "#8B4513";
@@ -3620,7 +3670,7 @@ export async function initGame(THREE, gameRendererIntegration){
           texture.minFilter = THREE.NearestFilter;
           mat = new THREE.MeshStandardMaterial({ map: texture, transparent: true });
         }
-        itemName = toolTypes[selectedItem.type]?.name || selectedItem.type;
+        itemName = entry?.name || selectedItem.type;
         isTool = true;
       }
       
@@ -6733,22 +6783,31 @@ updateBreaking();
       // Update sneak state (Shift) before camera adjustments
       player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
 
-      // Visibly crouch the player model when sneaking: lower the body and
-      // tilt the upper body forward, similar to Minecraft's sneak pose.
+      // Minecraft-accurate sneak pose: tilt torso forward, head compensates,
+      // arms spread, whole model lowers — never rotate the whole modelGroup.
       if (player.model) {
-          const sneakOffset = player.isSneaking ? -0.25 : 0;
-          const sneakTilt = player.isSneaking ? 0.45 : 0;
-          // Smoothly lerp into pose
-          player.model.position.y += (sneakOffset - player.model.position.y) * 0.3;
+          const lerp = (a, b, t) => a + (b - a) * t;
+          const sneakY   = player.isSneaking ? -0.2  : 0;
+          player.model.position.y = lerp(player.model.position.y, sneakY, 0.35);
+          // Don't rotate the whole model
+          player.model.rotation.x = lerp(player.model.rotation.x, 0, 0.35);
           if (player.limbs) {
-              const tiltLerp = (cur, target) => cur + (target - cur) * 0.3;
-              // Tilt the body parts forward visually by rotating limbs around X
-              // (legs already animate; only adjust offset rotation)
-              player.limbs.armL.rotation.z = tiltLerp(player.limbs.armL.rotation.z || 0, player.isSneaking ? -0.15 : 0);
-              player.limbs.armR.rotation.z = tiltLerp(player.limbs.armR.rotation.z || 0, player.isSneaking ? 0.15 : 0);
+              // Body tilts forward ~28° (0.5 rad) like Minecraft
+              const bodyTilt = player.isSneaking ? 0.5 : 0;
+              if (player.limbs.body) {
+                  player.limbs.body.rotation.x = lerp(player.limbs.body.rotation.x || 0, bodyTilt, 0.35);
+              }
+              // Head tilts back to stay roughly horizontal
+              if (player.limbs.head) {
+                  player.limbs.head.rotation.x = lerp(player.limbs.head.rotation.x || 0, -bodyTilt * 0.85, 0.35);
+              }
+              // Arms spread outward like Minecraft sneak
+              player.limbs.armL.rotation.z = lerp(player.limbs.armL.rotation.z || 0, player.isSneaking ? -0.4 : 0, 0.35);
+              player.limbs.armR.rotation.z = lerp(player.limbs.armR.rotation.z || 0, player.isSneaking ?  0.4 : 0, 0.35);
+              // Arms drop slightly forward
+              player.limbs.armL.rotation.x = lerp(player.limbs.armL.rotation.x || 0, player.isSneaking ? 0.4 : (player.limbs.armL.rotation.x < 0.01 ? 0 : player.limbs.armL.rotation.x), 0.35);
+              player.limbs.armR.rotation.x = lerp(player.limbs.armR.rotation.x || 0, player.isSneaking ? 0.4 : (player.limbs.armR.rotation.x < 0.01 ? 0 : player.limbs.armR.rotation.x), 0.35);
           }
-          // Tilt the entire upper-body group forward
-          player.model.rotation.x = player.model.rotation.x + (sneakTilt - player.model.rotation.x) * 0.3;
       }
 
       if (player.cameraMode === 0) {
@@ -6793,26 +6852,26 @@ updateBreaking();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 3) {
-          // F+5 camera: 3 blocks behind and 1 block above, responds to mouse like first person
+          // F+5 orbit camera: slowly circles the player in a flat horizontal ring
           player.model.visible = true;
-          
-          // Position camera 3 blocks behind and 1 block above the player
-          // The offset is calculated in the player's local coordinate system, then converted to world
-          const offset = new THREE.Vector3(0, 1.0, 3); // 3 blocks back, 1 block up
-          const rotatedOffset = offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-          const worldCameraPos = player.group.position.clone().add(rotatedOffset);
-          
-          // Set camera position in world space
-          camera.position.copy(worldCameraPos);
-          
-          // Camera looks forward in the direction player is facing, responding to pitch
-          const lookDirection = new THREE.Vector3(
-            Math.sin(player.yaw) * Math.cos(player.pitch),
-            -Math.sin(player.pitch),
-            -Math.cos(player.yaw) * Math.cos(player.pitch)
+          if (player.fp && player.fp.handGroup) player.fp.handGroup.visible = false;
+
+          // Auto-spin the orbit yaw each frame
+          player.orbit.yaw = (player.orbit.yaw || 0) + 0.008;
+
+          const orbitDist = 5;
+          const orbitHeight = 2.5;
+          // Compute world-space camera position then convert to local (camera is child of player.group)
+          const orbitOffset = new THREE.Vector3(
+              Math.sin(player.orbit.yaw) * orbitDist,
+              orbitHeight,
+              Math.cos(player.orbit.yaw) * orbitDist
           );
-          const lookAt = camera.position.clone().add(lookDirection);
-          camera.lookAt(lookAt);
+          const worldOrbitPos = player.group.position.clone().add(orbitOffset);
+          camera.position.copy(player.group.worldToLocal(worldOrbitPos));
+          // Look at player's chest in world space
+          const chestWorld = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+          camera.lookAt(chestWorld);
       } else if (player.cameraMode === 2) {
           // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;
