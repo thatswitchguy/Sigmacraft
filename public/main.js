@@ -247,8 +247,8 @@ export async function initGame(THREE, gameRendererIntegration){
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 1.0));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
   sun.position.set(50, 100, 50);
   scene.add(sun);
 
@@ -1055,12 +1055,16 @@ export async function initGame(THREE, gameRendererIntegration){
         const yDiff = Math.abs(playerPos.y - blockPos.y);
         const zDiff = Math.abs(playerPos.z - blockPos.z);
         
-        // Allow placing below if there's >0.5 block gap, otherwise check collision normally
+        // Prevent placing blocks inside the player's bounding box.
+        // Use the actual player height so you can place blocks right above your head.
+        const playerMaxY = playerPos.y + (playerHeight || 1.8);
         const isDirectlyBelow = xDiff < 0.4 && zDiff < 0.4;
         if (isDirectlyBelow && playerPos.y - blockPos.y > 0.5) {
-          // Allow placement - there's enough clearance
-        } else if (xDiff < 0.9 && zDiff < 0.9 && yDiff < (playerHeight || 1.8)) {
-          // Block placement denied - too close to player
+          // Allow placement - block is well below feet
+        } else if (xDiff < 0.9 && zDiff < 0.9 &&
+                   blockPos.y > playerPos.y - 0.6 &&
+                   blockPos.y < playerMaxY) {
+          // Block placement denied - block center inside player body
           return;
         }
       } catch (e) {
@@ -5030,6 +5034,24 @@ export async function initGame(THREE, gameRendererIntegration){
           console.warn("No crafting table output available");
           return;
         }
+        // Verify the player actually has all required ingredients in their real inventory
+        const neededIngredients = {};
+        for (let i = 0; i < 9; i++) {
+          const gs = craftingTableGridState[i];
+          if (gs && gs.type && gs.count > 0) {
+            neededIngredients[gs.type] = (neededIngredients[gs.type] || 0) + gs.count;
+          }
+        }
+        const invCount = {};
+        for (let i = 0; i < 36; i++) {
+          const item = player.inventory[i];
+          if (item && item.type) invCount[item.type] = (invCount[item.type] || 0) + item.count;
+        }
+        const hasAll = Object.entries(neededIngredients).every(([type, count]) => (invCount[type] || 0) >= count);
+        if (!hasAll) {
+          addChatMessage("You don't have the required ingredients to craft this.");
+          return;
+        }
         console.log("Crafting item:", craftingTableOutput);
         let placed = false;
         for (let i = 0; i < 36; i++) {
@@ -5726,13 +5748,26 @@ export async function initGame(THREE, gameRendererIntegration){
       ...Object.keys(itemsData || {})
     ];
 
+    // Exact ID match
     for (const id of allIds) {
       if (normalizeLookupKey(id) === searchKey) return id;
     }
 
+    // Exact display name match
     for (const id of allIds) {
       const name = normalizeLookupKey(blockTypes[id]?.name || toolTypes[id]?.name || itemsData[id]?.name || id);
       if (name === searchKey) return id;
+    }
+
+    // Partial/substring match on ID
+    for (const id of allIds) {
+      if (normalizeLookupKey(id).includes(searchKey)) return id;
+    }
+
+    // Partial/substring match on display name
+    for (const id of allIds) {
+      const name = normalizeLookupKey(blockTypes[id]?.name || toolTypes[id]?.name || itemsData[id]?.name || id);
+      if (name.includes(searchKey)) return id;
     }
 
     return null;
@@ -5793,15 +5828,15 @@ export async function initGame(THREE, gameRendererIntegration){
       return;
     } else if (cmd === "/locate" && args.slice(1).join(" ").trim().toLowerCase() === "players") {
       const playerCount = 1 + Object.keys(remotePlayers).length;
-      let playerList = `Players (${playerCount}):\n`;
-      playerList += `${player.username}: X=${Math.round(player.group.position.x)} Y=${Math.round(player.group.position.y)} Z=${Math.round(player.group.position.z)}`;
-
+      addChatMessage(`Players (${playerCount}):`);
+      addChatMessage(`${player.username}: X=${Math.round(player.group.position.x)} Y=${Math.round(player.group.position.y)} Z=${Math.round(player.group.position.z)}`);
       Object.entries(remotePlayers).forEach(([id, p]) => {
         const name = p.username || p.name || id;
-        playerList += `\n${name}: X=${Math.round(p.group.position.x)} Y=${Math.round(p.group.position.y)} Z=${Math.round(p.group.position.z)}`;
+        const px = p.group ? Math.round(p.group.position.x) : "?";
+        const py = p.group ? Math.round(p.group.position.y) : "?";
+        const pz = p.group ? Math.round(p.group.position.z) : "?";
+        addChatMessage(`${name}: X=${px} Y=${py} Z=${pz}`);
       });
-
-      addChatMessage(playerList);
     } else if (cmd === "/give") {
       const payload = command.slice(cmd.length).trim();
       const normalized = normalizeLookupKey(payload);
@@ -5831,8 +5866,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
   // ─── /give PICKER ─────────────────────────────────────────────────────────
   // Opens an overlay listing every block / tool / item in the game. The user
-  // clicks to select one and then presses Enter to confirm. Confirmation
-  // requires the dev-mode password.
+  // clicks to select one and then presses Enter to confirm.
   let givePickerSelected = null;
   let givePickerCategory = null;
 
