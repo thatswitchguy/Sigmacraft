@@ -247,10 +247,16 @@ export async function initGame(THREE, gameRendererIntegration){
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  scene.add(ambientLight);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(50, 100, 50);
   scene.add(sun);
+
+  // Day/night cycle — 20 real-minutes per full day
+  let gameTime = 0; // seconds, 0 = dawn, 300 = noon, 600 = dusk, 900 = midnight
+  const DAY_LENGTH = 1200; // seconds
+  const torchLights = new Map(); // key = "x,y,z" → PointLight
 
   // Build Minecraft Player Model
   // Head (direct child of modelGroup)
@@ -1048,30 +1054,6 @@ export async function initGame(THREE, gameRendererIntegration){
       const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
 
-      // Prevent placing blocks where the player is standing
-      try {
-        const blockPos = newBlock.position;
-        const playerPos = player.group.position;
-        const xDiff = Math.abs(playerPos.x - blockPos.x);
-        const yDiff = Math.abs(playerPos.y - blockPos.y);
-        const zDiff = Math.abs(playerPos.z - blockPos.z);
-        
-        // Prevent placing blocks inside the player's bounding box.
-        // Use the actual player height so you can place blocks right above your head.
-        const playerMaxY = playerPos.y + (playerHeight || 1.8);
-        const isDirectlyBelow = xDiff < 0.4 && zDiff < 0.4;
-        if (isDirectlyBelow && playerPos.y - blockPos.y > 0.5) {
-          // Allow placement - block is well below feet
-        } else if (xDiff < 0.9 && zDiff < 0.9 &&
-                   blockPos.y > playerPos.y - 0.6 &&
-                   blockPos.y < playerMaxY) {
-          // Block placement denied - block center inside player body
-          return;
-        }
-      } catch (e) {
-        // If playerHeight isn't initialized yet, ignore and continue to collision checks
-      }
-
       if (!checkCollision(newBlock.position)) {
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
@@ -1079,6 +1061,15 @@ export async function initGame(THREE, gameRendererIntegration){
         slot.count--;
         if (slot.count <= 0) slot.type = null;
         updateHotbarUI();
+
+        // Torch: place a point light at this block
+        if (blockName === "torch") {
+          const tLight = new THREE.PointLight(0xffaa44, 1.5, 20, 2);
+          tLight.position.copy(newBlock.position);
+          scene.add(tLight);
+          const key = `${Math.round(newBlock.position.x)},${Math.round(newBlock.position.y)},${Math.round(newBlock.position.z)}`;
+          torchLights.set(key, tLight);
+        }
 
         if (socket) {
             socket.emit("blockPlace", { pos: newBlock.position, type: blockName });
@@ -1132,6 +1123,13 @@ export async function initGame(THREE, gameRendererIntegration){
       scene.remove(obj);
       const idx = blocks3D.findIndex(b => b.mesh === obj);
       if (idx !== -1) { blocks3D.splice(idx, 1); occlusionDirty = true; }
+
+      // Remove torch light if a torch was broken
+      const torchKey = `${Math.round(blockPos.x)},${Math.round(blockPos.y)},${Math.round(blockPos.z)}`;
+      if (torchLights.has(torchKey)) {
+        scene.remove(torchLights.get(torchKey));
+        torchLights.delete(torchKey);
+      }
       
       createBlockDrop(blockPos, blockType);
       
@@ -1554,7 +1552,7 @@ export async function initGame(THREE, gameRendererIntegration){
             let mat = null;
             if (isBlock) {
               const bm = blockMaterials[heldType];
-              mat = Array.isArray(bm) ? bm[0].clone() : bm.clone();
+              mat = Array.isArray(bm) ? bm.map(m => m.clone()) : bm.clone();
             } else {
               const toolTex = toolTypes[heldType]?.texture || itemsData?.[heldType]?.texture;
               if (toolTex) {
@@ -1723,7 +1721,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
     // Legs
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-    legL.position.set(-0.1, 0.5, 0);
+    legL.position.set(-0.1, 0.4, 0);
     legL.geometry.translate(0, -0.3, 0); // Move pivot to top
     legL.position.y += 0.3;
     model.add(legL);
@@ -1867,7 +1865,7 @@ export async function initGame(THREE, gameRendererIntegration){
                 } : legRightUV;
                 
                 remotehead.material = createBoxMaterialsForRemote(headUV);
-                body.material
+                body.material = createBoxMaterialsForRemote(bodyUV);
                 armL.material = createBoxMaterialsForRemote(armLeftUV);
                 armR.material = createBoxMaterialsForRemote(armRightUV);
                 legL.material = createBoxMaterialsForRemote(legLeftUV);
@@ -3597,13 +3595,12 @@ export async function initGame(THREE, gameRendererIntegration){
         back: {x: 28, y: 52, w: 4, h: 12}
       } : legRightUV;
       
-      const modelParts = player.model.children;
-      if (modelParts[0]) modelParts[0].material = createBoxMaterials(headUV);
-      if (modelParts[1]) modelParts[1].material = createBoxMaterials(bodyUV);
-      if (modelParts[2]) modelParts[2].material = createBoxMaterials(armLeftUV);
-      if (modelParts[3]) modelParts[3].material = createBoxMaterials(armRightUV);
-      if (modelParts[4]) modelParts[4].material = createBoxMaterials(legLeftUV);
-      if (modelParts[5]) modelParts[5].material = createBoxMaterials(legRightUV);
+      if (player.limbs.head)  player.limbs.head.material  = createBoxMaterials(headUV);
+      if (player.limbs.body)  player.limbs.body.material  = createBoxMaterials(bodyUV);
+      if (player.limbs.armL)  player.limbs.armL.material  = createBoxMaterials(armLeftUV);
+      if (player.limbs.armR)  player.limbs.armR.material  = createBoxMaterials(armRightUV);
+      if (player.limbs.legL)  player.limbs.legL.material  = createBoxMaterials(legLeftUV);
+      if (player.limbs.legR)  player.limbs.legR.material  = createBoxMaterials(legRightUV);
       
       player.fp.hand.material = extractPart(44, 20, 4, 12);
     };
@@ -4873,31 +4870,67 @@ export async function initGame(THREE, gameRendererIntegration){
     }
   }
 
-  // Smelting engine. When an input is sitting in the cooking slot and a
-  // matching recipe exists, convert one input -> one output and try again
-  // (loops until the slot is empty or the input has no recipe). Output
-  // stacks merge; if there's already a different output type sitting there
-  // we stop until the player collects it.
-  function tryFurnaceSmelt() {
-    if (!furnaceSlotInput || !furnaceSlotInput.type || furnaceSlotInput.count <= 0) return;
-    const recipe = furnaceDevSettings.recipes[furnaceSlotInput.type];
-    if (!recipe) return;
-    while (furnaceSlotInput.count > 0) {
-      // Output slot must be empty or hold the same recipe output (and have room).
-      if (furnaceSlotOutput.type && furnaceSlotOutput.type !== recipe) break;
-      if (furnaceSlotOutput.count >= 64) break;
-      if (!furnaceSlotOutput.type) {
-        furnaceSlotOutput = { type: recipe, count: 1 };
-      } else {
-        furnaceSlotOutput.count += 1;
-      }
-      furnaceSlotInput.count -= 1;
-      if (furnaceSlotInput.count <= 0) {
-        furnaceSlotInput = { type: null, count: 0 };
-        break;
-      }
+  // Furnace state — timer-based smelting
+  const FURNACE_BURN_TIMES = { coal: 4, wood: 6, wooden_planks: 6, stick: 7 };
+  let furnaceSmeltTimer = 0;    // seconds remaining in current smelt
+  let furnaceSmeltDuration = 0; // total seconds for this smelt cycle
+  let furnaceIsActive = false;
+
+  function getFuelBurnTime(fuelType) {
+    return FURNACE_BURN_TIMES[fuelType] || 0;
+  }
+
+  function updateFurnaceSmelt(delta) {
+    if (!furnaceIsActive) {
+      // Try to start a new smelt: need input with a recipe AND fuel
+      if (!furnaceSlotInput || !furnaceSlotInput.type || furnaceSlotInput.count <= 0) return;
+      const recipe = furnaceDevSettings.recipes[furnaceSlotInput.type];
+      if (!recipe) return;
+      if (furnaceSlotOutput.type && furnaceSlotOutput.type !== recipe) return;
+      if (furnaceSlotOutput.count >= 64) return;
+      if (!furnaceSlotFuel || !furnaceSlotFuel.type || furnaceSlotFuel.count <= 0) return;
+      const burnTime = getFuelBurnTime(furnaceSlotFuel.type);
+      if (burnTime <= 0) return;
+      // Consume 1 fuel
+      furnaceSlotFuel.count -= 1;
+      if (furnaceSlotFuel.count <= 0) furnaceSlotFuel = { type: null, count: 0 };
+      furnaceSmeltDuration = burnTime;
+      furnaceSmeltTimer = burnTime;
+      furnaceIsActive = true;
+      if (typeof renderFurnaceSlots === "function") renderFurnaceSlots();
+      return;
     }
-    if (typeof renderFurnaceSlots === "function") renderFurnaceSlots();
+
+    furnaceSmeltTimer -= delta;
+    const pct = Math.max(0, Math.min(1, 1 - furnaceSmeltTimer / furnaceSmeltDuration));
+    const bar = document.getElementById("furnaceProgressBar");
+    if (bar) bar.style.width = (pct * 100) + "%";
+
+    if (furnaceSmeltTimer <= 0) {
+      furnaceIsActive = false;
+      furnaceSmeltTimer = 0;
+      if (bar) bar.style.width = "0%";
+      // Produce output
+      const recipe = furnaceDevSettings.recipes[furnaceSlotInput?.type];
+      if (recipe && furnaceSlotInput?.count > 0) {
+        if (!furnaceSlotOutput.type || furnaceSlotOutput.type === recipe) {
+          if (furnaceSlotOutput.count < 64) {
+            if (!furnaceSlotOutput.type) {
+              furnaceSlotOutput = { type: recipe, count: 1 };
+            } else {
+              furnaceSlotOutput.count += 1;
+            }
+            furnaceSlotInput.count -= 1;
+            if (furnaceSlotInput.count <= 0) furnaceSlotInput = { type: null, count: 0 };
+          }
+        }
+      }
+      if (typeof renderFurnaceSlots === "function") renderFurnaceSlots();
+    }
+  }
+
+  function tryFurnaceSmelt() {
+    // Legacy hook — no-op now (timer handles everything)
   }
 
   // ─── CRAFTING TABLE (3x3) ──────────────────────────────────────────────────
@@ -5435,16 +5468,24 @@ export async function initGame(THREE, gameRendererIntegration){
     } else {
       const target = player.inventory[idx];
       if (target.type === player.draggedItem.type) {
-        target.count += player.draggedItem.count;
+        const space = 64 - target.count;
+        const toAdd = Math.min(space, player.draggedItem.count);
+        target.count += toAdd;
+        player.draggedItem.count -= toAdd;
+        if (player.draggedItem.count <= 0) {
+          player.draggedItem = null;
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl) dragEl.remove();
+        }
       } else {
         player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
         if (target.type) {
           player.inventory[player.draggedItem.sourceIdx] = target;
         }
+        player.draggedItem = null;
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) dragEl.remove();
       }
-      player.draggedItem = null;
-      const dragEl = document.getElementById("dragged-item");
-      if (dragEl) dragEl.remove();
     }
     renderCraftingTableInventory();
     renderCraftingTableHotbar();
@@ -6103,16 +6144,24 @@ export async function initGame(THREE, gameRendererIntegration){
       // Normal click: place full stack or swap
       const target = player.inventory[idx];
       if (target.type === player.draggedItem.type) {
-        target.count += player.draggedItem.count;
+        const space = 64 - target.count;
+        const toAdd = Math.min(space, player.draggedItem.count);
+        target.count += toAdd;
+        player.draggedItem.count -= toAdd;
+        if (player.draggedItem.count <= 0) {
+          player.draggedItem = null;
+          const dragEl = document.getElementById("dragged-item");
+          if (dragEl) dragEl.remove();
+        }
       } else {
         player.inventory[idx] = { type: player.draggedItem.type, count: player.draggedItem.count };
         if (target.type) {
           player.inventory[player.draggedItem.sourceIdx] = target;
         }
+        player.draggedItem = null;
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) dragEl.remove();
       }
-      player.draggedItem = null;
-      const dragEl = document.getElementById("dragged-item");
-      if (dragEl) dragEl.remove();
     }
     renderInventoryGrid();
     updateHotbarUI();
@@ -6615,6 +6664,28 @@ export async function initGame(THREE, gameRendererIntegration){
       // Rebuild occlusion set when world changes
       if (occlusionDirty) rebuildBlockSet();
 
+      // Day/night cycle
+      gameTime = (gameTime + delta) % DAY_LENGTH;
+      {
+        // t goes from 0 (midnight) to 1 (noon) via cosine
+        const t = (Math.cos(gameTime / DAY_LENGTH * 2 * Math.PI) + 1) / 2;
+        const dayAmbient = 0.9, nightAmbient = 0.04;
+        const daySun = 1.1, nightSun = 0.0;
+        ambientLight.intensity = nightAmbient + (dayAmbient - nightAmbient) * t;
+        sun.intensity = nightSun + (daySun - nightSun) * t;
+        // Sun/moon position
+        const angle = (gameTime / DAY_LENGTH) * Math.PI * 2;
+        sun.position.set(Math.cos(angle) * 100, Math.sin(angle) * 100, 50);
+        // Sky colour
+        const dayColor = new THREE.Color(0x87ceeb);
+        const nightColor = new THREE.Color(0x050510);
+        const skyColor = nightColor.clone().lerp(dayColor, t);
+        renderer.setClearColor(skyColor, 1);
+      }
+
+      // Furnace timer
+      updateFurnaceSmelt(delta);
+
       // FPS Counter logic (must run before renderDistSq calculation)
       frames++;
       if (now > fpsLastTime + 1000) {
@@ -6788,26 +6859,34 @@ updateBreaking();
       }
 
       // Update sneak state (Shift) before camera adjustments
-      player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
+     player.isSneaking = !!(keys["ShiftLeft"] || keys["ShiftRight"] || keys["Shift"]);
 
-      // Minecraft sneak pose: torsoGroup tilts forward (arms follow), head compensates.
-      // 0 transition — instant snap with no lerp.
-      if (player.model) {
-          player.model.rotation.x = 0;
-          if (player.isSneaking) {
-              player.model.position.y = -0.2;
-              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0.5;
-              if (player.limbs.head)       player.limbs.head.rotation.x = -0.42;
-              player.limbs.armL.rotation.z = -0.4;
-              player.limbs.armR.rotation.z =  0.4;
-          } else {
-              player.model.position.y = 0;
-              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0;
-              if (player.limbs.head)       player.limbs.head.rotation.x = 0;
-              player.limbs.armL.rotation.z = 0;
-              player.limbs.armR.rotation.z = 0;
-          }
-      }
+     // Minecraft sneak pose: torsoGroup tilts forward (arms follow), head compensates.
+     // 0 transition — instant snap with no lerp.
+     if (player.model) {
+         player.model.rotation.x = 0;
+         if (player.isSneaking) {
+             player.model.position.y = -0.2;
+             if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = -0.5;
+             if (player.limbs.head) {
+                 player.limbs.head.rotation.x = -0.42;
+                 player.limbs.head.position.z = -0.5;
+                 player.limbs.head.position.y = 1.45;
+             }
+             player.limbs.armL.rotation.z =  0;
+             player.limbs.armR.rotation.z =  0;
+         } else {
+             player.model.position.y = 0;
+             if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0;
+             if (player.limbs.head) {
+                 player.limbs.head.rotation.x = 0;
+                 player.limbs.head.position.z = 0;
+                 player.limbs.head.position.y = 1.6;
+             }
+             player.limbs.armL.rotation.z = 0;
+             player.limbs.armR.rotation.z = 0;
+         }
+     }
 
       if (player.cameraMode === 0) {
           // First Person: Camera follows head pitch and inherits group rotation
@@ -6930,15 +7009,35 @@ updateBreaking();
           // Current position before move
           const currentPos = player.group.position.clone();
 
-          // X-axis collision (and sneaking edge-check)
+          // X-axis collision (and sneaking edge-check) with 1-block auto step-up
           const nextX = currentPos.clone();
           nextX.x += moveDir.x;
-          if (canMoveTo(nextX)) player.group.position.x = nextX.x;
+          if (canMoveTo(nextX)) {
+              player.group.position.x = nextX.x;
+          } else if (player.onGround) {
+              const stepX = nextX.clone();
+              stepX.y += 1.0;
+              if (!checkCollision(stepX)) {
+                  player.group.position.x = stepX.x;
+                  player.group.position.y = stepX.y;
+                  player.onGround = false;
+              }
+          }
 
-          // Z-axis collision (use updated X if it moved)
+          // Z-axis collision (use updated X if it moved) with 1-block auto step-up
           const nextZ = player.group.position.clone();
           nextZ.z += moveDir.z;
-          if (canMoveTo(nextZ)) player.group.position.z = nextZ.z;
+          if (canMoveTo(nextZ)) {
+              player.group.position.z = nextZ.z;
+          } else if (player.onGround) {
+              const stepZ = nextZ.clone();
+              stepZ.y += 1.0;
+              if (!checkCollision(stepZ)) {
+                  player.group.position.z = stepZ.z;
+                  player.group.position.y = stepZ.y;
+                  player.onGround = false;
+              }
+          }
       }
 
       // Apply gravity
