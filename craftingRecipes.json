@@ -238,5 +238,59 @@
     ],
     "output": "correct",
     "outputCount": 1
+  },
+  {
+    "id": "torch_1777110305801",
+    "name": "Lamp",
+    "type": "3x3",
+    "pattern": [
+      "stone",
+      "stone",
+      "stone",
+      "stone",
+      "coal",
+      "stone",
+      "stone",
+      "stone",
+      "stone"
+    ],
+    "output": "Lamp",
+    "outputCount": 1
+  },
+  {
+    "id": "wooden_shovel_1777135542037",
+    "name": "Wooden shovel",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "wooden_planks",
+      null,
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "wooden_shovel",
+    "outputCount": 1
+  },
+  {
+    "id": "stone_axe_1777136545492",
+    "name": "Stone axe",
+    "type": "3x3",
+    "pattern": [
+      "stone",
+      "stone",
+      null,
+      "stone",
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "stone_axe",
+    "outputCount": 1
   }
 ]

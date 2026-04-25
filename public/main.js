@@ -255,7 +255,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
   // Day/night cycle — 20 real-minutes per full day
   let gameTime = 0; // seconds, 0 = dawn, 300 = noon, 600 = dusk, 900 = midnight
-  const DAY_LENGTH = 1200; // seconds
+  const DAY_LENGTH = 600; // seconds
   const torchLights = new Map(); // key = "x,y,z" → PointLight
 
   // Build Minecraft Player Model
@@ -1063,8 +1063,8 @@ export async function initGame(THREE, gameRendererIntegration){
         updateHotbarUI();
 
         // Torch: place a point light at this block
-        if (blockName === "torch") {
-          const tLight = new THREE.PointLight(0xffaa44, 1.5, 20, 2);
+        if (blockName === "Lamp") {
+          const tLight = new THREE.PointLight(0xffaa44, 2, 20, 2);
           tLight.position.copy(newBlock.position);
           scene.add(tLight);
           const key = `${Math.round(newBlock.position.x)},${Math.round(newBlock.position.y)},${Math.round(newBlock.position.z)}`;
@@ -6869,8 +6869,8 @@ updateBreaking();
              player.model.position.y = -0.2;
              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = -0.5;
              if (player.limbs.head) {
-                 player.limbs.head.rotation.x = -0.42;
-                 player.limbs.head.position.z = -0.5;
+                 player.limbs.head.rotation.x = -0.45;
+                 player.limbs.head.position.z = -0.4;
                  player.limbs.head.position.y = 1.45;
              }
              player.limbs.armL.rotation.z =  0;
@@ -7016,7 +7016,7 @@ updateBreaking();
               player.group.position.x = nextX.x;
           } else if (player.onGround) {
               const stepX = nextX.clone();
-              stepX.y += 1.0;
+              stepX.y += 0.0;
               if (!checkCollision(stepX)) {
                   player.group.position.x = stepX.x;
                   player.group.position.y = stepX.y;
@@ -7031,7 +7031,7 @@ updateBreaking();
               player.group.position.z = nextZ.z;
           } else if (player.onGround) {
               const stepZ = nextZ.clone();
-              stepZ.y += 1.0;
+              stepZ.y += 0.0;
               if (!checkCollision(stepZ)) {
                   player.group.position.z = stepZ.z;
                   player.group.position.y = stepZ.y;
