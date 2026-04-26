@@ -45,6 +45,7 @@ export async function initGame(THREE, gameRendererIntegration){
   let occlusionDirty = true;
   let blockPositionSet = new Set();
   let transparentBlockSet = new Set(); // Track which blocks are transparent for fast lookups
+  let localSkinData = null; // Current player's skin (base64), shared with multiplayer
   const viewFrustum = new THREE.Frustum();
   const projScreenMatrix = new THREE.Matrix4();
   const tempBox = new THREE.Box3();
@@ -86,71 +87,76 @@ export async function initGame(THREE, gameRendererIntegration){
         transparentBlockSet.add(posKey);
       }
     });
+
+    // Rebuild each block's geometry to cull hidden faces (only visible faces are rendered)
+    blocks3D.forEach(b => {
+      const x = Math.round(b.mesh.position.x);
+      const y = Math.round(b.mesh.position.y);
+      const z = Math.round(b.mesh.position.z);
+      const newGeo = createBlockGeometry(x, y, z);
+      b.mesh.geometry.dispose();
+      b.mesh.geometry = newGeo;
+    });
+
     occlusionDirty = false;
   }
   
   // Helper function to create block geometry with face culling (only visible faces)
+  // Preserves BoxGeometry material group indices (0=right, 1=left, 2=top, 3=bottom, 4=front, 5=back)
+  // so that array materials and UV textures continue to work correctly.
   function createBlockGeometry(blockX, blockY, blockZ) {
-    // Check which faces are exposed (not touching other blocks)
-    const neighbors = {
-      top: blockPositionSet.has(`${blockX},${blockY+1},${blockZ}`),
-      bottom: blockPositionSet.has(`${blockX},${blockY-1},${blockZ}`),
-      front: blockPositionSet.has(`${blockX},${blockY},${blockZ+1}`),
-      back: blockPositionSet.has(`${blockX},${blockY},${blockZ-1}`),
-      right: blockPositionSet.has(`${blockX+1},${blockY},${blockZ}`),
-      left: blockPositionSet.has(`${blockX-1},${blockY},${blockZ}`)
-    };
-    
-    // If all 6 faces are exposed, use standard geometry (no optimization needed)
-    if (!Object.values(neighbors).some(v => v)) {
-      return new THREE.BoxGeometry(1, 1, 1);
-    }
-    
-    // For partially occluded blocks, create custom geometry
-    const geometry = new THREE.BufferGeometry();
-    const vertices = [];
-    const indices = [];
-    const normals = [];
-    
-    const s = 0.5; // half-size
-    
-    // Helper to add a face if it's not occluded
-    const addFace = (v1, v2, v3, v4, isOccluded, nx, ny, nz) => {
-      if (isOccluded) return;
-      
-      const startIdx = vertices.length / 3;
-      vertices.push(...v1, ...v2, ...v3, ...v4);
-      indices.push(startIdx, startIdx+1, startIdx+2, startIdx, startIdx+2, startIdx+3);
-      
-      // Add normals for all 4 vertices
-      for (let i = 0; i < 4; i++) {
-        normals.push(nx, ny, nz);
+    const s = 0.5;
+    // face definitions in BoxGeometry material order
+    const faceDefs = [
+      { occKey: `${blockX+1},${blockY},${blockZ}`,   normal:[1,0,0],  verts:[[s,-s,-s],[s,s,-s],[s,s,s],[s,-s,s]] },        // right  mat 0
+      { occKey: `${blockX-1},${blockY},${blockZ}`,   normal:[-1,0,0], verts:[[-s,-s,s],[-s,s,s],[-s,s,-s],[-s,-s,-s]] },    // left   mat 1
+      { occKey: `${blockX},${blockY+1},${blockZ}`,   normal:[0,1,0],  verts:[[-s,s,-s],[s,s,-s],[s,s,s],[-s,s,s]] },        // top    mat 2
+      { occKey: `${blockX},${blockY-1},${blockZ}`,   normal:[0,-1,0], verts:[[-s,-s,s],[s,-s,s],[s,-s,-s],[-s,-s,-s]] },    // bottom mat 3
+      { occKey: `${blockX},${blockY},${blockZ+1}`,   normal:[0,0,1],  verts:[[-s,-s,s],[s,-s,s],[s,s,s],[-s,s,s]] },        // front  mat 4
+      { occKey: `${blockX},${blockY},${blockZ-1}`,   normal:[0,0,-1], verts:[[s,-s,-s],[-s,-s,-s],[-s,s,-s],[s,s,-s]] },    // back   mat 5
+    ];
+    // Standard BoxGeometry UV coords per face vertex
+    const faceUVs = [[0,1],[1,1],[1,0],[0,0]];
+
+    const positions = [], normals = [], uvs = [], indices = [];
+    let anyOccluded = false;
+
+    faceDefs.forEach((face, matIdx) => {
+      if (blockPositionSet.has(face.occKey)) {
+        anyOccluded = true;
+        return; // skip occluded face
       }
-    };
-    
-    // Add faces if not occluded by neighbors
-    // Right face (x=+0.5)
-    addFace([s,-s,-s], [s,s,-s], [s,s,s], [s,-s,s], neighbors.right, 1, 0, 0);
-    // Left face (x=-0.5)
-    addFace([-s,-s,s], [-s,s,s], [-s,s,-s], [-s,-s,-s], neighbors.left, -1, 0, 0);
-    // Top face (y=+0.5)
-    addFace([-s,s,-s], [s,s,-s], [s,s,s], [-s,s,s], neighbors.top, 0, 1, 0);
-    // Bottom face (y=-0.5)
-    addFace([-s,-s,s], [s,-s,s], [s,-s,-s], [-s,-s,-s], neighbors.bottom, 0, -1, 0);
-    // Front face (z=+0.5)
-    addFace([-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s], neighbors.front, 0, 0, 1);
-    // Back face (z=-0.5)
-    addFace([s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s], neighbors.back, 0, 0, -1);
-    
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+      const startVert = positions.length / 3;
+      const startIdx  = indices.length;
+      face.verts.forEach((v, i) => {
+        positions.push(...v);
+        normals.push(...face.normal);
+        uvs.push(...faceUVs[i]);
+      });
+      indices.push(startVert, startVert+1, startVert+2, startVert, startVert+2, startVert+3);
+      // addGroup(start in index buffer, count, materialIndex)
+      // Note: startIdx refers to position in the indices array which maps to elements
+    });
+
+    // No faces occluded → standard BoxGeometry is identical and faster
+    if (!anyOccluded) return new THREE.BoxGeometry(1, 1, 1);
+
+    if (indices.length === 0) return new THREE.BoxGeometry(0.001, 0.001, 0.001);
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geometry.setAttribute('normal',   new THREE.BufferAttribute(new Float32Array(normals), 3));
+    geometry.setAttribute('uv',       new THREE.BufferAttribute(new Float32Array(uvs), 2));
     geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
-    
-    // If no faces were added, return an empty geometry (shouldn't happen normally)
-    if (indices.length === 0) {
-      return new THREE.BoxGeometry(0.001, 0.001, 0.001); // Invisible block
-    }
-    
+
+    // Add material groups for multi-material support
+    let idxCursor = 0;
+    faceDefs.forEach((face, matIdx) => {
+      if (blockPositionSet.has(face.occKey)) return;
+      geometry.addGroup(idxCursor, 6, matIdx);
+      idxCursor += 6;
+    });
+
     return geometry;
   }
   
@@ -245,18 +251,88 @@ export async function initGame(THREE, gameRendererIntegration){
   const RendererClass = THREE.WebGPURenderer ? THREE.WebGPURenderer : THREE.WebGLRenderer;
   const renderer = new RendererClass({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
   scene.add(ambientLight);
-  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-  sun.position.set(50, 100, 50);
+  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+  sun.position.set(80, 160, 60);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.near = 0.5;
+  sun.shadow.camera.far = 400;
+  sun.shadow.camera.left = -80;
+  sun.shadow.camera.right = 80;
+  sun.shadow.camera.top = 80;
+  sun.shadow.camera.bottom = -80;
+  sun.shadow.bias = -0.0005;
   scene.add(sun);
 
-  // Day/night cycle — 20 real-minutes per full day
-  let gameTime = 0; // seconds, 0 = dawn, 300 = noon, 600 = dusk, 900 = midnight
-  const DAY_LENGTH = 600; // seconds
+  // Visible sun sphere in the sky
+  const sunMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(3, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffffa0 })
+  );
+  sunMesh.position.copy(sun.position);
+  scene.add(sunMesh);
+
   const torchLights = new Map(); // key = "x,y,z" → PointLight
+
+  // Settings-driven variables (updated by video settings UI)
+  let fpsLimit = 60; // Default, overridden by settings
+  let lastFrameTime = 0;
+  let renderDistanceBlocks = 10; // Default render distance in blocks
+  let shadowsEnabled = true;
+
+  // Wire video settings manager callbacks to game variables
+  if (videoSettingsManager) {
+    const vs = videoSettingsManager.getSettings();
+    fpsLimit = vs.maxFps === 0 ? 0 : (vs.maxFps || 60);
+    renderDistanceBlocks = (vs.renderDistance || 4) * 2.5;
+    shadowsEnabled = vs.shadowsEnabled !== false;
+
+    videoSettingsManager.onFpsLimitChange = (fps) => {
+      fpsLimit = fps === 0 ? 0 : fps;
+    };
+    videoSettingsManager.onRenderDistanceChange = (dist) => {
+      renderDistanceBlocks = dist * 2.5;
+    };
+    videoSettingsManager.onShadowSettingChange = (s) => {
+      shadowsEnabled = s.enabled !== false;
+      renderer.shadowMap.enabled = shadowsEnabled;
+      sun.castShadow = shadowsEnabled;
+    };
+  }
+
+  // Also wire settings directly from HTML controls as fallback
+  const _maxFpsSelect = document.getElementById('maxFpsSelect');
+  if (_maxFpsSelect) {
+    _maxFpsSelect.addEventListener('change', (e) => {
+      const v = parseInt(e.target.value);
+      fpsLimit = v === 0 ? 0 : v;
+    });
+  }
+  const _renderDistSlider = document.getElementById('renderDistanceSlider');
+  if (_renderDistSlider) {
+    _renderDistSlider.addEventListener('input', (e) => {
+      renderDistanceBlocks = parseInt(e.target.value) * 2.5;
+    });
+  }
+  const _shadowsCheck = document.getElementById('shadowsEnabledCheck');
+  if (_shadowsCheck) {
+    _shadowsCheck.addEventListener('change', (e) => {
+      shadowsEnabled = e.target.checked;
+      renderer.shadowMap.enabled = shadowsEnabled;
+      sun.castShadow = shadowsEnabled;
+    });
+  }
+  const _vsyncCheck = document.getElementById('vsyncCheck');
+  if (_vsyncCheck) {
+    _vsyncCheck.addEventListener('change', () => {}); // VSync is browser-controlled
+  }
 
   // Build Minecraft Player Model
   // Head (direct child of modelGroup)
@@ -1051,6 +1127,8 @@ export async function initGame(THREE, gameRendererIntegration){
       const mat = blockMaterials[blockName];
       if (!mat) return;
       const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      newBlock.castShadow = true;
+      newBlock.receiveShadow = true;
       const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
 
@@ -1062,13 +1140,22 @@ export async function initGame(THREE, gameRendererIntegration){
         if (slot.count <= 0) slot.type = null;
         updateHotbarUI();
 
-        // Torch: place a point light at this block
+        // Lamp: place a bright white point light at this block
         if (blockName === "Lamp") {
-          const tLight = new THREE.PointLight(0xffaa44, 2, 20, 2);
+          const tLight = new THREE.PointLight(0xffffff, 6, 30, 2);
           tLight.position.copy(newBlock.position);
+          tLight.castShadow = false; // avoid shadow perf hit per lamp
           scene.add(tLight);
           const key = `${Math.round(newBlock.position.x)},${Math.round(newBlock.position.y)},${Math.round(newBlock.position.z)}`;
           torchLights.set(key, tLight);
+          // Make lamp block self-illuminated on all sides
+          if (Array.isArray(newBlock.material)) {
+            newBlock.material.forEach(m => { if (m) { m.emissive = new THREE.Color(0xffffff); m.emissiveIntensity = 1.0; } });
+          } else if (newBlock.material) {
+            newBlock.material = newBlock.material.clone();
+            newBlock.material.emissive = new THREE.Color(0xffffff);
+            newBlock.material.emissiveIntensity = 1.0;
+          }
         }
 
         if (socket) {
@@ -1319,7 +1406,8 @@ export async function initGame(THREE, gameRendererIntegration){
              new THREE.BoxGeometry(1,1,1),
              mat
            );
-
+           mesh.castShadow = true;
+           mesh.receiveShadow = true;
            mesh.position.set(x, y, z);
            scene.add(mesh);
 
@@ -1394,6 +1482,8 @@ export async function initGame(THREE, gameRendererIntegration){
         existingPositions.add(key);
         const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: type === "wood" ? 0x6b3c11 : 0x2d6e1a });
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         mesh.position.set(x, y, z);
         scene.add(mesh);
         blocks3D.push({ mesh, type, pos: { x, y, z } });
@@ -1491,7 +1581,8 @@ export async function initGame(THREE, gameRendererIntegration){
     socket.emit("join", { 
       username: player.username,
       inventory: player.inventory,
-      selectedSlot: player.selectedSlot
+      selectedSlot: player.selectedSlot,
+      skin: localSkinData
     });
 
     socket.on("worldSeed", (seed) => {
@@ -1508,6 +1599,12 @@ export async function initGame(THREE, gameRendererIntegration){
 
     socket.on("playerJoined", (data) => {
       createRemotePlayer(data);
+    });
+
+    // When a remote player changes their skin, update their model
+    socket.on("playerSkinUpdate", (data) => {
+      const rp = remotePlayers[data.id];
+      if (rp && data.skin) applyRemoteSkin(rp, data.skin);
     });
 
     socket.on("playerMoved", (data) => {
@@ -1628,6 +1725,8 @@ export async function initGame(THREE, gameRendererIntegration){
                 );
                 if (!exists) {
                   const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                  mesh.castShadow = true;
+                  mesh.receiveShadow = true;
                   mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
                   scene.add(mesh);
                   blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
@@ -1656,10 +1755,19 @@ export async function initGame(THREE, gameRendererIntegration){
     socket.on("blockPlace", (data) => {
         const mat = blockMaterials[data.type];
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
         mesh.position.set(data.pos.x, data.pos.y, data.pos.z);
         scene.add(mesh);
         blocks3D.push({ mesh, type: data.type, pos: { ...data.pos } });
         occlusionDirty = true;
+        // Lamp placed by remote player
+        if (data.type === "Lamp") {
+          const tLight = new THREE.PointLight(0xffffff, 6, 30, 2);
+          tLight.position.set(data.pos.x, data.pos.y, data.pos.z);
+          scene.add(tLight);
+          torchLights.set(`${Math.round(data.pos.x)},${Math.round(data.pos.y)},${Math.round(data.pos.z)}`, tLight);
+        }
     });
 
     socket.on("blockBreak", (data) => {
@@ -1778,102 +1886,56 @@ export async function initGame(THREE, gameRendererIntegration){
 
     remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, tpItem, username: data.username };
 
-    // Apply skin if it exists - use proper texture extraction like the player model
-    fetch("/skin").then(r => r.json()).then(res => {
-        if (res.skin) {
-            const img = new Image();
-            img.onload = () => {
-                const skinWidth = img.width;
-                const skinHeight = img.height;
-                
-                function extractAndApplySkinPart(mesh, x, y, w, h) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = w;
-                    canvas.height = h;
-                    const ctx = canvas.getContext('2d');
-                    ctx.imageSmoothingEnabled = false;
-                    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-                    const tex = new THREE.CanvasTexture(canvas);
-                    tex.magFilter = THREE.NearestFilter;
-                    tex.minFilter = THREE.NearestFilter;
-                    return new THREE.MeshStandardMaterial({ map: tex });
-                }
-                
-                function createBoxMaterialsForRemote(uvs) {
-                    return [
-                        extractAndApplySkinPart(null, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
-                        extractAndApplySkinPart(null, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
-                        extractAndApplySkinPart(null, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
-                        extractAndApplySkinPart(null, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
-                        extractAndApplySkinPart(null, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),
-                        extractAndApplySkinPart(null, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)
-                    ];
-                }
-                
-                const headUV = {
-                    right: {x: 0, y: 8, w: 8, h: 8},
-                    left: {x: 16, y: 8, w: 8, h: 8},
-                    top: {x: 8, y: 0, w: 8, h: 8},
-                    bottom: {x: 16, y: 0, w: 8, h: 8},
-                    front: {x: 8, y: 8, w: 8, h: 8},
-                    back: {x: 24, y: 8, w: 8, h: 8}
-                };
-                
-                const bodyUV = {
-                    right: {x: 16, y: 20, w: 4, h: 12},
-                    left: {x: 28, y: 20, w: 4, h: 12},
-                    top: {x: 20, y: 16, w: 8, h: 4},
-                    bottom: {x: 28, y: 16, w: 8, h: 4},
-                    front: {x: 20, y: 20, w: 8, h: 12},
-                    back: {x: 32, y: 20, w: 8, h: 12}
-                };
-                
-                const armRightUV = {
-                    right: {x: 40, y: 20, w: 4, h: 12},
-                    left: {x: 48, y: 20, w: 4, h: 12},
-                    top: {x: 44, y: 16, w: 4, h: 4},
-                    bottom: {x: 48, y: 16, w: 4, h: 4},
-                    front: {x: 44, y: 20, w: 4, h: 12},
-                    back: {x: 52, y: 20, w: 4, h: 12}
-                };
-                
-                const armLeftUV = skinHeight >= 64 ? {
-                    right: {x: 32, y: 52, w: 4, h: 12},
-                    left: {x: 40, y: 52, w: 4, h: 12},
-                    top: {x: 36, y: 48, w: 4, h: 4},
-                    bottom: {x: 40, y: 48, w: 4, h: 4},
-                    front: {x: 36, y: 52, w: 4, h: 12},
-                    back: {x: 44, y: 52, w: 4, h: 12}
-                } : armRightUV;
-                
-                const legRightUV = {
-                    right: {x: 0, y: 20, w: 4, h: 12},
-                    left: {x: 8, y: 20, w: 4, h: 12},
-                    top: {x: 4, y: 16, w: 4, h: 4},
-                    bottom: {x: 8, y: 16, w: 4, h: 4},
-                    front: {x: 4, y: 20, w: 4, h: 12},
-                    back: {x: 12, y: 20, w: 4, h: 12}
-                };
-                
-                const legLeftUV = skinHeight >= 64 ? {
-                    right: {x: 16, y: 52, w: 4, h: 12},
-                    left: {x: 24, y: 52, w: 4, h: 12},
-                    top: {x: 20, y: 48, w: 4, h: 4},
-                    bottom: {x: 24, y: 48, w: 4, h: 4},
-                    front: {x: 20, y: 52, w: 4, h: 12},
-                    back: {x: 28, y: 52, w: 4, h: 12}
-                } : legRightUV;
-                
-                remotehead.material = createBoxMaterialsForRemote(headUV);
-                body.material = createBoxMaterialsForRemote(bodyUV);
-                armL.material = createBoxMaterialsForRemote(armLeftUV);
-                armR.material = createBoxMaterialsForRemote(armRightUV);
-                legL.material = createBoxMaterialsForRemote(legLeftUV);
-                legR.material = createBoxMaterialsForRemote(legRightUV);
-            };
-            img.src = res.skin;
+    // Apply skin from join data (remote player's own skin)
+    if (data.skin) applyRemoteSkin(remotePlayers[data.id], data.skin);
+  }
+
+  // Apply a skin (base64 data URL) to a remote player object's meshes
+  function applyRemoteSkin(rp, skinData) {
+    if (!rp || !skinData) return;
+    const { head, body, armL, armR, legL, legR } = rp.limbs;
+    const img = new Image();
+    img.onload = () => {
+        const skinHeight = img.height;
+
+        function extractPart(x, y, w, h) {
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.magFilter = THREE.NearestFilter;
+            tex.minFilter = THREE.NearestFilter;
+            return new THREE.MeshStandardMaterial({ map: tex });
         }
-    });
+
+        function boxMats(uvs) {
+            return [
+                extractPart(uvs.right.x,  uvs.right.y,  uvs.right.w,  uvs.right.h),
+                extractPart(uvs.left.x,   uvs.left.y,   uvs.left.w,   uvs.left.h),
+                extractPart(uvs.top.x,    uvs.top.y,    uvs.top.w,    uvs.top.h),
+                extractPart(uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
+                extractPart(uvs.back.x,   uvs.back.y,   uvs.back.w,   uvs.back.h),
+                extractPart(uvs.front.x,  uvs.front.y,  uvs.front.w,  uvs.front.h)
+            ];
+        }
+
+        const headUV    = { right:{x:0,y:8,w:8,h:8},   left:{x:16,y:8,w:8,h:8},  top:{x:8,y:0,w:8,h:8},    bottom:{x:16,y:0,w:8,h:8},  front:{x:8,y:8,w:8,h:8},   back:{x:24,y:8,w:8,h:8}  };
+        const bodyUV    = { right:{x:16,y:20,w:4,h:12}, left:{x:28,y:20,w:4,h:12},top:{x:20,y:16,w:8,h:4},  bottom:{x:28,y:16,w:8,h:4}, front:{x:20,y:20,w:8,h:12},back:{x:32,y:20,w:8,h:12} };
+        const armRUV    = { right:{x:40,y:20,w:4,h:12}, left:{x:48,y:20,w:4,h:12},top:{x:44,y:16,w:4,h:4},  bottom:{x:48,y:16,w:4,h:4}, front:{x:44,y:20,w:4,h:12},back:{x:52,y:20,w:4,h:12} };
+        const armLUV    = skinHeight >= 64 ? { right:{x:32,y:52,w:4,h:12},left:{x:40,y:52,w:4,h:12},top:{x:36,y:48,w:4,h:4},bottom:{x:40,y:48,w:4,h:4},front:{x:36,y:52,w:4,h:12},back:{x:44,y:52,w:4,h:12} } : armRUV;
+        const legRUV    = { right:{x:0,y:20,w:4,h:12},  left:{x:8,y:20,w:4,h:12}, top:{x:4,y:16,w:4,h:4},   bottom:{x:8,y:16,w:4,h:4},  front:{x:4,y:20,w:4,h:12}, back:{x:12,y:20,w:4,h:12} };
+        const legLUV    = skinHeight >= 64 ? { right:{x:16,y:52,w:4,h:12},left:{x:24,y:52,w:4,h:12},top:{x:20,y:48,w:4,h:4},bottom:{x:24,y:48,w:4,h:4},front:{x:20,y:52,w:4,h:12},back:{x:28,y:52,w:4,h:12} } : legRUV;
+
+        head.material  = boxMats(headUV);
+        body.material  = boxMats(bodyUV);
+        armL.material  = boxMats(armLUV);
+        armR.material  = boxMats(armRUV);
+        legL.material  = boxMats(legLUV);
+        legR.material  = boxMats(legRUV);
+    };
+    img.src = skinData;
   }
 
   if (usernameSubmit) {
@@ -3482,12 +3544,14 @@ export async function initGame(THREE, gameRendererIntegration){
       const reader = new FileReader();
       reader.onload = async (event) => {
         const skinData = event.target.result;
+        localSkinData = skinData;
         await fetch("/update-skin", {
           method: "POST",
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ skin: skinData })
         });
         applySkin(skinData);
+        if (socket) socket.emit("skinUpdate", { skin: skinData });
         alert("Skin updated!");
       };
       reader.readAsDataURL(file);
@@ -3622,12 +3686,14 @@ export async function initGame(THREE, gameRendererIntegration){
       const reader = new FileReader();
       reader.onload = async (event) => {
         const skinData = event.target.result;
+        localSkinData = skinData;
         await fetch("/update-skin", {
           method: "POST",
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ skin: skinData })
         });
         applySkin(skinData);
+        if (socket) socket.emit("skinUpdate", { skin: skinData });
         alert("Skin uploaded and applied!");
       };
       reader.readAsDataURL(file);
@@ -5555,7 +5621,7 @@ export async function initGame(THREE, gameRendererIntegration){
     await initTitle();
     const skinRes = await fetch("/skin");
     const skinData = await skinRes.json();
-    if (skinData.skin) applySkin(skinData.skin);
+    if (skinData.skin) { localSkinData = skinData.skin; applySkin(skinData.skin); }
 
     const structRes = await fetch("/structures");
     const structData = await structRes.json();
@@ -6658,30 +6724,19 @@ export async function initGame(THREE, gameRendererIntegration){
       requestAnimationFrame(animate);
       
       const now = performance.now();
+
+      // FPS limiting — respect the fpsLimit setting (0 = unlimited)
+      if (fpsLimit > 0) {
+        const minInterval = 1000 / fpsLimit;
+        if (now - lastFrameTime < minInterval) return;
+      }
+      lastFrameTime = now;
+
       const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
       // Rebuild occlusion set when world changes
       if (occlusionDirty) rebuildBlockSet();
-
-      // Day/night cycle
-      gameTime = (gameTime + delta) % DAY_LENGTH;
-      {
-        // t goes from 0 (midnight) to 1 (noon) via cosine
-        const t = (Math.cos(gameTime / DAY_LENGTH * 2 * Math.PI) + 1) / 2;
-        const dayAmbient = 0.9, nightAmbient = 0.04;
-        const daySun = 1.1, nightSun = 0.0;
-        ambientLight.intensity = nightAmbient + (dayAmbient - nightAmbient) * t;
-        sun.intensity = nightSun + (daySun - nightSun) * t;
-        // Sun/moon position
-        const angle = (gameTime / DAY_LENGTH) * Math.PI * 2;
-        sun.position.set(Math.cos(angle) * 100, Math.sin(angle) * 100, 50);
-        // Sky colour
-        const dayColor = new THREE.Color(0x87ceeb);
-        const nightColor = new THREE.Color(0x050510);
-        const skyColor = nightColor.clone().lerp(dayColor, t);
-        renderer.setClearColor(skyColor, 1);
-      }
 
       // Furnace timer
       updateFurnaceSmelt(delta);
@@ -6713,7 +6768,8 @@ export async function initGame(THREE, gameRendererIntegration){
       }
       
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      const renderDistSq = lowFpsActive ? (5 * 5) : (10 * 10);
+      const effectiveDist = lowFpsActive ? Math.min(renderDistanceBlocks, 5) : renderDistanceBlocks;
+      const renderDistSq = effectiveDist * effectiveDist;
 
       // Update camera frustum for this frame
       camera.updateMatrixWorld();
@@ -6942,7 +6998,18 @@ updateBreaking();
               orbitHeight,
               Math.cos(player.orbit.yaw) * orbitDist
           );
-          const worldOrbitPos = player.group.position.clone().add(orbitOffset);
+          let worldOrbitPos = player.group.position.clone().add(orbitOffset);
+          // Push camera out of blocks if colliding
+          const orbitSearchRadius = 1.2;
+          for (const block of blocks3D) {
+            const blockPos = block.mesh.position;
+            const diff = worldOrbitPos.clone().sub(blockPos);
+            const dist = diff.length();
+            if (dist < orbitSearchRadius) {
+              worldOrbitPos = blockPos.clone().add(diff.normalize().multiplyScalar(orbitSearchRadius));
+              break;
+            }
+          }
           camera.position.copy(player.group.worldToLocal(worldOrbitPos));
           // Look at player's chest in world space
           const chestWorld = player.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));

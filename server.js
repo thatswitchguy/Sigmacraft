@@ -30,7 +30,8 @@ io.on("connection", (socket) => {
             inventory: data.inventory || [],
             selectedSlot: data.selectedSlot || 27,
             health: 20,
-            maxHealth: 20
+            maxHealth: 20,
+            skin: data.skin || null
         };
         socket.broadcast.emit("playerJoined", players[socket.id]);
         socket.emit("currentPlayers", players);
@@ -85,6 +86,13 @@ io.on("connection", (socket) => {
         console.log("Player left world:", socket.id);
         delete players[socket.id];
         io.emit("playerLeft", socket.id);
+    });
+
+    socket.on("skinUpdate", (data) => {
+        if (players[socket.id] && data.skin) {
+            players[socket.id].skin = data.skin;
+            socket.broadcast.emit("playerSkinUpdate", { id: socket.id, skin: data.skin });
+        }
     });
 
     socket.on("blockPlace", (data) => {
