@@ -13,7 +13,7 @@ export class VideoSettingsManager {
       gamma: 100,
       
       // Graphics
-      renderDistance: 4,
+      renderDistance: 10,
       chunkDistance: 8,
       shadowDistance: 50,
       shadowQuality: 2048, // 1024, 2048, 4096
@@ -146,7 +146,7 @@ export class VideoSettingsManager {
       brightness: 100,
       contrast: 100,
       gamma: 100,
-      renderDistance: 4,
+      renderDistance: 10,
       chunkDistance: 8,
       shadowDistance: 50,
       shadowQuality: 2048,
@@ -186,7 +186,7 @@ export class VideoSettingsManager {
     switch (performance) {
       case 'low':
         return {
-          renderDistance: 2,
+          renderDistance: 5,
           shadowsEnabled: false,
           particlesEnabled: true,
           maxFps: 30,
@@ -195,7 +195,7 @@ export class VideoSettingsManager {
         };
       case 'medium':
         return {
-          renderDistance: 4,
+          renderDistance: 5,
           shadowsEnabled: true,
           particlesEnabled: true,
           maxFps: 60,
@@ -205,7 +205,7 @@ export class VideoSettingsManager {
       case 'high':
       default:
         return {
-          renderDistance: 6,
+          renderDistance: 10,
           shadowsEnabled: true,
           particlesEnabled: true,
           maxFps: 120,

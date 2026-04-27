@@ -1525,71 +1525,6 @@ export async function initGame(THREE, gameRendererIntegration){
       }
     }
 
-    // Face culling pass: rebuild block geometries to only show exposed faces
-    {
-      const bar2 = document.getElementById("loadingBar");
-      const text2 = document.getElementById("loadingText");
-      if (text2) text2.textContent = "Optimizing faces...";
-      await yieldFrame();
-
-      // Build a fast lookup set of all block positions
-      const genBlockSet = new Set(blocks3D.map(b => `${Math.round(b.mesh.position.x)},${Math.round(b.mesh.position.y)},${Math.round(b.mesh.position.z)}`));
-
-      // Face definitions: [dx,dy,dz, vertices(4x3), normal(3), uvs(4x2)]
-      const FACE_DEFS = [
-        { dx:1,dy:0,dz:0,  verts:[[.5,-.5,.5],[.5,-.5,-.5],[.5,.5,-.5],[.5,.5,.5]],   norm:[1,0,0] },
-        { dx:-1,dy:0,dz:0, verts:[[-.5,-.5,-.5],[-.5,-.5,.5],[-.5,.5,.5],[-.5,.5,-.5]], norm:[-1,0,0] },
-        { dx:0,dy:1,dz:0,  verts:[[-.5,.5,-.5],[.5,.5,-.5],[.5,.5,.5],[-.5,.5,.5]],    norm:[0,1,0] },
-        { dx:0,dy:-1,dz:0, verts:[[-.5,-.5,.5],[.5,-.5,.5],[.5,-.5,-.5],[-.5,-.5,-.5]],norm:[0,-1,0] },
-        { dx:0,dy:0,dz:1,  verts:[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]],    norm:[0,0,1] },
-        { dx:0,dy:0,dz:-1, verts:[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]],norm:[0,0,-1] },
-      ];
-      const FACE_UVS = [[0,0],[1,0],[1,1],[0,1]];
-
-      let culledCount = 0;
-      for (let i = 0; i < blocks3D.length; i++) {
-        const b = blocks3D[i];
-        const bx = Math.round(b.mesh.position.x);
-        const by = Math.round(b.mesh.position.y);
-        const bz = Math.round(b.mesh.position.z);
-
-        const positions = [], normals = [], uvs = [], indices = [];
-        let vi = 0;
-        let hasAnyFace = false;
-
-        for (const face of FACE_DEFS) {
-          const nk = `${bx+face.dx},${by+face.dy},${bz+face.dz}`;
-          if (genBlockSet.has(nk)) continue; // neighbor exists, cull this face
-          hasAnyFace = true;
-          for (let f = 0; f < 4; f++) {
-            positions.push(...face.verts[f]);
-            normals.push(...face.norm);
-            uvs.push(...FACE_UVS[f]);
-          }
-          indices.push(vi,vi+1,vi+2, vi,vi+2,vi+3);
-          vi += 4;
-        }
-
-        if (!hasAnyFace) {
-          b.mesh.visible = false;
-          continue;
-        }
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        geo.setIndex(indices);
-
-        b.mesh.geometry.dispose();
-        b.mesh.geometry = geo;
-        culledCount++;
-
-        // Yield periodically to keep UI responsive
-        if (i % 2000 === 0) await yieldFrame();
-      }
-    }
-
     // Final 100% before hiding
     const bar = document.getElementById("loadingBar");
     const text = document.getElementById("loadingText");
@@ -2047,22 +1982,23 @@ export async function initGame(THREE, gameRendererIntegration){
       // Allow Enter and Escape keys in chat
       if (e.code === "Enter") {
         const message = chatInput.value.trim();
+        // Close chat FIRST so addChatMessage shows the message in the timed display
+        chatInput.value = "";
+        chatInput.style.display = "none";
+        hideChatHistory();
+        renderer.domElement.requestPointerLock();
         if (message) {
           // Handle commands
           if (message.startsWith("/")) {
             handleChatCommand(message);
           } else {
-            // Send regular message
+            // Send regular message — chat is now closed so it shows in timed display
             addChatMessage(`${player.username}: ${message}`);
             if (socket) {
               socket.emit("chatMessage", { username: player.username, message: message });
             }
           }
         }
-        chatInput.value = "";
-        chatInput.style.display = "none";
-        hideChatHistory();
-        renderer.domElement.requestPointerLock();
         e.preventDefault();
       } else if (e.code === "Escape") {
         chatInput.style.display = "none";
@@ -6874,8 +6810,10 @@ export async function initGame(THREE, gameRendererIntegration){
       }
       
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      // Render distance: 10 blocks normally, drops to 5 when low FPS
-      const renderDist = lowFpsActive ? 5 : 10;
+      // Render distance: read from settings slider (5 or 10), drop to 5 on low FPS
+      const rdSlider = document.getElementById("renderDistanceSlider");
+      const rdSetting = rdSlider ? parseInt(rdSlider.value) : 10;
+      const renderDist = lowFpsActive ? 5 : rdSetting;
       const renderDistSq = renderDist * renderDist;
 
       // Update camera frustum for this frame

@@ -61,7 +61,7 @@ export class VideoSettingsUI {
     this.bindCheckbox('vsyncCheck', 'vsync');
 
     // Graphics settings
-    this.bindSlider('renderDistanceSlider', 'renderDistanceValue', 'renderDistance', '');
+    this.bindSlider('renderDistanceSlider', 'renderDistanceValue', 'renderDistance', ' blocks');
     this.bindSlider('chunkDistanceSlider', 'chunkDistanceValue', 'chunkDistance', '');
     this.bindSlider('shadowDistanceSlider', 'shadowDistanceValue', 'shadowDistance', '');
     this.bindSelect('msaaSelect', 'multisampling', value => parseInt(value));
@@ -194,7 +194,7 @@ export class VideoSettingsUI {
     // Graphics
     if (this.elements.renderDistanceSlider) {
       this.elements.renderDistanceSlider.value = settingsData.renderDistance;
-      this.elements.renderDistanceValue.textContent = settingsData.renderDistance;
+      this.elements.renderDistanceValue.textContent = settingsData.renderDistance + ' blocks';
     }
     if (this.elements.chunkDistanceSlider) {
       this.elements.chunkDistanceSlider.value = settingsData.chunkDistance;
