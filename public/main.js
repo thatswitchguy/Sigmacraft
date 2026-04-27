@@ -45,6 +45,11 @@ export async function initGame(THREE, gameRendererIntegration){
   let occlusionDirty = true;
   let blockPositionSet = new Set();
   let transparentBlockSet = new Set(); // Track which blocks are transparent for fast lookups
+
+  // Dynamic cave lighting state
+  let _lightCachePos = null;
+  let _lightCacheLevel = 15;
+  let _lightFrameSkip = 0;
   const viewFrustum = new THREE.Frustum();
   const projScreenMatrix = new THREE.Matrix4();
   const tempBox = new THREE.Box3();
@@ -405,7 +410,7 @@ export async function initGame(THREE, gameRendererIntegration){
   
   function updateCamera() {
     if (player.nameTag) {
-      player.nameTag.visible = player.cameraMode !== 0;
+      player.nameTag.visible = player.cameraMode !== 0 && !player.isSneaking;
     }
     if (player.cameraMode === 0) {
       // First Person
@@ -1604,6 +1609,11 @@ export async function initGame(THREE, gameRendererIntegration){
           p.limbs.head.rotation.x = data.rot.pitch;
         }
 
+        // Hide nametag when remote player is sneaking
+        if (p.nameTag) {
+          p.nameTag.visible = !data.sneaking;
+        }
+
         // Update the held-item mesh on this remote player's right arm
         if (p.tpItem) {
           const heldType = data.heldType;
@@ -2168,7 +2178,8 @@ export async function initGame(THREE, gameRendererIntegration){
       socket.emit("move", { 
         pos: player.group.position, 
         rot: { y: player.yaw, pitch: player.pitch },
-        heldType: heldTypeForEmit
+        heldType: heldTypeForEmit,
+        sneaking: !!player.isSneaking
       });
     }
   });
@@ -3801,32 +3812,17 @@ export async function initGame(THREE, gameRendererIntegration){
       slot.innerHTML = "";
       const item = player.inventory[inventoryIdx];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
-        if (icon) {
-          slot.appendChild(icon);
-          if (item.count > 1) {
-            const count = document.createElement("div");
-            count.className = "item-count";
-            count.textContent = item.count;
-            slot.appendChild(count);
-          }
-          // Add hover tooltips to hotbar
-          slot.onmouseenter = (e) => {
-            if (blockTypes[item.type]) {
-              showTooltip(e, blockTypes[item.type].name || item.type);
-            } else if (toolTypes[item.type]) {
-              showTooltip(e, toolTypes[item.type].name || item.type);
-            } else {
-              showTooltip(e, item.type);
-            }
-          };
-          slot.onmouseleave = hideTooltip;
-        } else {
-          slot.onmouseenter = null;
-          slot.onmouseleave = null;
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
         }
+        const displayName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData?.[item.type]?.name || item.type;
+        slot.onmouseenter = (e) => showTooltip(e, displayName);
+        slot.onmouseleave = hideTooltip;
       } else {
-        // Remove tooltip handlers from empty slots
         slot.onmouseenter = null;
         slot.onmouseleave = null;
       }
@@ -5796,23 +5792,15 @@ export async function initGame(THREE, gameRendererIntegration){
       slot.className = "slot";
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
-        if (icon) slot.appendChild(icon);
+        renderItemIcon(item.type, slot);
         if (item.count > 1) {
           const count = document.createElement("div");
           count.className = "item-count";
           count.textContent = item.count;
           slot.appendChild(count);
         }
-        slot.onmouseenter = (e) => {
-          if (blockTypes[item.type]) {
-            showTooltip(e, blockTypes[item.type].name || item.type);
-          } else if (toolTypes[item.type]) {
-            showTooltip(e, toolTypes[item.type].name || item.type);
-          } else {
-            showTooltip(e, item.type);
-          }
-        };
+        const displayName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData?.[item.type]?.name || item.type;
+        slot.onmouseenter = (e) => showTooltip(e, displayName);
         slot.onmouseleave = hideTooltip;
       }
       slot.onclick = (e) => handleSlotClick(e, i);
@@ -6041,18 +6029,30 @@ export async function initGame(THREE, gameRendererIntegration){
         addChatMessage(`${name}: X=${px} Y=${py} Z=${pz}`);
       });
     } else if (cmd === "/give") {
-      const payload = command.slice(cmd.length).trim();
+      // Parse: /give <item> [count]  —  count is optional 1–64, default 1
+      const rawParts = command.slice(cmd.length).trim().split(/\s+/).filter(Boolean);
+      let giveCount = 1;
+      let itemParts = rawParts;
+      if (rawParts.length >= 2) {
+        const lastPart = rawParts[rawParts.length - 1];
+        const parsedNum = parseInt(lastPart, 10);
+        if (!isNaN(parsedNum) && parsedNum > 0 && String(parsedNum) === lastPart) {
+          giveCount = Math.max(1, Math.min(64, parsedNum));
+          itemParts = rawParts.slice(0, -1);
+        }
+      }
+      const payload = itemParts.join(" ").trim();
       const normalized = normalizeLookupKey(payload);
       if (["block", "item", "tool"].includes(normalized)) {
         openGivePicker(normalized);
       } else if (!payload) {
-        addChatMessage("Usage: /give <block|item|tool> or /give <item name>");
+        addChatMessage("Usage: /give <item name> [1-64]  or  /give <block|item|tool>");
       } else {
         const targetId = resolveGiveTarget(payload);
         if (!targetId) {
-          addChatMessage(`Unknown item: ${payload}. Try /give <block|item|tool> or use an exact item name.`);
+          addChatMessage(`Unknown item: ${payload}. Try /give <block|item|tool> or an exact item name.`);
         } else {
-          const given = giveItemToPlayer(targetId);
+          const given = giveItemToPlayer(targetId, giveCount);
           if (given) {
             addChatMessage(`Gave ${given}× ${getDisplayNameForItem(targetId)}.`);
           } else {
@@ -6061,7 +6061,7 @@ export async function initGame(THREE, gameRendererIntegration){
         }
       }
     } else if (cmd === "/help") {
-      addChatMessage("Available commands:\n/tp <x,y,z> - Teleport to coordinates\n/locate players - Show all player coordinates\n/give <block|item|tool> - Open picker to give yourself an item");
+      addChatMessage("Available commands:\n/tp <x,y,z> - Teleport\n/locate players - Show positions\n/give <item> [1-64] - Give items");
     } else {
       addChatMessage("Unknown command: " + cmd);
     }
@@ -6779,6 +6779,51 @@ export async function initGame(THREE, gameRendererIntegration){
       // Rebuild occlusion set when world changes
       if (occlusionDirty) rebuildBlockSet();
 
+      // Dynamic cave lighting: update ambient light based on sky access at player position
+      _lightFrameSkip++;
+      if (_lightFrameSkip >= 15) {
+        _lightFrameSkip = 0;
+        const eyeX = Math.round(player.group.position.x);
+        const eyeY = Math.round(player.group.position.y + 1.6);
+        const eyeZ = Math.round(player.group.position.z);
+        const moved = !_lightCachePos ||
+          Math.abs(_lightCachePos.x - eyeX) > 0 ||
+          Math.abs(_lightCachePos.y - eyeY) > 0 ||
+          Math.abs(_lightCachePos.z - eyeZ) > 0;
+        if (moved) {
+          _lightCachePos = { x: eyeX, y: eyeY, z: eyeZ };
+          // Check direct sky access (any solid block above player up to 40 blocks)
+          let hasSky = true;
+          for (let ty = eyeY + 1; ty <= eyeY + 40; ty++) {
+            if (blockPositionSet.has(`${eyeX},${ty},${eyeZ}`)) { hasSky = false; break; }
+          }
+          let lightLevel = 15;
+          if (!hasSky) {
+            // Propagate light from nearby sky-exposed openings (radius 8, height 40)
+            lightLevel = 0;
+            const R = 8;
+            outer: for (let dx = -R; dx <= R; dx++) {
+              for (let dz = -R; dz <= R; dz++) {
+                if (dx*dx + dz*dz > R*R) continue;
+                let colSky = true;
+                for (let ty = eyeY + 1; ty <= eyeY + 40; ty++) {
+                  if (blockPositionSet.has(`${eyeX+dx},${ty},${eyeZ+dz}`)) { colSky = false; break; }
+                }
+                if (colSky) {
+                  const dist = Math.round(Math.sqrt(dx*dx + dz*dz));
+                  const lvl = Math.max(0, 15 - dist);
+                  if (lvl > lightLevel) { lightLevel = lvl; }
+                  if (lightLevel >= 15) break outer;
+                }
+              }
+            }
+          }
+          _lightCacheLevel = lightLevel;
+        }
+        // Map light level 0–15 to ambient intensity 0.04–0.8
+        const targetIntensity = 0.04 + (_lightCacheLevel / 15) * 0.76;
+        ambientLight.intensity += (targetIntensity - ambientLight.intensity) * 0.2;
+      }
 
       // Furnace timer
       updateFurnaceSmelt(delta);
