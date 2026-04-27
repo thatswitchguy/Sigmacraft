@@ -1321,28 +1321,36 @@ export async function initGame(THREE, gameRendererIntegration){
 
     if (window.SimplexNoise) {
       simplex = new SimplexNoise(seed || Math.random());
-      const size = 40;
+      const size = 25;
       const HEIGHT_LIMIT = 350;
       totalBlocks = (size * 2) * (size * 2) * 20; // Estimate
 
       for (let x = -size; x < size; x++) {
        for (let z = -size; z < size; z++) {
-         // Biome determination: use large-scale noise
-         const biomeNoise = simplex.noise2D(x / 80, z / 80);
-         const isMountain = biomeNoise > 0.25;
+         // Biome determination: mountains are rare, need high biome noise (>0.55)
+         const biomeNoise = simplex.noise2D(x / 120, z / 120);
+         const isMountain = biomeNoise > 0.55;
+         // mountainBlend: smooth transition from 0 (edge) to 1 (deep mountain)
+         const mountainBlend = isMountain ? Math.min(1, (biomeNoise - 0.55) / 0.35) : 0;
 
          let surfaceY;
+         const plainsVariance = Math.floor(simplex.noise2D(x / 20, z / 20) * 4);
+         const plainsY = 6 + plainsVariance;
+
          if (isMountain) {
-           // Mountain biome: tall peaks up to 200 blocks
-           const baseHeight = 8;
-           const peakNoise = Math.max(0, simplex.noise2D(x / 30, z / 30));
-           const ridgeNoise = Math.abs(simplex.noise2D(x / 15, z / 15));
-           surfaceY = Math.floor(baseHeight + peakNoise * 120 + ridgeNoise * 80);
+           // Multi-octave mountain: gradual slopes, average ~100, rare 200
+           const coarse = Math.max(0, simplex.noise2D(x / 50, z / 50));
+           const medium = Math.max(0, simplex.noise2D(x / 25, z / 25)) * 0.4;
+           const fine   = Math.max(0, simplex.noise2D(x / 12, z / 12)) * 0.15;
+           const combined = coarse + medium + fine; // 0..1.55
+           // Quadratic curve: average ~100, rare ~200
+           const mountainY = Math.floor(8 + combined * combined * 90);
+           // Smoothly blend plains -> mountain based on how far into mountain biome
+           surfaceY = Math.round(plainsY + (mountainY - plainsY) * mountainBlend);
            surfaceY = Math.min(surfaceY, 200);
          } else {
            // Plains biome: gentle terrain
-           const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 4);
-           surfaceY = 6 + terrainVariance;
+           surfaceY = plainsY;
          }
 
          if (x === 0 && z === 0) {
@@ -1355,10 +1363,10 @@ export async function initGame(THREE, gameRendererIntegration){
            if (y === 0) {
              type = "bedrock";
            } else if (y === surfaceY) {
-             // Stone peaks above y=80 in mountain biome
-             type = (isMountain && surfaceY > 80) ? "stone" : "grass";
+             // Stone peaks above y=50 in mountain biome
+             type = (isMountain && surfaceY > 50) ? "stone" : "grass";
            } else if (y === surfaceY - 1 || y === surfaceY - 2) {
-             type = isMountain && surfaceY > 80 ? "stone" : "dirt";
+             type = isMountain && surfaceY > 50 ? "stone" : "dirt";
            } else {
              const coalChance = Math.random();
              type = coalChance < 0.15 ? "coal_ore" : "stone";
@@ -1437,7 +1445,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
     // Tree generation pass (after terrain)
     if (simplex) {
-      const size = 50;
+      const size = 25;
       const existingPositions = new Set(blocks3D.map(b => `${b.pos.x},${b.pos.y},${b.pos.z}`));
       const addBlock3D = (x, y, z, type) => {
         const key = `${x},${y},${z}`;
@@ -1460,9 +1468,9 @@ export async function initGame(THREE, gameRendererIntegration){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
-          // Biome check for tree density: mountain biome has spread-out trees
-          const biomeNoise = simplex.noise2D(x / 80, z / 80);
-          const isMountain = biomeNoise > 0.25;
+          // Biome check: match same thresholds as terrain generation
+          const biomeNoise = simplex.noise2D(x / 120, z / 120);
+          const isMountain = biomeNoise > 0.55;
           // Plains: ~1.2% chance; Mountains: ~0.3% (more spread out)
           const treeThreshold = isMountain ? 0.997 : 0.988;
           if (seededRand(x, z) > treeThreshold) { // spread-out trees
@@ -1514,6 +1522,71 @@ export async function initGame(THREE, gameRendererIntegration){
           if (text) text.textContent = "Generating trees " + pct + "%";
           await yieldFrame();
         }
+      }
+    }
+
+    // Face culling pass: rebuild block geometries to only show exposed faces
+    {
+      const bar2 = document.getElementById("loadingBar");
+      const text2 = document.getElementById("loadingText");
+      if (text2) text2.textContent = "Optimizing faces...";
+      await yieldFrame();
+
+      // Build a fast lookup set of all block positions
+      const genBlockSet = new Set(blocks3D.map(b => `${Math.round(b.mesh.position.x)},${Math.round(b.mesh.position.y)},${Math.round(b.mesh.position.z)}`));
+
+      // Face definitions: [dx,dy,dz, vertices(4x3), normal(3), uvs(4x2)]
+      const FACE_DEFS = [
+        { dx:1,dy:0,dz:0,  verts:[[.5,-.5,.5],[.5,-.5,-.5],[.5,.5,-.5],[.5,.5,.5]],   norm:[1,0,0] },
+        { dx:-1,dy:0,dz:0, verts:[[-.5,-.5,-.5],[-.5,-.5,.5],[-.5,.5,.5],[-.5,.5,-.5]], norm:[-1,0,0] },
+        { dx:0,dy:1,dz:0,  verts:[[-.5,.5,-.5],[.5,.5,-.5],[.5,.5,.5],[-.5,.5,.5]],    norm:[0,1,0] },
+        { dx:0,dy:-1,dz:0, verts:[[-.5,-.5,.5],[.5,-.5,.5],[.5,-.5,-.5],[-.5,-.5,-.5]],norm:[0,-1,0] },
+        { dx:0,dy:0,dz:1,  verts:[[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]],    norm:[0,0,1] },
+        { dx:0,dy:0,dz:-1, verts:[[.5,-.5,-.5],[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5]],norm:[0,0,-1] },
+      ];
+      const FACE_UVS = [[0,0],[1,0],[1,1],[0,1]];
+
+      let culledCount = 0;
+      for (let i = 0; i < blocks3D.length; i++) {
+        const b = blocks3D[i];
+        const bx = Math.round(b.mesh.position.x);
+        const by = Math.round(b.mesh.position.y);
+        const bz = Math.round(b.mesh.position.z);
+
+        const positions = [], normals = [], uvs = [], indices = [];
+        let vi = 0;
+        let hasAnyFace = false;
+
+        for (const face of FACE_DEFS) {
+          const nk = `${bx+face.dx},${by+face.dy},${bz+face.dz}`;
+          if (genBlockSet.has(nk)) continue; // neighbor exists, cull this face
+          hasAnyFace = true;
+          for (let f = 0; f < 4; f++) {
+            positions.push(...face.verts[f]);
+            normals.push(...face.norm);
+            uvs.push(...FACE_UVS[f]);
+          }
+          indices.push(vi,vi+1,vi+2, vi,vi+2,vi+3);
+          vi += 4;
+        }
+
+        if (!hasAnyFace) {
+          b.mesh.visible = false;
+          continue;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+
+        b.mesh.geometry.dispose();
+        b.mesh.geometry = geo;
+        culledCount++;
+
+        // Yield periodically to keep UI responsive
+        if (i % 2000 === 0) await yieldFrame();
       }
     }
 
@@ -5864,42 +5937,40 @@ export async function initGame(THREE, gameRendererIntegration){
     const chatMessages = document.getElementById("chatMessages");
     if (!chatMessages) return;
 
-    // Store in history log
+    // Store in history log (last 10)
     chatHistoryLog.push(text);
     if (chatHistoryLog.length > 10) chatHistoryLog.shift();
-    
+
+    // If chat input is open, just update the history display and return
+    if (isChatInputOpen()) {
+      showChatHistory();
+      return;
+    }
+
+    // Outside chat: show message with 5-second auto-remove, max 5 visible
     const msgLine = document.createElement("div");
     msgLine.textContent = text;
     msgLine.style.color = "#fff";
     msgLine.style.wordWrap = "break-word";
     msgLine.style.transition = "opacity 0.5s";
+    msgLine.dataset.chatMsg = "1";
     chatMessages.appendChild(msgLine);
-    refreshChatContainerVisibility();
-    
-    // Auto-scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    
-    // Keep only last 100 messages
-    while (chatMessages.children.length > 100) {
-      chatMessages.removeChild(chatMessages.firstChild);
+
+    // Limit to 5 visible messages outside chat
+    const visibleMsgs = [...chatMessages.querySelectorAll('[data-chat-msg="1"]')];
+    if (visibleMsgs.length > 5) {
+      visibleMsgs[0].remove();
     }
 
-    // Auto-remove after 5 seconds (with brief fade). When the last message
-    // disappears, also hide the empty chat container.
-    // Don't fade if chat input is currently open.
-    const fadeTimer = setTimeout(() => {
-      if (!isChatInputOpen()) {
-        try { msgLine.style.opacity = "0"; } catch(_) {}
-      }
-    }, 4500);
-    const removeTimer = setTimeout(() => {
-      if (!isChatInputOpen()) {
-        try { msgLine.remove(); } catch(_) {}
-        refreshChatContainerVisibility();
-      }
+    refreshChatContainerVisibility();
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Fade after 4.5s, remove after 5s
+    setTimeout(() => { try { msgLine.style.opacity = "0"; } catch(_) {} }, 4500);
+    setTimeout(() => {
+      try { msgLine.remove(); } catch(_) {}
+      refreshChatContainerVisibility();
     }, 5000);
-    msgLine._fadeTimer = fadeTimer;
-    msgLine._removeTimer = removeTimer;
   }
 
   function showChatHistory() {
@@ -6803,9 +6874,8 @@ export async function initGame(THREE, gameRendererIntegration){
       }
       
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      // Use render distance from settings (in blocks). Setting range: 1-8 mapped to 10-80 blocks.
-      const settingsDist = videoSettingsManager ? videoSettingsManager.settings.renderDistance * 10 : 40;
-      const renderDist = lowFpsActive ? Math.min(settingsDist, 50) : settingsDist;
+      // Render distance: 10 blocks normally, drops to 5 when low FPS
+      const renderDist = lowFpsActive ? 5 : 10;
       const renderDistSq = renderDist * renderDist;
 
       // Update camera frustum for this frame
@@ -6994,31 +7064,31 @@ updateBreaking();
       } else if (player.cameraMode === 1) {
           // Third Person Back (360 capable with full rotation, always looking at player)
           player.model.visible = true;
-          // Compute world position - 3 blocks away
-          const offset = new THREE.Vector3(0, 1.6, 3).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-          const worldPos = player.group.position.clone().add(offset);
-          
-          // Push camera out of blocks if colliding
-          let finalPos = worldPos.clone();
-          const searchRadius = 1.2;
-          for (const block of blocks3D) {
-            const blockPos = block.mesh.position;
-            const diff = finalPos.clone().sub(blockPos);
-            const dist = diff.length();
-            if (dist < searchRadius) {
-              const dir = diff.normalize();
-              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
-              break;
-            }
+          const playerHead = player.group.position.clone().add(new THREE.Vector3(0, 1.6, 0));
+          const desiredOffset = new THREE.Vector3(0, 1.6, 4).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          const desiredPos = player.group.position.clone().add(desiredOffset);
+
+          // Ray-march from player head toward desired camera pos to find first clear spot
+          const rayDir = desiredPos.clone().sub(playerHead).normalize();
+          const maxDist = playerHead.distanceTo(desiredPos);
+          let safeDist = maxDist;
+          const steps = 12;
+          for (let s = 1; s <= steps; s++) {
+            const t = (s / steps) * maxDist;
+            const testPt = playerHead.clone().addScaledVector(rayDir, t);
+            const tx = Math.round(testPt.x), ty = Math.round(testPt.y), tz = Math.round(testPt.z);
+            const blocked = blocks3D.some(b =>
+              Math.round(b.mesh.position.x) === tx &&
+              Math.round(b.mesh.position.y) === ty &&
+              Math.round(b.mesh.position.z) === tz &&
+              b.mesh.visible !== false
+            );
+            if (blocked) { safeDist = Math.max(1.5, t - 0.5); break; }
           }
-          
-          // To position a child in world space, we can use worldToLocal on the parent
+          const finalPos = playerHead.clone().addScaledVector(rayDir, safeDist);
+
           camera.position.copy(player.group.worldToLocal(finalPos));
-          
-          // Look at the player (at local coordinates)
           camera.lookAt(0, 1.6, 0);
-          
-          // Apply pitch rotation for looking up/down
           const pitchQuat = new THREE.Quaternion();
           pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
@@ -7043,33 +7113,32 @@ updateBreaking();
       } else if (player.cameraMode === 2) {
           // Third Person Front (360 capable with full rotation, always looking at player)
           player.model.visible = true;
-          // Compute world position - 3 blocks away
-          const offset = new THREE.Vector3(0, 1.6, -3).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
-          const worldPos = player.group.position.clone().add(offset);
-          
-          // Push camera out of blocks if colliding
-          let finalPos = worldPos.clone();
-          const searchRadius = 1.2;
-          for (const block of blocks3D) {
-            const blockPos = block.mesh.position;
-            const diff = finalPos.clone().sub(blockPos);
-            const dist = diff.length();
-            if (dist < searchRadius) {
-              const dir = diff.normalize();
-              finalPos = blockPos.clone().add(dir.multiplyScalar(searchRadius));
-              break;
-            }
+          const playerHead2 = player.group.position.clone().add(new THREE.Vector3(0, 1.6, 0));
+          const desiredOffset2 = new THREE.Vector3(0, 1.6, -4).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+          const desiredPos2 = player.group.position.clone().add(desiredOffset2);
+
+          const rayDir2 = desiredPos2.clone().sub(playerHead2).normalize();
+          const maxDist2 = playerHead2.distanceTo(desiredPos2);
+          let safeDist2 = maxDist2;
+          for (let s = 1; s <= 12; s++) {
+            const t = (s / 12) * maxDist2;
+            const testPt = playerHead2.clone().addScaledVector(rayDir2, t);
+            const tx = Math.round(testPt.x), ty = Math.round(testPt.y), tz = Math.round(testPt.z);
+            const blocked = blocks3D.some(b =>
+              Math.round(b.mesh.position.x) === tx &&
+              Math.round(b.mesh.position.y) === ty &&
+              Math.round(b.mesh.position.z) === tz &&
+              b.mesh.visible !== false
+            );
+            if (blocked) { safeDist2 = Math.max(1.5, t - 0.5); break; }
           }
-          
-          camera.position.copy(player.group.worldToLocal(finalPos));
-          
-          // Look at the player (at local coordinates)
+          const finalPos2 = playerHead2.clone().addScaledVector(rayDir2, safeDist2);
+
+          camera.position.copy(player.group.worldToLocal(finalPos2));
           camera.lookAt(0, 1.6, 0);
-          
-          // Apply pitch rotation for looking up/down
-          const pitchQuat = new THREE.Quaternion();
-          pitchQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
-          camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
+          const pitchQuat2 = new THREE.Quaternion();
+          pitchQuat2.setFromAxisAngle(new THREE.Vector3(1, 0, 0), player.pitch);
+          camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat2);
       }
 
       // Normal mode player movement
