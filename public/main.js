@@ -251,7 +251,31 @@ export async function initGame(THREE, gameRendererIntegration){
   scene.add(ambientLight);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(50, 100, 50);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.near = 0.5;
+  sun.shadow.camera.far = 500;
+  sun.shadow.camera.left = -100;
+  sun.shadow.camera.right = 100;
+  sun.shadow.camera.top = 100;
+  sun.shadow.camera.bottom = -100;
   scene.add(sun);
+
+  // Apply initial shadow setting from video settings manager
+  if (videoSettingsManager) {
+    const shadowsOn = videoSettingsManager.settings.shadowsEnabled;
+    renderer.shadowMap.enabled = shadowsOn;
+    if (shadowsOn) renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Hook render distance + FPS + shadow changes to game
+    videoSettingsManager.onRenderDistanceChange = (dist) => { /* handled in animate via settings */ };
+    videoSettingsManager.onFpsLimitChange = (fps) => { /* handled in animate via settings */ };
+    videoSettingsManager.onShadowSettingChange = ({ enabled }) => {
+      renderer.shadowMap.enabled = enabled;
+      renderer.shadowMap.needsUpdate = true;
+      sun.castShadow = enabled;
+    };
+  }
 
   const torchLights = new Map(); // key = "x,y,z" → PointLight
 
@@ -1051,7 +1075,20 @@ export async function initGame(THREE, gameRendererIntegration){
       const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
       newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
 
-      if (!checkCollision(newBlock.position)) {
+      // Height limit: no placing above y=350
+      if (Math.round(p.y) > 350) return;
+
+      // Check only for existing blocks (not player collision) so blocks
+      // can be placed in tight spaces with less than 2 blocks of headroom.
+      const bpx = Math.round(newBlock.position.x);
+      const bpy = Math.round(newBlock.position.y);
+      const bpz = Math.round(newBlock.position.z);
+      const blockAlreadyThere = blocks3D.some(b =>
+        Math.round(b.mesh.position.x) === bpx &&
+        Math.round(b.mesh.position.y) === bpy &&
+        Math.round(b.mesh.position.z) === bpz
+      );
+      if (!blockAlreadyThere) {
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
         occlusionDirty = true;
@@ -1284,13 +1321,29 @@ export async function initGame(THREE, gameRendererIntegration){
 
     if (window.SimplexNoise) {
       simplex = new SimplexNoise(seed || Math.random());
-      const size = 30;
-      totalBlocks = (size * 2) * (size * 2) * 9; // Estimate
+      const size = 40;
+      const HEIGHT_LIMIT = 350;
+      totalBlocks = (size * 2) * (size * 2) * 20; // Estimate
 
       for (let x = -size; x < size; x++) {
        for (let z = -size; z < size; z++) {
-         const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 4);
-         const surfaceY = 6 + terrainVariance;
+         // Biome determination: use large-scale noise
+         const biomeNoise = simplex.noise2D(x / 80, z / 80);
+         const isMountain = biomeNoise > 0.25;
+
+         let surfaceY;
+         if (isMountain) {
+           // Mountain biome: tall peaks up to 200 blocks
+           const baseHeight = 8;
+           const peakNoise = Math.max(0, simplex.noise2D(x / 30, z / 30));
+           const ridgeNoise = Math.abs(simplex.noise2D(x / 15, z / 15));
+           surfaceY = Math.floor(baseHeight + peakNoise * 120 + ridgeNoise * 80);
+           surfaceY = Math.min(surfaceY, 200);
+         } else {
+           // Plains biome: gentle terrain
+           const terrainVariance = Math.floor(simplex.noise2D(x/20, z/20) * 4);
+           surfaceY = 6 + terrainVariance;
+         }
 
          if (x === 0 && z === 0) {
            spawnHeight = surfaceY + 1;
@@ -1302,9 +1355,10 @@ export async function initGame(THREE, gameRendererIntegration){
            if (y === 0) {
              type = "bedrock";
            } else if (y === surfaceY) {
-             type = "grass";
+             // Stone peaks above y=80 in mountain biome
+             type = (isMountain && surfaceY > 80) ? "stone" : "grass";
            } else if (y === surfaceY - 1 || y === surfaceY - 2) {
-             type = "dirt";
+             type = isMountain && surfaceY > 80 ? "stone" : "dirt";
            } else {
              const coalChance = Math.random();
              type = coalChance < 0.15 ? "coal_ore" : "stone";
@@ -1383,7 +1437,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
     // Tree generation pass (after terrain)
     if (simplex) {
-      const size = 30;
+      const size = 50;
       const existingPositions = new Set(blocks3D.map(b => `${b.pos.x},${b.pos.y},${b.pos.z}`));
       const addBlock3D = (x, y, z, type) => {
         const key = `${x},${y},${z}`;
@@ -1406,7 +1460,12 @@ export async function initGame(THREE, gameRendererIntegration){
       for (let x = -size; x < size; x++) {
         for (let z = -size; z < size; z++) {
           if (Math.abs(x) < 3 && Math.abs(z) < 3) continue; // protect spawn
-          if (seededRand(x, z) > 0.988) { // ~1.2% chance, more spaced out
+          // Biome check for tree density: mountain biome has spread-out trees
+          const biomeNoise = simplex.noise2D(x / 80, z / 80);
+          const isMountain = biomeNoise > 0.25;
+          // Plains: ~1.2% chance; Mountains: ~0.3% (more spread out)
+          const treeThreshold = isMountain ? 0.997 : 0.988;
+          if (seededRand(x, z) > treeThreshold) { // spread-out trees
             const h = Math.floor(simplex.noise2D(x / 10, z / 10) * 4) + 5;
             const topY = h;
             
@@ -1929,13 +1988,13 @@ export async function initGame(THREE, gameRendererIntegration){
         }
         chatInput.value = "";
         chatInput.style.display = "none";
-        refreshChatContainerVisibility();
+        hideChatHistory();
         renderer.domElement.requestPointerLock();
         e.preventDefault();
       } else if (e.code === "Escape") {
         chatInput.style.display = "none";
         chatInput.value = "";
-        refreshChatContainerVisibility();
+        hideChatHistory();
         renderer.domElement.requestPointerLock();
         e.preventDefault();
       }
@@ -1964,6 +2023,8 @@ export async function initGame(THREE, gameRendererIntegration){
         chatInputElem.focus(); // Auto focus on the input
         chatInputElem.click(); // Click on it to ensure it's active
 
+        // Show last 10 messages from history
+        showChatHistory();
         refreshChatContainerVisibility();
       }
       return;
@@ -5796,9 +5857,16 @@ export async function initGame(THREE, gameRendererIntegration){
     }
   }
 
+  // Persistent chat history (last 10 messages) for when chat is opened
+  const chatHistoryLog = [];
+
   function addChatMessage(text) {
     const chatMessages = document.getElementById("chatMessages");
     if (!chatMessages) return;
+
+    // Store in history log
+    chatHistoryLog.push(text);
+    if (chatHistoryLog.length > 10) chatHistoryLog.shift();
     
     const msgLine = document.createElement("div");
     msgLine.textContent = text;
@@ -5818,11 +5886,44 @@ export async function initGame(THREE, gameRendererIntegration){
 
     // Auto-remove after 5 seconds (with brief fade). When the last message
     // disappears, also hide the empty chat container.
-    setTimeout(() => { try { msgLine.style.opacity = "0"; } catch(_) {} }, 4500);
-    setTimeout(() => {
-      try { msgLine.remove(); } catch(_) {}
-      refreshChatContainerVisibility();
+    // Don't fade if chat input is currently open.
+    const fadeTimer = setTimeout(() => {
+      if (!isChatInputOpen()) {
+        try { msgLine.style.opacity = "0"; } catch(_) {}
+      }
+    }, 4500);
+    const removeTimer = setTimeout(() => {
+      if (!isChatInputOpen()) {
+        try { msgLine.remove(); } catch(_) {}
+        refreshChatContainerVisibility();
+      }
     }, 5000);
+    msgLine._fadeTimer = fadeTimer;
+    msgLine._removeTimer = removeTimer;
+  }
+
+  function showChatHistory() {
+    const chatMessages = document.getElementById("chatMessages");
+    if (!chatMessages) return;
+    // Clear existing messages
+    chatMessages.innerHTML = "";
+    // Render last 10 from history
+    chatHistoryLog.forEach(text => {
+      const msgLine = document.createElement("div");
+      msgLine.textContent = text;
+      msgLine.style.color = "#fff";
+      msgLine.style.wordWrap = "break-word";
+      msgLine.style.opacity = "1";
+      chatMessages.appendChild(msgLine);
+    });
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function hideChatHistory() {
+    const chatMessages = document.getElementById("chatMessages");
+    if (!chatMessages) return;
+    chatMessages.innerHTML = "";
+    refreshChatContainerVisibility();
   }
 
   function normalizeLookupKey(text) {
@@ -6643,6 +6744,7 @@ export async function initGame(THREE, gameRendererIntegration){
   let lastTime = performance.now();
   let frames = 0;
   let fpsLastTime = performance.now();
+  let fpsFrameLimiterLast = performance.now();
   const fpsElement = document.getElementById("fpsCounter");
   let lastHealTime = performance.now(); // Track healing timer
   let lowFpsStartTime = null;
@@ -6653,8 +6755,17 @@ export async function initGame(THREE, gameRendererIntegration){
 
   function animate() {
       requestAnimationFrame(animate);
-      
+
       const now = performance.now();
+
+      // FPS limiter: skip this frame if we're ahead of schedule
+      const maxFps = videoSettingsManager ? videoSettingsManager.settings.maxFps : 60;
+      if (maxFps > 0) {
+        const frameInterval = 1000 / maxFps;
+        if (now - fpsFrameLimiterLast < frameInterval) return;
+      }
+      fpsFrameLimiterLast = now;
+
       const delta = Math.min((now - lastTime) / 1000, 0.1);
       lastTime = now;
 
@@ -6692,7 +6803,10 @@ export async function initGame(THREE, gameRendererIntegration){
       }
       
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      const renderDistSq = lowFpsActive ? (5 * 5) : (10 * 10);
+      // Use render distance from settings (in blocks). Setting range: 1-8 mapped to 10-80 blocks.
+      const settingsDist = videoSettingsManager ? videoSettingsManager.settings.renderDistance * 10 : 40;
+      const renderDist = lowFpsActive ? Math.min(settingsDist, 50) : settingsDist;
+      const renderDistSq = renderDist * renderDist;
 
       // Update camera frustum for this frame
       camera.updateMatrixWorld();
