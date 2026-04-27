@@ -253,9 +253,6 @@ export async function initGame(THREE, gameRendererIntegration){
   sun.position.set(50, 100, 50);
   scene.add(sun);
 
-  // Day/night cycle — 20 real-minutes per full day
-  let gameTime = 0; // seconds, 0 = dawn, 300 = noon, 600 = dusk, 900 = midnight
-  const DAY_LENGTH = 600; // seconds
   const torchLights = new Map(); // key = "x,y,z" → PointLight
 
   // Build Minecraft Player Model
@@ -6664,24 +6661,6 @@ export async function initGame(THREE, gameRendererIntegration){
       // Rebuild occlusion set when world changes
       if (occlusionDirty) rebuildBlockSet();
 
-      // Day/night cycle
-      gameTime = (gameTime + delta) % DAY_LENGTH;
-      {
-        // t goes from 0 (midnight) to 1 (noon) via cosine
-        const t = (Math.cos(gameTime / DAY_LENGTH * 2 * Math.PI) + 1) / 2;
-        const dayAmbient = 0.9, nightAmbient = 0.04;
-        const daySun = 1.1, nightSun = 0.0;
-        ambientLight.intensity = nightAmbient + (dayAmbient - nightAmbient) * t;
-        sun.intensity = nightSun + (daySun - nightSun) * t;
-        // Sun/moon position
-        const angle = (gameTime / DAY_LENGTH) * Math.PI * 2;
-        sun.position.set(Math.cos(angle) * 100, Math.sin(angle) * 100, 50);
-        // Sky colour
-        const dayColor = new THREE.Color(0x87ceeb);
-        const nightColor = new THREE.Color(0x050510);
-        const skyColor = nightColor.clone().lerp(dayColor, t);
-        renderer.setClearColor(skyColor, 1);
-      }
 
       // Furnace timer
       updateFurnaceSmelt(delta);
