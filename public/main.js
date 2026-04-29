@@ -1,4 +1,5 @@
 import { createAdapter } from './threeBabylonAdapter.js';
+import { PlayerHitboxManager, HitboxCollisionDetector } from './playerHitboxManager.js';
 
 export async function initGame(THREE, gameRendererIntegration){
   // Initialize Babylon.js renderer if provided
@@ -337,6 +338,19 @@ export async function initGame(THREE, gameRendererIntegration){
   player.model = modelGroup;
   player.torsoGroup = torsoGroup;
   player.limbs = { armL, armR, legL, legR, head, body, torsoGroup };
+
+  // Initialize player hitbox manager
+  const playerHitboxManager = new PlayerHitboxManager(player);
+  player.hitboxManager = playerHitboxManager;
+  const hitboxCollisionDetector = new HitboxCollisionDetector();
+  hitboxCollisionDetector.registerPlayer('local_player', player);
+
+  // Create optional hitbox visualization mesh for debug mode
+  const hitboxVisualizationMesh = playerHitboxManager.createHitboxVisualization(THREE);
+  if (hitboxVisualizationMesh) {
+    scene.add(hitboxVisualizationMesh);
+    player.hitboxVisualizationMesh = hitboxVisualizationMesh;
+  }
 
   // Create Name Tag
   function createNameTag(name) {
@@ -1093,7 +1107,11 @@ export async function initGame(THREE, gameRendererIntegration){
         Math.round(b.mesh.position.y) === bpy &&
         Math.round(b.mesh.position.z) === bpz
       );
-      if (!blockAlreadyThere) {
+
+      // Check player hitbox - prevent placing blocks where player is standing
+      const blockInPlayerHitbox = !playerHitboxManager.canPlaceBlockAt(bpx, bpy, bpz);
+
+      if (!blockAlreadyThere && !blockInPlayerHitbox) {
         scene.add(newBlock);
         blocks3D.push({ mesh: newBlock, type: blockName, pos: { ...newBlock.position } });
         occlusionDirty = true;
@@ -7253,6 +7271,11 @@ updateBreaking();
               deathScreen.style.display = "flex";
               document.exitPointerLock();
           }
+      }
+
+      // Update player hitbox visualization
+      if (playerHitboxManager) {
+        playerHitboxManager.updateHitboxVisualization();
       }
       
       renderer.render(scene, camera);

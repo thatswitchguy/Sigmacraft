@@ -154,7 +154,7 @@ export class VideoSettingsManager {
       particlesEnabled: true,
       ambientOcclusion: false,
       bloomEnabled: false,
-      maxFps: 60,
+      maxFps: 120,
       vsync: true,
       multisampling: 4,
       lodEnabled: true,
