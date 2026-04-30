@@ -25,7 +25,7 @@ export class VideoSettingsManager {
       bloomEnabled: false,
       
       // Performance
-      maxFps: 60,
+      maxFps: 120,
       vsync: true,
       multisampling: 4, // MSAA: 0, 2, 4, 8
       lodEnabled: true,

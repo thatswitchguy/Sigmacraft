@@ -8,7 +8,7 @@ import http from "http";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -399,27 +399,51 @@ function loadItems() {
     try { return JSON.parse(fs.readFileSync(ITEMS_FILE)); } catch(e) { return {}; }
 }
 function saveItemData(data) {
-    fs.writeFileSync(ITEMS_FILE, JSON.stringify(data, null, 2));
+    try {
+        fs.writeFileSync(ITEMS_FILE, JSON.stringify(data, null, 2));
+    } catch(error) {
+        console.error("Failed to save item data:", error);
+        throw error;
+    }
 }
 
 app.get("/items", (req, res) => res.json(loadItems()));
 
 app.post("/save-item", (req, res) => {
-    const { itemId, itemName, itemType, textureData } = req.body;
-    const data = loadItems();
-    if (!data[itemId]) data[itemId] = {};
-    data[itemId].name = itemName;
-    data[itemId].type = itemType || "generic";
-    data[itemId].texture = textureData;
-    saveItemData(data);
-    res.json({ success: true });
+    try {
+        const { itemId, itemName, itemType, textureData } = req.body;
+        if (!itemId || !itemName) {
+            return res.status(400).json({ success: false, error: "Missing itemId or itemName" });
+        }
+        const data = loadItems();
+        if (!data[itemId]) data[itemId] = {};
+        data[itemId].name = itemName;
+        data[itemId].type = itemType || "generic";
+        data[itemId].texture = textureData;
+        saveItemData(data);
+        res.json({ success: true });
+    } catch(error) {
+        console.error("Error saving item:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.post("/delete-item", (req, res) => {
-    const { itemId } = req.body;
-    const data = loadItems();
-    if (data[itemId]) { delete data[itemId]; saveItemData(data); }
-    res.json({ success: true });
+    try {
+        const { itemId } = req.body;
+        if (!itemId) {
+            return res.status(400).json({ success: false, error: "Missing itemId" });
+        }
+        const data = loadItems();
+        if (data[itemId]) { 
+            delete data[itemId]; 
+            saveItemData(data); 
+        }
+        res.json({ success: true });
+    } catch(error) {
+        console.error("Error deleting item:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 function loadRecipes() {

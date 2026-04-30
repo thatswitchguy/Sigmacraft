@@ -19,7 +19,7 @@ export class GameRendererIntegration {
     this.lastFrameTime = Date.now();
     this.fps = 60;
     this.fpsHistory = [];
-    this.maxFPS = 60;
+    this.maxFPS = 120;
     this.lastRenderTime = 0;
   }
 

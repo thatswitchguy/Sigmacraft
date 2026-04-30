@@ -36,8 +36,9 @@ export async function initGame(THREE, gameRendererIntegration){
       const mapping = raw ? JSON.parse(raw) : {};
       // Set default drops if not already configured
       if (!mapping.coal_ore) mapping.coal_ore = "coal";
+      if (!mapping.iron_ore) mapping.iron_ore = "iron";
       return mapping;
-    } catch (_) { return { coal_ore: "coal" }; }
+    } catch (_) { return { coal_ore: "coal", iron_ore: "iron" }; }
   })();
   function saveBlockDropsMapping() {
     try { localStorage.setItem("sigmacraft_blockDrops_mapping", JSON.stringify(blockDrops_mapping)); } catch (_) {}
@@ -1344,7 +1345,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
     if (window.SimplexNoise) {
       simplex = new SimplexNoise(seed || Math.random());
-      const size = 25;
+      const size = 20;
       const HEIGHT_LIMIT = 350;
       totalBlocks = (size * 2) * (size * 2) * 20; // Estimate
 
@@ -1385,14 +1386,32 @@ export async function initGame(THREE, gameRendererIntegration){
 
            if (y === 0) {
              type = "bedrock";
-           } else if (y === surfaceY) {
-             // Stone peaks above y=50 in mountain biome
-             type = (isMountain && surfaceY > 50) ? "stone" : "grass";
-           } else if (y === surfaceY - 1 || y === surfaceY - 2) {
-             type = isMountain && surfaceY > 50 ? "stone" : "dirt";
+           } else if (isMountain) {
+             // Mountains ONLY: all stone with random ore
+             const rand = Math.random();
+             if (y === surfaceY) {
+               type = "stone";
+             } else if (y === surfaceY - 1 || y === surfaceY - 2) {
+               type = "stone";
+             } else {
+               // Stone with random coal or iron ore
+               if (rand < 0.12) type = "coal_ore";
+               else if (rand < 0.17) type = "iron_ore";
+               else type = "stone";
+             }
            } else {
-             const coalChance = Math.random();
-             type = coalChance < 0.15 ? "coal_ore" : "stone";
+             // Plains biome: grass and dirt surface, stone and ores below
+             if (y === surfaceY) {
+               type = "grass";
+             } else if (y === surfaceY - 1 || y === surfaceY - 2) {
+               type = "dirt";
+             } else {
+               // Underground stone with random coal or iron ore
+               const rand = Math.random();
+               if (rand < 0.12) type = "coal_ore";
+               else if (rand < 0.17) type = "iron_ore";
+               else type = "stone";
+             }
            }
 
            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({color: 0x888888});
@@ -1468,7 +1487,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
     // Tree generation pass (after terrain)
     if (simplex) {
-      const size = 25;
+      const size = 40;
       const existingPositions = new Set(blocks3D.map(b => `${b.pos.x},${b.pos.y},${b.pos.z}`));
       const addBlock3D = (x, y, z, type) => {
         const key = `${x},${y},${z}`;
@@ -2522,13 +2541,30 @@ export async function initGame(THREE, gameRendererIntegration){
     
     // Create a net texture if we have texturedata, otherwise use folder textures
     let netTexture = null;
+    const usingNetTexture = data.textures && Object.keys(data.textures).length > 0;
     try {
-      if (data.textures && Object.keys(data.textures).length > 0) {
+      if (usingNetTexture) {
         netTexture = createBlockNetTexture(data);
       }
     } catch (e) {
       console.warn("Could not create net texture for", name, e);
     }
+
+    // Cube net layout on a 64x48 canvas:
+    // top: (0.25, 0) to (0.5, 0.333)
+    // bottom: (0.25, 0.667) to (0.5, 1)
+    // left: (0, 0.333) to (0.25, 0.667)
+    // front: (0.25, 0.333) to (0.5, 0.667)
+    // right: (0.5, 0.333) to (0.75, 0.667)
+    // back: (0.75, 0.333) to (1, 0.667)
+    const netUVMaps = {
+      right: { offsetX: 0.5, offsetY: 0.333, repeatX: 0.25, repeatY: 0.333 },
+      left: { offsetX: 0, offsetY: 0.333, repeatX: 0.25, repeatY: 0.333 },
+      top: { offsetX: 0.25, offsetY: 0, repeatX: 0.25, repeatY: 0.333 },
+      bottom: { offsetX: 0.25, offsetY: 0.667, repeatX: 0.25, repeatY: 0.333 },
+      front: { offsetX: 0.25, offsetY: 0.333, repeatX: 0.25, repeatY: 0.333 },
+      back: { offsetX: 0.75, offsetY: 0.333, repeatX: 0.25, repeatY: 0.333 }
+    };
 
     const materials = sides.map((side, index) => {
       let texture;
@@ -2546,12 +2582,26 @@ export async function initGame(THREE, gameRendererIntegration){
       }
       
       const alphaTestValue = hasTransparency ? 0.1 : 0.5;
-      return new THREE.MeshStandardMaterial({ 
+      const material = new THREE.MeshStandardMaterial({ 
         map: texture, 
         transparent: hasTransparency || true, 
         alphaTest: alphaTestValue,
         side: hasTransparency ? THREE.DoubleSide : THREE.FrontSide
       });
+      
+      // Set UV mapping for net texture
+      if (netTexture && netUVMaps[side]) {
+        const uv = netUVMaps[side];
+        material.map.offset.x = uv.offsetX;
+        material.map.offset.y = uv.offsetY;
+        material.map.repeat.x = uv.repeatX;
+        material.map.repeat.y = uv.repeatY;
+        // Ensure texture doesn't wrap at edges
+        material.map.wrapS = THREE.ClampToEdgeWrapping;
+        material.map.wrapT = THREE.ClampToEdgeWrapping;
+      }
+      
+      return material;
     });
     
     blockMaterials[name] = materials;
@@ -4372,7 +4422,8 @@ export async function initGame(THREE, gameRendererIntegration){
         itemsData[cleanId] = { name, type: "generic", texture: Array(256).fill("#8B4513") };
         try {
           const response = await fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: cleanId, itemName: name, itemType: "generic", textureData: itemsData[cleanId].texture }) });
-          if (!response.ok) throw new Error(`Server error: ${response.status}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`);
           updateItemsSidebar();
           setupInventoryUI();
           alert(`Item '${name}' created successfully!`);
