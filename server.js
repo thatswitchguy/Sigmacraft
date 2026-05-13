@@ -14,8 +14,9 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
 
 const players = {};
-let worldBlocks = []; // Store player-placed blocks
-let worldBreaks = []; // Store positions of broken world blocks
+let worldBlocks = []; // Full generated world (from first player)
+let worldBreaks = []; // Every broken block position (generated or placed)
+let playerPlacedBlocks = []; // Only blocks placed by players (delta to send to joiners)
 let worldSeed = Math.random(); // Initial random seed
 let worldSyncTimer = null; // 5-minute sync timer
 let firstPlayerWorldReceived = false; // Track if first player world has been received
@@ -49,9 +50,9 @@ io.on("connection", (socket) => {
         socket.emit("currentPlayers", players);
         socket.emit("worldSeed", worldSeed);
         
-        // Send existing world modifications to new player (in order)
-        if (worldBlocks.length > 0) {
-            socket.emit("worldData", worldBlocks);
+        // Send only player-placed blocks (not full generated world — new player generates from seed)
+        if (playerPlacedBlocks.length > 0) {
+            socket.emit("worldData", playerPlacedBlocks);
         }
         socket.emit("worldBreaks", worldBreaks);
     });
@@ -60,6 +61,7 @@ io.on("connection", (socket) => {
         worldSeed = Math.random();
         worldBlocks = [];
         worldBreaks = [];
+        playerPlacedBlocks = [];
         firstPlayerWorldReceived = false;
         // Clear existing sync timer
         if (worldSyncTimer) {
@@ -120,24 +122,20 @@ io.on("connection", (socket) => {
 
     socket.on("blockPlace", (data) => {
         worldBlocks.push(data);
+        playerPlacedBlocks.push(data);
         socket.broadcast.emit("blockPlace", data);
     });
 
     socket.on("blockBreak", (data) => {
-        const wasPlaced = worldBlocks.some(b =>
+        // Remove from both tracking arrays
+        const posMatch = b =>
             Math.round(b.pos.x) === Math.round(data.pos.x) &&
             Math.round(b.pos.y) === Math.round(data.pos.y) &&
-            Math.round(b.pos.z) === Math.round(data.pos.z)
-        );
-        worldBlocks = worldBlocks.filter(b =>
-            !(Math.round(b.pos.x) === Math.round(data.pos.x) &&
-              Math.round(b.pos.y) === Math.round(data.pos.y) &&
-              Math.round(b.pos.z) === Math.round(data.pos.z))
-        );
-        if (!wasPlaced) {
-            // This was a world-generated block; track its removal so new players don't see it
-            worldBreaks.push(data.pos);
-        }
+            Math.round(b.pos.z) === Math.round(data.pos.z);
+        worldBlocks = worldBlocks.filter(b => !posMatch(b));
+        playerPlacedBlocks = playerPlacedBlocks.filter(b => !posMatch(b));
+        // Always record the break so new joiners don't see this block (whether generated or placed)
+        worldBreaks.push(data.pos);
         socket.broadcast.emit("blockBreak", data);
     });
 

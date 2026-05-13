@@ -6594,8 +6594,9 @@ export async function initGame(THREE, gameRendererIntegration){
     if (closeBtn && !closeBtn._initDone) {
       closeBtn._initDone = true;
       closeBtn.onclick = () => {
-        document.getElementById("chestOverlay").style.display = "none";
-        renderer.domElement.requestPointerLock();
+        closeAllGameOverlays();
+        currentChestPosition = null;
+        try { renderer.domElement.requestPointerLock(); } catch (_) {}
       };
     }
   }
