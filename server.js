@@ -108,9 +108,15 @@ io.on("connection", (socket) => {
         delete players[socket.id];
         io.emit("playerLeft", socket.id);
         if (Object.keys(players).length === 0) {
-            // Optional: clear world if no one is left? 
-            // Better to keep it for the session or save to file.
-            // For now, let's keep it in memory.
+            // Last player left — reset world so next session starts fresh
+            worldBlocks = [];
+            worldBreaks = [];
+            playerPlacedBlocks = [];
+            chestStorage = {};
+            worldSeed = Math.random();
+            firstPlayerWorldReceived = false;
+            if (worldSyncTimer) { clearInterval(worldSyncTimer); worldSyncTimer = null; }
+            console.log("All players left — world reset, new seed:", worldSeed);
         }
     });
 
@@ -118,6 +124,15 @@ io.on("connection", (socket) => {
         console.log("Player left world:", socket.id);
         delete players[socket.id];
         io.emit("playerLeft", socket.id);
+        if (Object.keys(players).length === 0) {
+            worldBlocks = [];
+            worldBreaks = [];
+            playerPlacedBlocks = [];
+            chestStorage = {};
+            worldSeed = Math.random();
+            firstPlayerWorldReceived = false;
+            if (worldSyncTimer) { clearInterval(worldSyncTimer); worldSyncTimer = null; }
+        }
     });
 
     socket.on("blockPlace", (data) => {

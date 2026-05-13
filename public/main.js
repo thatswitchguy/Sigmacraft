@@ -7066,6 +7066,7 @@ export async function initGame(THREE, gameRendererIntegration){
   const GAME_OVERLAY_IDS = [
       "inventoryOverlay",
       "craftingTableOverlay",
+      "chestOverlay",
       "furnaceOverlay",
       "devOverlay",
       "devPasswordOverlay",

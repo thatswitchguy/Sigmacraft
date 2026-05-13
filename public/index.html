@@ -525,20 +525,21 @@
 </div>
 
 <div id="chestOverlay" style="display:none;">
-  <div class="inventory-window">
+  <div class="inventory-window chest-window">
     <div class="inventory-header">
-      <h3 style="color: white;">Chest</h3>
-      <button id="closeChest">&times;</button>
+      <h3 class="chest-title">Chest</h3>
+      <button id="closeChest" class="close-overlay-btn">&times;</button>
     </div>
-    <div class="crafting-table-body">
-      <div class="chest-inventory">
-        <h4 style="color: #fff; margin: 10px 0 5px 0; font-size: 14px;">Chest Storage</h4>
-        <div id="chestStorageGrid" class="inventory-grid" style="grid-template-columns: repeat(9, 1fr); gap: 2px;"></div>
+    <div class="chest-body">
+      <div class="chest-storage-section">
+        <p class="chest-section-label">Chest</p>
+        <div id="chestStorageGrid" class="inventory-grid chest-storage-grid"></div>
       </div>
-      <div id="chestInventorySection" class="crafting-table-inventory">
-        <h4 style="color: #fff; margin: 10px 0 5px 0; font-size: 14px;">Your Inventory</h4>
+      <div class="chest-divider"></div>
+      <div id="chestInventorySection" class="chest-player-section">
+        <p class="chest-section-label">Inventory</p>
         <div id="chestInventoryGrid" class="inventory-grid"></div>
-        <div id="chestHotbar" class="inventory-grid"></div>
+        <div id="chestHotbar" class="inventory-grid chest-hotbar-grid"></div>
       </div>
     </div>
   </div>
