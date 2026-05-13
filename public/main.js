@@ -1079,6 +1079,20 @@ export async function initGame(THREE, gameRendererIntegration){
         initCraftingTableUI();
         return;
       }
+      if (hitBlock && hitBlock.type === "chest" && e.button === 2) {
+        currentChestPosition = `${Math.round(hitBlock.mesh.position.x)},${Math.round(hitBlock.mesh.position.y)},${Math.round(hitBlock.mesh.position.z)}`;
+        if (!chestStorage[currentChestPosition]) {
+          chestStorage[currentChestPosition] = Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+        }
+        // Request chest data from server if in multiplayer
+        if (isMultiplayer && socket) {
+          socket.emit("chestOpen", currentChestPosition);
+        }
+        if (typeof showGameOverlay === "function") showGameOverlay("chestOverlay");
+        else { document.exitPointerLock(); const o = document.getElementById("chestOverlay"); if (o) o.style.display = "flex"; }
+        initChestUI();
+        return;
+      }
       if (hitBlock && hitBlock.type === "furnace" && e.button === 2) {
         if (typeof showGameOverlay === "function") showGameOverlay("furnaceOverlay");
         else { document.exitPointerLock(); const o = document.getElementById("furnaceOverlay"); if (o) o.style.display = "flex"; }
@@ -1280,6 +1294,34 @@ export async function initGame(THREE, gameRendererIntegration){
       gameSettings.hideHand = hideHandCheck.checked;
       applySettings();
     };
+  }
+
+  // Force Disable VSync handler
+  const forceNoVsyncCheck = document.getElementById("forceNoVsyncCheck");
+  if (forceNoVsyncCheck) {
+    forceNoVsyncCheck.onchange = () => {
+      if (videoSettingsManager) {
+        videoSettingsManager.updateSetting('forceNoVsync', forceNoVsyncCheck.checked);
+      }
+      console.log("Force VSync disabled:", forceNoVsyncCheck.checked);
+    };
+  }
+
+  // Renderer selection handler
+  const rendererSelect = document.getElementById("rendererSelect");
+  if (rendererSelect) {
+    rendererSelect.onchange = () => {
+      if (videoSettingsManager) {
+        const useWasmgc = rendererSelect.value === "webgpu";
+        videoSettingsManager.updateSetting('useWASMGC', useWasmgc);
+        videoSettingsManager.updateSetting('renderer', rendererSelect.value);
+      }
+      console.log("Renderer changed to:", rendererSelect.value);
+    };
+    // Set initial value based on settings
+    if (videoSettingsManager?.settings?.useWASMGC) {
+      rendererSelect.value = "webgpu";
+    }
   }
 
   // Handle Play Button and Username
@@ -1583,6 +1625,15 @@ export async function initGame(THREE, gameRendererIntegration){
 
     occlusionDirty = true;
     
+    // ✅ FIX: Send generated world blocks to server for multiplayer sync
+    if (socket) {
+      const worldBlocks = blocks3D.map(b => ({
+        pos: { x: Math.round(b.pos.x), y: Math.round(b.pos.y), z: Math.round(b.pos.z) },
+        type: b.type
+      }));
+      socket.emit("worldData", worldBlocks);
+    }
+    
     // Hide loading screen when done
     setTimeout(() => {
       const loadingScreen = document.getElementById("loadingScreen");
@@ -1764,6 +1815,35 @@ export async function initGame(THREE, gameRendererIntegration){
         occlusionDirty = true;
     });
 
+    socket.on("worldSync", (data) => {
+        // 5-minute world sync from server - re-sync all world blocks
+        if (data && data.worldBlocks && Array.isArray(data.worldBlocks)) {
+            // Clear current blocks
+            blocks3D.forEach(b => scene.remove(b.mesh));
+            blocks3D.length = 0;
+            
+            // Re-add all blocks from server
+            data.worldBlocks.forEach(b => {
+                if (!b || !b.pos || !b.type) return;
+                const mat = blockMaterials[b.type];
+                if (mat) {
+                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                    mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+                    scene.add(mesh);
+                    blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
+                }
+            });
+            
+            // Update world breaks
+            if (data.worldBreaks && Array.isArray(data.worldBreaks)) {
+                // worldBreaks are already handled by the structure, no need to reapply
+            }
+            
+            occlusionDirty = true;
+            console.log("World synced from server. Total blocks:", blocks3D.length);
+        }
+    });
+
     socket.on("blockPlace", (data) => {
         const mat = blockMaterials[data.type];
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
@@ -1795,53 +1875,80 @@ export async function initGame(THREE, gameRendererIntegration){
     socket.on("chatMessage", (data) => {
         addChatMessage(`${data.username}: ${data.message}`);
     });
+
+    socket.on("chestData", (data) => {
+        // Received chest data from server when chest is opened
+        if (data && data.position) {
+            chestStorage[data.position] = data.storage || Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+            renderChestStorage();
+        }
+    });
+
+    socket.on("chestUpdate", (data) => {
+        // Another player updated a chest, update our local cache
+        if (data && data.position) {
+            chestStorage[data.position] = data.storage;
+            if (currentChestPosition === data.position) {
+                renderChestStorage();
+            }
+        }
+    });
   }
 
   function createRemotePlayer(data) {
     const group = new THREE.Group();
     const model = new THREE.Group();
     
-    // Minecraft Player Model for Remote Players
+    // Minecraft Player Model for Remote Players (same structure as main player F+5 camera)
     const skinMat = new THREE.MeshStandardMaterial({color: 0xffcc99});
-    const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); 
-    // Green for remote
+    const shirtMat = new THREE.MeshStandardMaterial({color: 0x00ff00}); // Green for remote
     const pantsMat = new THREE.MeshStandardMaterial({color: 0x555555});
 
-    // Head
+    // Head (direct child of model)
     const remotehead = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skinMat);
     remotehead.position.y = 1.6;
     model.add(remotehead);
 
-    // Body
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
-    body.position.y = 1.1;
-    model.add(body);
+    // Torso group — pivot at waist (y=0.8). Body + arms are children so
+    // rotating this group tilts them all together (connected sneak pose).
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.y = 0.8;
+    model.add(torsoGroup);
 
-    // Arms
+    // Body (relative to torsoGroup: center 0.3 above waist → world y=1.1)
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), shirtMat);
+    body.position.y = 0.3;
+    torsoGroup.add(body);
+
+    // Arms (relative to torsoGroup: shoulder at 0.6 above waist → world y=1.4)
     const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
-    armL.position.set(-0.3, 1.1, 0);
-    armL.geometry.translate(0, -0.3, 0); // Move pivot to top
-    armL.position.y += 0.3;
-    model.add(armL);
+    armL.position.set(-0.3, 0.6, 0);
+    armL.geometry.translate(0, -0.3, 0); // pivot to shoulder top
+    torsoGroup.add(armL);
 
     const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), skinMat);
-    armR.position.set(0.3, 1.1, 0);
-    armR.geometry.translate(0, -0.3, 0); // Move pivot to top
-    armR.position.y += 0.3;
-    model.add(armR);
+    armR.position.set(0.3, 0.6, 0);
+    armR.geometry.translate(0, -0.3, 0); // pivot to shoulder top
+    torsoGroup.add(armR);
 
-    // Legs
+    // Legs (direct children of model, pivot at waist y=0.8)
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-    legL.position.set(-0.1, 0.4, 0);
-    legL.geometry.translate(0, -0.3, 0); // Move pivot to top
-    legL.position.y += 0.3;
+    legL.position.set(-0.1, 0.8, 0);
+    legL.geometry.translate(0, -0.3, 0); // pivot to top
     model.add(legL);
 
     const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.6, 0.2), pantsMat);
-    legR.position.set(0.1, 0.5, 0);
-    legR.geometry.translate(0, -0.3, 0); // Move pivot to top
-    legR.position.y += 0.3;
+    legR.position.set(0.1, 0.8, 0);
+    legR.geometry.translate(0, -0.3, 0); // pivot to top
     model.add(legR);
+
+    // Third-person held item attached to right hand (same as main player)
+    const tpBlockItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.25);
+    const tpToolItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.02);
+    const tpItem = new THREE.Mesh(tpBlockItemGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    tpItem.position.set(0.06, -0.55, -0.2); // end of arm, slightly forward
+    tpItem.visible = false;
+    armR.add(tpItem);
 
     group.add(model);
     
@@ -1889,102 +1996,100 @@ export async function initGame(THREE, gameRendererIntegration){
 
     remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, tpItem, username: data.username };
 
-    // Apply skin if it exists - use proper texture extraction like the player model
-    fetch("/skin").then(r => r.json()).then(res => {
-        if (res.skin) {
-            const img = new Image();
-            img.onload = () => {
-                const skinWidth = img.width;
-                const skinHeight = img.height;
-                
-                function extractAndApplySkinPart(mesh, x, y, w, h) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = w;
-                    canvas.height = h;
-                    const ctx = canvas.getContext('2d');
-                    ctx.imageSmoothingEnabled = false;
-                    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-                    const tex = new THREE.CanvasTexture(canvas);
-                    tex.magFilter = THREE.NearestFilter;
-                    tex.minFilter = THREE.NearestFilter;
-                    return new THREE.MeshStandardMaterial({ map: tex });
-                }
-                
-                function createBoxMaterialsForRemote(uvs) {
-                    return [
-                        extractAndApplySkinPart(null, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
-                        extractAndApplySkinPart(null, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
-                        extractAndApplySkinPart(null, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
-                        extractAndApplySkinPart(null, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
-                        extractAndApplySkinPart(null, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),
-                        extractAndApplySkinPart(null, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)
-                    ];
-                }
-                
-                const headUV = {
-                    right: {x: 0, y: 8, w: 8, h: 8},
-                    left: {x: 16, y: 8, w: 8, h: 8},
-                    top: {x: 8, y: 0, w: 8, h: 8},
-                    bottom: {x: 16, y: 0, w: 8, h: 8},
-                    front: {x: 8, y: 8, w: 8, h: 8},
-                    back: {x: 24, y: 8, w: 8, h: 8}
-                };
-                
-                const bodyUV = {
-                    right: {x: 16, y: 20, w: 4, h: 12},
-                    left: {x: 28, y: 20, w: 4, h: 12},
-                    top: {x: 20, y: 16, w: 8, h: 4},
-                    bottom: {x: 28, y: 16, w: 8, h: 4},
-                    front: {x: 20, y: 20, w: 8, h: 12},
-                    back: {x: 32, y: 20, w: 8, h: 12}
-                };
-                
-                const armRightUV = {
-                    right: {x: 40, y: 20, w: 4, h: 12},
-                    left: {x: 48, y: 20, w: 4, h: 12},
-                    top: {x: 44, y: 16, w: 4, h: 4},
-                    bottom: {x: 48, y: 16, w: 4, h: 4},
-                    front: {x: 44, y: 20, w: 4, h: 12},
-                    back: {x: 52, y: 20, w: 4, h: 12}
-                };
-                
-                const armLeftUV = skinHeight >= 64 ? {
-                    right: {x: 32, y: 52, w: 4, h: 12},
-                    left: {x: 40, y: 52, w: 4, h: 12},
-                    top: {x: 36, y: 48, w: 4, h: 4},
-                    bottom: {x: 40, y: 48, w: 4, h: 4},
-                    front: {x: 36, y: 52, w: 4, h: 12},
-                    back: {x: 44, y: 52, w: 4, h: 12}
-                } : armRightUV;
-                
-                const legRightUV = {
-                    right: {x: 0, y: 20, w: 4, h: 12},
-                    left: {x: 8, y: 20, w: 4, h: 12},
-                    top: {x: 4, y: 16, w: 4, h: 4},
-                    bottom: {x: 8, y: 16, w: 4, h: 4},
-                    front: {x: 4, y: 20, w: 4, h: 12},
-                    back: {x: 12, y: 20, w: 4, h: 12}
-                };
-                
-                const legLeftUV = skinHeight >= 64 ? {
-                    right: {x: 16, y: 52, w: 4, h: 12},
-                    left: {x: 24, y: 52, w: 4, h: 12},
-                    top: {x: 20, y: 48, w: 4, h: 4},
-                    bottom: {x: 24, y: 48, w: 4, h: 4},
-                    front: {x: 20, y: 52, w: 4, h: 12},
-                    back: {x: 28, y: 52, w: 4, h: 12}
-                } : legRightUV;
-                
-                remotehead.material = createBoxMaterialsForRemote(headUV);
-                body.material = createBoxMaterialsForRemote(bodyUV);
-                armL.material = createBoxMaterialsForRemote(armLeftUV);
-                armR.material = createBoxMaterialsForRemote(armRightUV);
-                legL.material = createBoxMaterialsForRemote(legLeftUV);
-                legR.material = createBoxMaterialsForRemote(legRightUV);
+    // Apply skin if it exists - use the skin from player data
+    if (data.skin) {
+        const img = new Image();
+        img.onload = () => {
+            const skinWidth = img.width;
+            const skinHeight = img.height;
+            
+            function extractAndApplySkinPart(mesh, x, y, w, h) {
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.magFilter = THREE.NearestFilter;
+                tex.minFilter = THREE.NearestFilter;
+                return new THREE.MeshStandardMaterial({ map: tex });
+            }
+            
+            function createBoxMaterialsForRemote(uvs) {
+                return [
+                    extractAndApplySkinPart(null, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
+                    extractAndApplySkinPart(null, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
+                    extractAndApplySkinPart(null, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
+                    extractAndApplySkinPart(null, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
+                    extractAndApplySkinPart(null, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),
+                    extractAndApplySkinPart(null, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)
+                ];
+            }
+            
+            const headUV = {
+                right: {x: 0, y: 8, w: 8, h: 8},
+                left: {x: 16, y: 8, w: 8, h: 8},
+                top: {x: 8, y: 0, w: 8, h: 8},
+                bottom: {x: 16, y: 0, w: 8, h: 8},
+                front: {x: 8, y: 8, w: 8, h: 8},
+                back: {x: 24, y: 8, w: 8, h: 8}
             };
-            img.src = res.skin;
-        }
-    });
+            
+            const bodyUV = {
+                right: {x: 16, y: 20, w: 4, h: 12},
+                left: {x: 28, y: 20, w: 4, h: 12},
+                top: {x: 20, y: 16, w: 8, h: 4},
+                bottom: {x: 28, y: 16, w: 8, h: 4},
+                front: {x: 20, y: 20, w: 8, h: 12},
+                back: {x: 32, y: 20, w: 8, h: 12}
+            };
+            
+            const armRightUV = {
+                right: {x: 40, y: 20, w: 4, h: 12},
+                left: {x: 48, y: 20, w: 4, h: 12},
+                top: {x: 44, y: 16, w: 4, h: 4},
+                bottom: {x: 48, y: 16, w: 4, h: 4},
+                front: {x: 44, y: 20, w: 4, h: 12},
+                back: {x: 52, y: 20, w: 4, h: 12}
+            };
+            
+            const armLeftUV = skinHeight >= 64 ? {
+                right: {x: 32, y: 52, w: 4, h: 12},
+                left: {x: 40, y: 52, w: 4, h: 12},
+                top: {x: 36, y: 48, w: 4, h: 4},
+                bottom: {x: 40, y: 48, w: 4, h: 4},
+                front: {x: 36, y: 52, w: 4, h: 12},
+                back: {x: 44, y: 52, w: 4, h: 12}
+            } : armRightUV;
+            
+            const legRightUV = {
+                right: {x: 0, y: 20, w: 4, h: 12},
+                left: {x: 8, y: 20, w: 4, h: 12},
+                top: {x: 4, y: 16, w: 4, h: 4},
+                bottom: {x: 8, y: 16, w: 4, h: 4},
+                front: {x: 4, y: 20, w: 4, h: 12},
+                back: {x: 12, y: 20, w: 4, h: 12}
+            };
+            
+            const legLeftUV = skinHeight >= 64 ? {
+                right: {x: 16, y: 52, w: 4, h: 12},
+                left: {x: 24, y: 52, w: 4, h: 12},
+                top: {x: 20, y: 48, w: 4, h: 4},
+                bottom: {x: 24, y: 48, w: 4, h: 4},
+                front: {x: 20, y: 52, w: 4, h: 12},
+                back: {x: 28, y: 52, w: 4, h: 12}
+            } : legRightUV;
+            
+            remotehead.material = createBoxMaterialsForRemote(headUV);
+            body.material = createBoxMaterialsForRemote(bodyUV);
+            armL.material = createBoxMaterialsForRemote(armLeftUV);
+            armR.material = createBoxMaterialsForRemote(armRightUV);
+            legL.material = createBoxMaterialsForRemote(legLeftUV);
+            legR.material = createBoxMaterialsForRemote(legRightUV);
+        };
+        img.src = data.skin;
+    }
   }
 
   if (usernameSubmit) {
@@ -4412,26 +4517,70 @@ export async function initGame(THREE, gameRendererIntegration){
     const addBtn = document.getElementById("addItemBtn");
     if (addBtn && !addBtn._initDone) {
       addBtn._initDone = true;
-      addBtn.onclick = async () => {
-        const id = prompt("Enter item ID (lowercase, no spaces):");
-        if (!id) return;
-        const cleanId = id.trim().toLowerCase().replace(/\s+/g, "_");
-        if (itemsData[cleanId]) return alert("Item ID already exists");
-        const name = prompt("Enter item name:");
-        if (!name) return;
-        itemsData[cleanId] = { name, type: "generic", texture: Array(256).fill("#8B4513") };
-        try {
-          const response = await fetch("/save-item", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: cleanId, itemName: name, itemType: "generic", textureData: itemsData[cleanId].texture }) });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`);
-          updateItemsSidebar();
-          setupInventoryUI();
-          alert(`Item '${name}' created successfully!`);
-        } catch (error) {
-          console.error("Error creating item:", error);
-          alert(`Failed to create item: ${error.message}`);
-          delete itemsData[cleanId]; // Remove from local state if server failed
-        }
+      addBtn.onclick = () => {
+        const overlay = document.getElementById("addItemOverlay");
+        const idInput = document.getElementById("addItemId");
+        const nameInput = document.getElementById("addItemName");
+        const cancelBtn = document.getElementById("addItemCancel");
+        const createBtn = document.getElementById("addItemCreate");
+        
+        overlay.style.display = "flex";
+        idInput.value = "";
+        nameInput.value = "";
+        idInput.focus();
+        
+        const handleCreate = async () => {
+          const id = idInput.value.trim().toLowerCase().replace(/\s+/g, "_");
+          if (!id) return alert("Item ID is required");
+          if (itemsData[id]) return alert("Item ID already exists");
+          
+          const name = nameInput.value.trim();
+          if (!name) return alert("Item name is required");
+          
+          overlay.style.display = "none";
+          
+          itemsData[id] = { name, type: "generic", texture: Array(256).fill("#8B4513") };
+          try {
+            const response = await fetch("/save-item", { 
+              method: "POST", 
+              headers: { "Content-Type": "application/json" }, 
+              body: JSON.stringify({ itemId: id, itemName: name, itemType: "generic", textureData: itemsData[id].texture }) 
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || `Server error: ${response.status}`);
+            updateItemsSidebar();
+            setupInventoryUI();
+            // Select the newly created item
+            editingItemId = id;
+            createItemPixelGrid();
+            document.getElementById("editItemId").value = id;
+            document.getElementById("editItemName").value = name;
+            document.getElementById("editItemType").value = "generic";
+            currentItemPixels = [...itemsData[id].texture];
+            alert(`Item '${name}' created successfully! You can now edit its texture.`);
+          } catch (error) {
+            console.error("Error creating item:", error);
+            alert(`Failed to create item: ${error.message}`);
+            delete itemsData[id];
+          }
+        };
+        
+        const handleCancel = () => {
+          overlay.style.display = "none";
+          cancelBtn.onclick = null;
+          createBtn.onclick = null;
+        };
+        
+        cancelBtn.onclick = handleCancel;
+        createBtn.onclick = handleCreate;
+        
+        // Allow Enter key to submit
+        idInput.onkeypress = (e) => {
+          if (e.code === "Enter") handleCreate();
+        };
+        nameInput.onkeypress = (e) => {
+          if (e.code === "Enter") handleCreate();
+        };
       };
     }
 
@@ -4912,11 +5061,12 @@ export async function initGame(THREE, gameRendererIntegration){
     try { localStorage.setItem("furnaceRecipes", JSON.stringify(furnaceDevSettings.recipes)); } catch(_) {}
   }
 
-  // Build the option list of every block / tool the user can pick from.
+  // Build the option list of every block / tool / item the user can pick from.
   function getAllItemOptions() {
     const opts = [];
     Object.keys(blockTypes).forEach(id => opts.push({ id, name: blockTypes[id]?.name || id }));
     Object.keys(toolTypes).forEach(id => opts.push({ id, name: (toolTypes[id]?.name || id) + " (tool)" }));
+    Object.keys(itemsData).forEach(id => opts.push({ id, name: (itemsData[id]?.name || id) + " (item)" }));
     opts.sort((a, b) => a.name.localeCompare(b.name));
     return opts;
   }
@@ -4933,8 +5083,8 @@ export async function initGame(THREE, gameRendererIntegration){
     entries.forEach(([input, output]) => {
       const row = document.createElement("div");
       row.style.cssText = "display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #444;";
-      const inputName = blockTypes[input]?.name || toolTypes[input]?.name || input;
-      const outputName = blockTypes[output]?.name || toolTypes[output]?.name || output;
+      const inputName = blockTypes[input]?.name || toolTypes[input]?.name || itemsData[input]?.name || input;
+      const outputName = blockTypes[output]?.name || toolTypes[output]?.name || itemsData[output]?.name || output;
       row.innerHTML = `
         <span style="flex:1; color:#fff;">${inputName}</span>
         <span style="color:#888;">→</span>
@@ -6413,6 +6563,170 @@ export async function initGame(THREE, gameRendererIntegration){
   let furnaceSlotInput = { type: null, count: 0 };
   let furnaceSlotOutput = { type: null, count: 0 };
   const FURNACE_FUEL_TYPES = ["coal", "wood", "wooden_planks", "stick"];
+
+  // Chest state - stores multiple chest storages by position key
+  let chestStorage = {}; // { "x,y,z": [27 items] }
+  let currentChestPosition = null; // Current open chest position
+
+  function initChestUI() {
+    console.log("Initializing chest UI");
+    renderChestStorage();
+    renderChestInventory();
+    renderChestHotbar();
+
+    const closeBtn = document.getElementById("closeChest");
+    if (closeBtn && !closeBtn._initDone) {
+      closeBtn._initDone = true;
+      closeBtn.onclick = () => {
+        document.getElementById("chestOverlay").style.display = "none";
+        renderer.domElement.requestPointerLock();
+      };
+    }
+  }
+
+  function renderChestStorage() {
+    const grid = document.getElementById("chestStorageGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    
+    if (!currentChestPosition) return;
+    const storage = chestStorage[currentChestPosition] || Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+    
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = storage[i];
+      
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        const displayName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData?.[item.type]?.name || item.type;
+        slot.onmouseenter = (e) => showTooltip(e, displayName);
+        slot.onmouseleave = hideTooltip;
+      }
+      
+      slot.onclick = (e) => handleChestSlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function renderChestInventory() {
+    const grid = document.getElementById("chestInventoryGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      const item = player.inventory[i];
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        const displayName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData?.[item.type]?.name || item.type;
+        slot.onmouseenter = (e) => showTooltip(e, displayName);
+        slot.onmouseleave = hideTooltip;
+      }
+      slot.onclick = (e) => handleChestInventorySlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function renderChestHotbar() {
+    const grid = document.getElementById("chestHotbar");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 27; i < 36; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot" + (i === player.selectedSlot ? " selected" : "");
+      const item = player.inventory[i];
+      if (item && item.type) {
+        renderItemIcon(item.type, slot);
+        if (item.count > 1) {
+          const count = document.createElement("div");
+          count.className = "item-count";
+          count.textContent = item.count;
+          slot.appendChild(count);
+        }
+        const displayName = blockTypes[item.type]?.name || toolTypes[item.type]?.name || itemsData?.[item.type]?.name || item.type;
+        slot.onmouseenter = (e) => showTooltip(e, displayName);
+        slot.onmouseleave = hideTooltip;
+      }
+      slot.onclick = (e) => handleChestInventorySlotClick(e, i);
+      grid.appendChild(slot);
+    }
+  }
+
+  function handleChestSlotClick(e, slotIndex) {
+    if (!currentChestPosition) return;
+    if (!chestStorage[currentChestPosition]) {
+      chestStorage[currentChestPosition] = Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+    }
+    const storage = chestStorage[currentChestPosition];
+    
+    if (player.draggedItem) {
+      if (!storage[slotIndex].type || storage[slotIndex].type === player.draggedItem.type) {
+        if (!storage[slotIndex].type) {
+          storage[slotIndex] = { type: player.draggedItem.type, count: player.draggedItem.count };
+        } else {
+          storage[slotIndex].count += player.draggedItem.count;
+        }
+        player.draggedItem = null;
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) dragEl.remove();
+      }
+    } else if (storage[slotIndex] && storage[slotIndex].type) {
+      player.draggedItem = { ...storage[slotIndex] };
+      storage[slotIndex] = { type: null, count: 0 };
+    }
+    renderChestStorage();
+    renderChestInventory();
+    renderInventoryGrid();
+    // Sync chest data to server
+    if (isMultiplayer && socket) {
+      socket.emit("chestUpdate", { position: currentChestPosition, storage: chestStorage[currentChestPosition] });
+    }
+  }
+
+  function handleChestInventorySlotClick(e, slotIndex) {
+    if (!currentChestPosition) return;
+    if (!chestStorage[currentChestPosition]) {
+      chestStorage[currentChestPosition] = Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+    }
+    const storage = chestStorage[currentChestPosition];
+    
+    if (player.draggedItem) {
+      if (!player.inventory[slotIndex].type || player.inventory[slotIndex].type === player.draggedItem.type) {
+        if (!player.inventory[slotIndex].type) {
+          player.inventory[slotIndex] = { type: player.draggedItem.type, count: player.draggedItem.count };
+        } else {
+          player.inventory[slotIndex].count += player.draggedItem.count;
+        }
+        player.draggedItem = null;
+        const dragEl = document.getElementById("dragged-item");
+        if (dragEl) dragEl.remove();
+      }
+    } else if (player.inventory[slotIndex] && player.inventory[slotIndex].type) {
+      player.draggedItem = { ...player.inventory[slotIndex] };
+      player.inventory[slotIndex] = { type: null, count: 0 };
+    }
+    renderChestStorage();
+    renderChestInventory();
+    renderChestHotbar();
+    renderInventoryGrid();
+    // Sync chest data to server
+    if (isMultiplayer && socket) {
+      socket.emit("chestUpdate", { position: currentChestPosition, storage: chestStorage[currentChestPosition] });
+    }
+  }
 
   function initFurnaceUI() {
     console.log("Initializing furnace UI");

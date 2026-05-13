@@ -17,11 +17,21 @@ const players = {};
 let worldBlocks = []; // Store player-placed blocks
 let worldBreaks = []; // Store positions of broken world blocks
 let worldSeed = Math.random(); // Initial random seed
+let worldSyncTimer = null; // 5-minute sync timer
+let firstPlayerWorldReceived = false; // Track if first player world has been received
+let chestStorage = {}; // { "x,y,z": [27 items] } - server-side chest storage
 
 io.on("connection", (socket) => {
     console.log("Player connected:", socket.id);
 
     socket.on("join", (data) => {
+        // Get the current skin from config
+        let skin = null;
+        try {
+            const blockData = JSON.parse(fs.readFileSync(BLOCK_FILE));
+            skin = blockData._config?.skin || null;
+        } catch (e) {}
+
         players[socket.id] = {
             id: socket.id,
             username: data.username,
@@ -30,7 +40,8 @@ io.on("connection", (socket) => {
             inventory: data.inventory || [],
             selectedSlot: data.selectedSlot || 27,
             health: 20,
-            maxHealth: 20
+            maxHealth: 20,
+            skin: skin
         };
         socket.broadcast.emit("playerJoined", players[socket.id]);
         socket.emit("currentPlayers", players);
@@ -47,6 +58,12 @@ io.on("connection", (socket) => {
         worldSeed = Math.random();
         worldBlocks = [];
         worldBreaks = [];
+        firstPlayerWorldReceived = false;
+        // Clear existing sync timer
+        if (worldSyncTimer) {
+            clearInterval(worldSyncTimer);
+            worldSyncTimer = null;
+        }
         io.emit("worldSeed", worldSeed);
         io.emit("worldData", []);
         io.emit("worldBreaks", []);
@@ -56,8 +73,20 @@ io.on("connection", (socket) => {
         // First player who generates world sends it to server
         if (worldBlocks.length === 0) {
             worldBlocks = blocks;
+            firstPlayerWorldReceived = true;
             // Broadcast the generated world to all other players
             socket.broadcast.emit("worldData", blocks);
+
+            // Set up 5-minute sync timer (300000 ms = 5 minutes)
+            if (!worldSyncTimer) {
+                worldSyncTimer = setInterval(() => {
+                    // Re-sync the world to all connected players every 5 minutes
+                    io.emit("worldSync", {
+                        worldBlocks: worldBlocks,
+                        worldBreaks: worldBreaks
+                    });
+                }, 300000);
+            }
         }
     });
 
@@ -108,6 +137,20 @@ io.on("connection", (socket) => {
             worldBreaks.push(data.pos);
         }
         socket.broadcast.emit("blockBreak", data);
+    });
+
+    socket.on("chestUpdate", (data) => {
+        // data = { position: "x,y,z", storage: [items] }
+        if (data && data.position && data.storage) {
+            chestStorage[data.position] = data.storage;
+            socket.broadcast.emit("chestUpdate", data);
+        }
+    });
+
+    socket.on("chestOpen", (position) => {
+        // Send current chest storage to the player who opened it
+        const storage = chestStorage[position] || Array(27).fill(null).map(() => ({ type: null, count: 0 }));
+        socket.emit("chestData", { position, storage });
     });
 
     socket.on("itemDrop", (data) => {

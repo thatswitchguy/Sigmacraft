@@ -13,24 +13,6 @@
     "outputCount": 1
   },
   {
-    "id": "the_pebble_1775774665286",
-    "name": "The Pebble",
-    "type": "3x3",
-    "pattern": [
-      "stone",
-      "stone",
-      null,
-      "stone",
-      "stone",
-      null,
-      null,
-      null,
-      "stone"
-    ],
-    "output": "the_pebble",
-    "outputCount": 1
-  },
-  {
     "id": "oak_planks_1775843575134",
     "name": "Oak Planks",
     "type": "2x2",
@@ -291,6 +273,24 @@
       null
     ],
     "output": "stone_axe",
+    "outputCount": 1
+  },
+  {
+    "id": "iron_pickaxe_1778604428141",
+    "name": "Iron Pickaxe",
+    "type": "3x3",
+    "pattern": [
+      "iron",
+      "iron",
+      "iron",
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "iron_pickaxe",
     "outputCount": 1
   }
 ]

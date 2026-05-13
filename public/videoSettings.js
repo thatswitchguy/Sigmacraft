@@ -27,6 +27,9 @@ export class VideoSettingsManager {
       // Performance
       maxFps: 120,
       vsync: true,
+      forceNoVsync: false, // NEW: Force disable VSync completely
+      renderer: 'webgpu', // 'webgpu' or 'webgl'
+      useWASMGC: true, // NEW: Use WASMGC renderer
       multisampling: 4, // MSAA: 0, 2, 4, 8
       lodEnabled: true,
       

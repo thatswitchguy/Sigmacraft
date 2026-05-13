@@ -46,6 +46,25 @@
   </div>
 </div>
 
+<div id="addItemOverlay" style="display:none;" class="overlay-container">
+  <div class="options-window">
+    <h2>Create New Item</h2>
+    <div class="options-content">
+      <div class="control-group">
+        <label>Item ID (lowercase, no spaces)</label>
+        <input type="text" id="addItemId" class="mc-input" placeholder="e.g. iron_ingot" autofocus>
+      </div>
+      <div class="control-group">
+        <label>Item Name</label>
+        <input type="text" id="addItemName" class="mc-input" placeholder="e.g. Iron Ingot">
+      </div>
+    </div>
+    <div class="options-footer">
+      <button id="addItemCancel" class="mc-btn">Cancel</button>
+      <button id="addItemCreate" class="mc-btn">Create</button>
+    </div>
+  </div>
+</div>
 
   <div id="devOverlay" style="display:none;">
     <div class="dev-header">
@@ -503,6 +522,26 @@
   </div>
 </div>
 
+<div id="chestOverlay" style="display:none;">
+  <div class="inventory-window">
+    <div class="inventory-header">
+      <h3 style="color: white;">Chest</h3>
+      <button id="closeChest">&times;</button>
+    </div>
+    <div class="crafting-table-body">
+      <div class="chest-inventory">
+        <h4 style="color: #fff; margin: 10px 0 5px 0; font-size: 14px;">Chest Storage</h4>
+        <div id="chestStorageGrid" class="inventory-grid" style="grid-template-columns: repeat(9, 1fr); gap: 2px;"></div>
+      </div>
+      <div id="chestInventorySection" class="crafting-table-inventory">
+        <h4 style="color: #fff; margin: 10px 0 5px 0; font-size: 14px;">Your Inventory</h4>
+        <div id="chestInventoryGrid" class="inventory-grid"></div>
+        <div id="chestHotbar" class="inventory-grid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="furnaceOverlay" style="display:none;">
   <div class="inventory-window">
     <div class="inventory-header">
@@ -571,6 +610,17 @@
             <li class="setting-item" style="padding:5px 10px;">
               <label>VSync</label>
               <input type="checkbox" id="vsyncCheck" checked>
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Force Disable VSync</label>
+              <input type="checkbox" id="forceNoVsyncCheck">
+            </li>
+            <li class="setting-item" style="padding:5px 10px;">
+              <label>Renderer</label>
+              <select id="rendererSelect" class="mc-select">
+                <option value="webgpu">WebGPU (WASMGC)</option>
+                <option value="webgl">WebGL</option>
+              </select>
             </li>
             <li class="setting-item" style="padding:5px 10px;">
               <label>Resolution Scale</label>
