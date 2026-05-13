@@ -25,12 +25,14 @@ io.on("connection", (socket) => {
     console.log("Player connected:", socket.id);
 
     socket.on("join", (data) => {
-        // Get the current skin from config
-        let skin = null;
-        try {
-            const blockData = JSON.parse(fs.readFileSync(BLOCK_FILE));
-            skin = blockData._config?.skin || null;
-        } catch (e) {}
+        // Use the skin sent by the client; fall back to the server's configured skin
+        let skin = data.skin || null;
+        if (!skin) {
+            try {
+                const blockData = JSON.parse(fs.readFileSync(BLOCK_FILE));
+                skin = blockData._config?.skin || null;
+            } catch (e) {}
+        }
 
         players[socket.id] = {
             id: socket.id,

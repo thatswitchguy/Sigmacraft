@@ -1648,11 +1648,69 @@ export async function initGame(THREE, gameRendererIntegration){
     socket.emit("join", { 
       username: player.username,
       inventory: player.inventory,
-      selectedSlot: player.selectedSlot
+      selectedSlot: player.selectedSlot,
+      skin: player.skin || null
     });
 
+    // Buffer worldData/worldBreaks until world generation finishes
+    let pendingWorldData = null;
+    let pendingWorldBreaks = null;
+    let worldGenerating = false;
+
+    function applyWorldData(blocks) {
+        if (!blocks || !Array.isArray(blocks)) return;
+        if (blocks.length === 0) {
+          blocks3D.forEach(b => scene.remove(b.mesh));
+          blocks3D.length = 0;
+          occlusionDirty = true;
+          return;
+        }
+        blocks.forEach(b => {
+            if (!b || !b.pos || !b.type) return;
+            const mat = blockMaterials[b.type];
+            if (mat) {
+                const exists = blocks3D.some(existing =>
+                  Math.round(existing.pos.x) === Math.round(b.pos.x) &&
+                  Math.round(existing.pos.y) === Math.round(b.pos.y) &&
+                  Math.round(existing.pos.z) === Math.round(b.pos.z)
+                );
+                if (!exists) {
+                  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                  mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
+                  scene.add(mesh);
+                  blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
+                }
+            }
+        });
+        occlusionDirty = true;
+    }
+
+    function applyWorldBreaks(breaks) {
+        if (!breaks || !Array.isArray(breaks)) return;
+        breaks.forEach(pos => {
+            const idx = blocks3D.findIndex(b =>
+                Math.round(b.mesh.position.x) === Math.round(pos.x) &&
+                Math.round(b.mesh.position.y) === Math.round(pos.y) &&
+                Math.round(b.mesh.position.z) === Math.round(pos.z)
+            );
+            if (idx !== -1) {
+                scene.remove(blocks3D[idx].mesh);
+                blocks3D.splice(idx, 1);
+            }
+        });
+        occlusionDirty = true;
+    }
+
     socket.on("worldSeed", (seed) => {
-        generateWorld(seed);
+        worldGenerating = true;
+        pendingWorldData = null;
+        pendingWorldBreaks = null;
+        generateWorld(seed).then(() => {
+            worldGenerating = false;
+            // Apply any data that arrived during generation
+            if (pendingWorldData) { applyWorldData(pendingWorldData); pendingWorldData = null; }
+            if (pendingWorldBreaks) { applyWorldBreaks(pendingWorldBreaks); pendingWorldBreaks = null; }
+        });
     });
 
     socket.on("currentPlayers", (players) => {
@@ -1771,48 +1829,13 @@ export async function initGame(THREE, gameRendererIntegration){
     });
 
     socket.on("worldData", (blocks) => {
-        if (!blocks || !Array.isArray(blocks)) return;
-        if (blocks.length === 0) {
-          blocks3D.forEach(b => scene.remove(b.mesh));
-          blocks3D.length = 0;
-          occlusionDirty = true;
-          return;
-        }
-
-        blocks.forEach(b => {
-            if (!b || !b.pos || !b.type) return;
-            const mat = blockMaterials[b.type];
-            if (mat) {
-                const exists = blocks3D.some(existing => 
-                  Math.round(existing.pos.x) === Math.round(b.pos.x) &&
-                  Math.round(existing.pos.y) === Math.round(b.pos.y) &&
-                  Math.round(existing.pos.z) === Math.round(b.pos.z)
-                );
-                if (!exists) {
-                  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-                  mesh.position.set(b.pos.x, b.pos.y, b.pos.z);
-                  scene.add(mesh);
-                  blocks3D.push({ mesh, type: b.type, pos: { ...b.pos } });
-                }
-            }
-        });
-        occlusionDirty = true;
+        if (worldGenerating) { pendingWorldData = blocks; return; }
+        applyWorldData(blocks);
     });
 
     socket.on("worldBreaks", (breaks) => {
-        if (!breaks || !Array.isArray(breaks)) return;
-        breaks.forEach(pos => {
-            const idx = blocks3D.findIndex(b =>
-                Math.round(b.mesh.position.x) === Math.round(pos.x) &&
-                Math.round(b.mesh.position.y) === Math.round(pos.y) &&
-                Math.round(b.mesh.position.z) === Math.round(pos.z)
-            );
-            if (idx !== -1) {
-                scene.remove(blocks3D[idx].mesh);
-                blocks3D.splice(idx, 1);
-            }
-        });
-        occlusionDirty = true;
+        if (worldGenerating) { pendingWorldBreaks = breaks; return; }
+        applyWorldBreaks(breaks);
     });
 
     socket.on("worldSync", (data) => {
@@ -3739,6 +3762,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
   async function applySkin(skinData) {
     if (!skinData) return;
+    player.skin = skinData;
     const img = new Image();
     img.onload = () => {
       const skinWidth = img.width;
@@ -6663,7 +6687,8 @@ export async function initGame(THREE, gameRendererIntegration){
       chestStorage[currentChestPosition] = Array(27).fill(null).map(() => ({ type: null, count: 0 }));
     }
     const storage = chestStorage[currentChestPosition];
-    
+    if (!storage[slotIndex]) storage[slotIndex] = { type: null, count: 0 };
+
     if (player.draggedItem) {
       if (!storage[slotIndex].type || storage[slotIndex].type === player.draggedItem.type) {
         if (!storage[slotIndex].type) {
@@ -6681,6 +6706,7 @@ export async function initGame(THREE, gameRendererIntegration){
     }
     renderChestStorage();
     renderChestInventory();
+    renderChestHotbar();
     renderInventoryGrid();
     // Sync chest data to server
     if (isMultiplayer && socket) {
@@ -6694,7 +6720,8 @@ export async function initGame(THREE, gameRendererIntegration){
       chestStorage[currentChestPosition] = Array(27).fill(null).map(() => ({ type: null, count: 0 }));
     }
     const storage = chestStorage[currentChestPosition];
-    
+    if (!player.inventory[slotIndex]) player.inventory[slotIndex] = { type: null, count: 0 };
+
     if (player.draggedItem) {
       if (!player.inventory[slotIndex].type || player.inventory[slotIndex].type === player.draggedItem.type) {
         if (!player.inventory[slotIndex].type) {
