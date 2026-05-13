@@ -1942,14 +1942,6 @@ export async function initGame(THREE, gameRendererIntegration){
     legR.geometry.translate(0, -0.3, 0); // pivot to top
     model.add(legR);
 
-    // Third-person held item attached to right hand (same as main player)
-    const tpBlockItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.25);
-    const tpToolItemGeometry = new THREE.BoxGeometry(0.25, 0.25, 0.02);
-    const tpItem = new THREE.Mesh(tpBlockItemGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
-    tpItem.position.set(0.06, -0.55, -0.2); // end of arm, slightly forward
-    tpItem.visible = false;
-    armR.add(tpItem);
-
     group.add(model);
     
     const nameTag = createNameTag(data.username || "Player");
