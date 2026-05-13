@@ -1315,7 +1315,7 @@ select, input[type="color"], button, input {
 }
 
 .chest-window {
-  min-width: 340px;
+  min-width: 510px;
   gap: 0;
   padding: 0;
   border-radius: 2px;
@@ -1359,8 +1359,7 @@ select, input[type="color"], button, input {
 }
 
 .chest-storage-grid {
-  grid-template-columns: repeat(9, 36px) !important;
-  gap: 2px !important;
+  /* inherits .inventory-grid — no size override needed */
 }
 
 .chest-section-label {

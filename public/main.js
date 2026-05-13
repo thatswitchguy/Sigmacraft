@@ -1760,6 +1760,27 @@ export async function initGame(THREE, gameRendererIntegration){
           p.nameTag.visible = !data.sneaking;
         }
 
+        // Apply sneak pose to remote player model (mirrors local player sneak pose)
+        if (p.model && p.limbs) {
+          if (data.sneaking) {
+            p.model.position.y = -0.2;
+            if (p.limbs.torsoGroup) p.limbs.torsoGroup.rotation.x = -0.5;
+            if (p.limbs.head) {
+              p.limbs.head.rotation.x = -0.45;
+              p.limbs.head.position.z = -0.4;
+              p.limbs.head.position.y = 1.45;
+            }
+          } else {
+            p.model.position.y = 0;
+            if (p.limbs.torsoGroup) p.limbs.torsoGroup.rotation.x = 0;
+            if (p.limbs.head) {
+              p.limbs.head.rotation.x = 0;
+              p.limbs.head.position.z = 0;
+              p.limbs.head.position.y = 1.6;
+            }
+          }
+        }
+
         // Update the held-item mesh on this remote player's right arm
         if (p.tpItem) {
           const heldType = data.heldType;
@@ -2009,7 +2030,7 @@ export async function initGame(THREE, gameRendererIntegration){
     tpItem.userData.toolGeo  = rToolGeo;
     armR.add(tpItem);
 
-    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR }, tpItem, username: data.username };
+    remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR, torsoGroup }, tpItem, username: data.username };
 
     // Apply skin if it exists - use the skin from player data
     if (data.skin) {
@@ -2200,6 +2221,23 @@ export async function initGame(THREE, gameRendererIntegration){
         chatInputElem.click(); // Click on it to ensure it's active
 
         // Show last 10 messages from history
+        showChatHistory();
+        refreshChatContainerVisibility();
+      }
+      return;
+    }
+
+    // Chat: / key opens chat with "/" pre-filled
+    if (e.key === "/" && document.pointerLockElement === renderer.domElement) {
+      const chatInputElem = document.getElementById("chatInput");
+      const isOpen = chatInputElem.style.display !== "none";
+      if (!isOpen) {
+        e.preventDefault();
+        document.exitPointerLock();
+        chatInputElem.style.display = "block";
+        chatInputElem.value = "/";
+        chatInputElem.focus();
+        chatInputElem.setSelectionRange(1, 1);
         showChatHistory();
         refreshChatContainerVisibility();
       }
@@ -6231,26 +6269,40 @@ export async function initGame(THREE, gameRendererIntegration){
     const cmd = args[0].toLowerCase();
     
     if (cmd === "/tp") {
-      // /tp <x,y,z> command - teleport to coordinates
       if (args.length < 2) {
-        addChatMessage("Usage: /tp <x,y,z>");
+        addChatMessage("Usage: /tp <x,y,z>  or  /tp <playername>");
         return;
       }
-      
-      const coordString = args[1];
-      const coords = coordString.split(",").map(c => {
-        const num = parseFloat(c.trim());
-        return isNaN(num) ? null : Math.round(num); // Round coordinates
-      });
-      
-      if (coords.length !== 3 || coords.some(c => c === null)) {
-        addChatMessage("Invalid coordinates. Usage: /tp <x,y,z>");
-        return;
+      const tpArg = args.slice(1).join(" ").trim();
+      if (tpArg.includes(",")) {
+        // Coordinate teleport: /tp x,y,z
+        const coords = tpArg.split(",").map(c => {
+          const num = parseFloat(c.trim());
+          return isNaN(num) ? null : Math.round(num);
+        });
+        if (coords.length !== 3 || coords.some(c => c === null)) {
+          addChatMessage("Invalid coordinates. Usage: /tp <x,y,z>");
+          return;
+        }
+        const [x, y, z] = coords;
+        player.group.position.set(x, y, z);
+        addChatMessage(`Teleported to ${x}, ${y}, ${z}`);
+      } else {
+        // Player name teleport: /tp <username>
+        const targetEntry = Object.entries(remotePlayers).find(([, p]) =>
+          (p.username || "").toLowerCase() === tpArg.toLowerCase()
+        );
+        if (!targetEntry) {
+          addChatMessage(`Player "${tpArg}" not found. Are they online?`);
+          return;
+        }
+        const [, targetPlayer] = targetEntry;
+        if (targetPlayer.group) {
+          const pos = targetPlayer.group.position;
+          player.group.position.set(pos.x, pos.y + 0.1, pos.z);
+          addChatMessage(`Teleported to ${tpArg}.`);
+        }
       }
-      
-      const [x, y, z] = coords;
-      player.group.position.set(x, y, z);
-      addChatMessage(`Teleported to ${x}, ${y}, ${z}`);
       return;
     } else if (cmd === "/locate" && args.slice(1).join(" ").trim().toLowerCase() === "players") {
       const playerCount = 1 + Object.keys(remotePlayers).length;
@@ -6264,6 +6316,11 @@ export async function initGame(THREE, gameRendererIntegration){
         addChatMessage(`${name}: X=${px} Y=${py} Z=${pz}`);
       });
     } else if (cmd === "/give") {
+      // Require password before allowing /give
+      if (!window._giveUnlocked) {
+        openGivePasswordOverlay(() => handleChatCommand(command));
+        return;
+      }
       // Parse: /give <item> [count]  —  count is optional 1–64, default 1
       const rawParts = command.slice(cmd.length).trim().split(/\s+/).filter(Boolean);
       let giveCount = 1;
@@ -6296,10 +6353,64 @@ export async function initGame(THREE, gameRendererIntegration){
         }
       }
     } else if (cmd === "/help") {
-      addChatMessage("Available commands:\n/tp <x,y,z> - Teleport\n/locate players - Show positions\n/give <item> [1-64] - Give items");
+      addChatMessage("Available commands:\n/tp <x,y,z> or /tp <player> - Teleport\n/locate players - Show positions\n/give <item> [1-64] - Give items (password required)");
     } else {
       addChatMessage("Unknown command: " + cmd);
     }
+  }
+
+  // ─── /give PASSWORD GATE ──────────────────────────────────────────────────
+  // Shows a password prompt before /give is allowed. On success, calls the
+  // provided callback and sets window._giveUnlocked so it is only asked once.
+  function openGivePasswordOverlay(onSuccess) {
+    let overlay = document.getElementById("givePasswordOverlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "givePasswordOverlay";
+      overlay.style.cssText = "display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:6000; align-items:center; justify-content:center;";
+      overlay.innerHTML = `
+        <div style="background:#2b2b2b; border:2px solid #555; padding:28px 32px; min-width:320px; display:flex; flex-direction:column; gap:14px; font-family:'Minecraftia',monospace; color:white; border-radius:3px;">
+          <h3 style="margin:0; font-size:15px; color:#ffdd57;">&#x1F512; /give — Enter Password</h3>
+          <p style="margin:0; font-size:11px; color:#bbb;">This command is restricted. Enter the password to continue.</p>
+          <input id="givePasswordInput" type="password" placeholder="Password" style="padding:8px 10px; font-family:inherit; font-size:13px; background:#1a1a1a; color:white; border:2px solid #555; outline:none; width:100%; box-sizing:border-box;" />
+          <div id="givePasswordError" style="color:#f55; font-size:11px; min-height:16px;"></div>
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button id="givePasswordCancel" class="mc-btn" style="padding:6px 14px;">Cancel</button>
+            <button id="givePasswordConfirm" class="mc-btn" style="padding:6px 14px; background:#3a7a3a;">Confirm</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    // Clear previous state
+    const input = overlay.querySelector("#givePasswordInput");
+    const errEl = overlay.querySelector("#givePasswordError");
+    input.value = "";
+    errEl.textContent = "";
+
+    overlay.style.display = "flex";
+
+    const confirmBtn = overlay.querySelector("#givePasswordConfirm");
+    const cancelBtn  = overlay.querySelector("#givePasswordCancel");
+
+    function doConfirm() {
+      if (input.value === "Banana@123") {
+        window._giveUnlocked = true;
+        overlay.style.display = "none";
+        if (onSuccess) onSuccess();
+      } else {
+        errEl.textContent = "Incorrect password. Try again.";
+        input.value = "";
+        input.focus();
+      }
+    }
+
+    confirmBtn.onclick = doConfirm;
+    cancelBtn.onclick  = () => { overlay.style.display = "none"; };
+    input.onkeydown    = (e) => { if (e.key === "Enter") doConfirm(); };
+
+    setTimeout(() => input.focus(), 50);
   }
 
   // ─── /give PICKER ─────────────────────────────────────────────────────────
@@ -7073,7 +7184,8 @@ export async function initGame(THREE, gameRendererIntegration){
       "newBlockOverlay",
       "newToolOverlay",
       "optionsOverlay",
-      "givePickerOverlay"
+      "givePickerOverlay",
+      "givePasswordOverlay"
   ];
 
   function isAnyGameOverlayOpen() {
