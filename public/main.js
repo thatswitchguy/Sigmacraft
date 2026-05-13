@@ -7647,7 +7647,12 @@ updateBreaking();
     }
 
   const initRenderer = renderer.init ? renderer.init() : Promise.resolve();
-  initRenderer.then(() => loadBlocks().then(()=>animate()));
+  initRenderer
+    .then(() => loadBlocks().then(() => animate()))
+    .catch(err => {
+      console.error("Renderer init failed, continuing with fallback:", err);
+      loadBlocks().then(() => animate());
+    });
 
   window.addEventListener("resize", ()=>{
     camera.aspect = window.innerWidth/window.innerHeight;

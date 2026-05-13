@@ -38,7 +38,9 @@
 <div id="devPasswordOverlay" style="display:none;">
   <div class="dev-password-window">
     <h3>Developer Mode</h3>
-    <input type="password" id="devPasswordInput" placeholder="Enter password">
+    <form onsubmit="return false;">
+      <input type="password" id="devPasswordInput" placeholder="Enter password" autocomplete="current-password">
+    </form>
     <div class="dev-password-buttons">
       <button id="devPasswordSubmit" class="mc-btn">Enter</button>
       <button id="devPasswordCancel" class="mc-btn">Cancel</button>
@@ -811,6 +813,12 @@
   const videoSettingsUI = new VideoSettingsUI(gameRenderer.getVideoSettings());
   window.videoSettingsUI = videoSettingsUI;
   
+  // Load splash text immediately, before waiting for renderer init
+  fetch("/config").then(r => r.json()).then(config => {
+    const splash = document.getElementById("splashText");
+    if (splash && config.splash) splash.textContent = config.splash;
+  }).catch(() => {});
+
   // Initialize the game with three.js (will use our new rendering backend)
   await initGame(THREE, gameRenderer);
 </script>
