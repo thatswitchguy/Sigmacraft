@@ -292,5 +292,23 @@
     ],
     "output": "iron_pickaxe",
     "outputCount": 1
+  },
+  {
+    "id": "chest_1778695724351",
+    "name": "Chest",
+    "type": "3x3",
+    "pattern": [
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks",
+      null,
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks",
+      "wooden_planks"
+    ],
+    "output": "chest",
+    "outputCount": 1
   }
 ]

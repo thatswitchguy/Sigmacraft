@@ -423,29 +423,28 @@ export async function initGame(THREE, gameRendererIntegration){
 
   camera.position.set(0, 1.6, 0);
   
-  function updateCamera() {
+function updateCamera() {
     if (player.nameTag) {
       player.nameTag.visible = player.cameraMode !== 0 && !player.isSneaking;
     }
+
     if (player.cameraMode === 0) {
       // First Person
       player.model.visible = false;
       player.fp.handGroup.visible = true;
       camera.position.set(0, 1.6, 0);
       camera.rotation.y = 0;
-    } else if (player.cameraMode === 1) {
-      // Third Person Back (360 capable)
+    } else {
+      // Any non-first-person mode shows the player model
       player.model.visible = true;
       player.fp.handGroup.visible = false;
-    } else if (player.cameraMode === 2) {
-      // Third Person Front (360 capable)
-      player.model.visible = true;
-      player.fp.handGroup.visible = false;
-    } else if (player.cameraMode === 3) {
-      // Orbit camera
-      player.model.visible = true;
-      player.fp.handGroup.visible = false;
+
+      if (player.cameraMode === 3) {
+        // Orbit camera is positioned in animate() loop; updateCamera() should only
+        // ensure correct visibility state.
+      }
     }
+
     // Sync hand/item visibility with the new camera mode
     const heldItem = player.inventory[player.selectedSlot];
     if (heldItem && heldItem.type && blockMaterials[heldItem.type]) {
@@ -1425,7 +1424,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
          for (let y = 0; y <= surfaceY; y++) {
            let type = "bedrock";
-
+          // Generate world here 
            if (y === 0) {
              type = "bedrock";
            } else if (isMountain) {
@@ -1438,7 +1437,7 @@ export async function initGame(THREE, gameRendererIntegration){
              } else {
                // Stone with random coal or iron ore
                if (rand < 0.12) type = "coal_ore";
-               else if (rand < 0.17) type = "iron_ore";
+               else if (rand < 0.13) type = "iron_ore";
                else type = "stone";
              }
            } else {
@@ -1451,7 +1450,7 @@ export async function initGame(THREE, gameRendererIntegration){
                // Underground stone with random coal or iron ore
                const rand = Math.random();
                if (rand < 0.12) type = "coal_ore";
-               else if (rand < 0.17) type = "iron_ore";
+               else if (rand < 0.13) type = "iron_ore";
                else type = "stone";
              }
            }
@@ -2032,97 +2031,135 @@ export async function initGame(THREE, gameRendererIntegration){
 
     remotePlayers[data.id] = { group, model, limbs: { head: remotehead, body, armL, armR, legL, legR, torsoGroup }, tpItem, username: data.username };
 
-    // Apply skin if it exists - use the skin from player data
+    // Apply skin if it exists - use optimized unified texture atlas
     if (data.skin) {
         const img = new Image();
+        img.onerror = () => {
+            console.error("Failed to load remote player skin");
+        };
         img.onload = () => {
-            const skinWidth = img.width;
-            const skinHeight = img.height;
-            
-            function extractAndApplySkinPart(mesh, x, y, w, h) {
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.imageSmoothingEnabled = false;
-                ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-                const tex = new THREE.CanvasTexture(canvas);
-                tex.magFilter = THREE.NearestFilter;
-                tex.minFilter = THREE.NearestFilter;
-                return new THREE.MeshStandardMaterial({ map: tex });
-            }
-            
-            function createBoxMaterialsForRemote(uvs) {
-                return [
-                    extractAndApplySkinPart(null, uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),
-                    extractAndApplySkinPart(null, uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),
-                    extractAndApplySkinPart(null, uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),
-                    extractAndApplySkinPart(null, uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h),
-                    extractAndApplySkinPart(null, uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),
-                    extractAndApplySkinPart(null, uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)
+            try {
+                const skinWidth = img.width;
+                const skinHeight = img.height;
+                
+                if (skinWidth <= 0 || skinHeight <= 0) {
+                    console.error("Invalid skin dimensions for remote player");
+                    return;
+                }
+                
+                // Create unified texture atlas for remote player
+                const atlasCanvas = document.createElement('canvas');
+                atlasCanvas.width = skinWidth;
+                atlasCanvas.height = skinHeight;
+                const atlasCtx = atlasCanvas.getContext('2d');
+                atlasCtx.imageSmoothingEnabled = false;
+                atlasCtx.drawImage(img, 0, 0);
+                
+                const atlasTexture = new THREE.CanvasTexture(atlasCanvas);
+                atlasTexture.magFilter = THREE.NearestFilter;
+                atlasTexture.minFilter = THREE.NearestFilter;
+                atlasTexture.flipY = false;
+                
+                const skinMaterial = new THREE.MeshStandardMaterial({
+                    map: atlasTexture,
+                    side: THREE.FrontSide
+                });
+                
+                // Helper to compute UV coordinates from pixel regions
+                const computeUV = (x, y, w, h) => {
+                    const u1 = x / skinWidth;
+                    const v1 = 1 - (y + h) / skinHeight;
+                    const u2 = (x + w) / skinWidth;
+                    const v2 = 1 - y / skinHeight;
+                    return [u1, v2, u2, v2, u1, v1, u2, v1];
+                };
+                
+                // Apply UVs to geometry
+                const setUVs = (mesh, uvs) => {
+                    if (!mesh || !mesh.geometry) return;
+                    try {
+                        const uvAttr = new Float32Array(uvs.flat());
+                        mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvAttr, 2));
+                    } catch (e) {
+                        console.warn("Error setting UVs for remote player:", e);
+                    }
+                };
+                
+                const headUVs = [
+                    computeUV(0, 8, 8, 8),
+                    computeUV(16, 8, 8, 8),
+                    computeUV(8, 0, 8, 8),
+                    computeUV(16, 0, 8, 8),
+                    computeUV(24, 8, 8, 8),
+                    computeUV(8, 8, 8, 8)
                 ];
+                
+                const bodyUVs = [
+                    computeUV(16, 20, 4, 12),
+                    computeUV(28, 20, 4, 12),
+                    computeUV(20, 16, 8, 4),
+                    computeUV(28, 16, 8, 4),
+                    computeUV(32, 20, 8, 12),
+                    computeUV(20, 20, 8, 12)
+                ];
+                
+                const armRightUVs = [
+                    computeUV(40, 20, 4, 12),
+                    computeUV(48, 20, 4, 12),
+                    computeUV(44, 16, 4, 4),
+                    computeUV(48, 16, 4, 4),
+                    computeUV(52, 20, 4, 12),
+                    computeUV(44, 20, 4, 12)
+                ];
+                
+                const armLeftUVs = skinHeight >= 64 ? [
+                    computeUV(32, 52, 4, 12),
+                    computeUV(40, 52, 4, 12),
+                    computeUV(36, 48, 4, 4),
+                    computeUV(40, 48, 4, 4),
+                    computeUV(44, 52, 4, 12),
+                    computeUV(36, 52, 4, 12)
+                ] : armRightUVs;
+                
+                const legRightUVs = [
+                    computeUV(0, 20, 4, 12),
+                    computeUV(8, 20, 4, 12),
+                    computeUV(4, 16, 4, 4),
+                    computeUV(8, 16, 4, 4),
+                    computeUV(12, 20, 4, 12),
+                    computeUV(4, 20, 4, 12)
+                ];
+                
+                const legLeftUVs = skinHeight >= 64 ? [
+                    computeUV(16, 52, 4, 12),
+                    computeUV(24, 52, 4, 12),
+                    computeUV(20, 48, 4, 4),
+                    computeUV(24, 48, 4, 4),
+                    computeUV(28, 52, 4, 12),
+                    computeUV(20, 52, 4, 12)
+                ] : legRightUVs;
+                
+                // Apply shared material to all limbs with proper UV mapping
+                remotehead.material = skinMaterial;
+                setUVs(remotehead, headUVs);
+                
+                body.material = skinMaterial;
+                setUVs(body, bodyUVs);
+                
+                armL.material = skinMaterial;
+                setUVs(armL, armLeftUVs);
+                
+                armR.material = skinMaterial;
+                setUVs(armR, armRightUVs);
+                
+                legL.material = skinMaterial;
+                setUVs(legL, legLeftUVs);
+                
+                legR.material = skinMaterial;
+                setUVs(legR, legRightUVs);
+            } catch (e) {
+                console.error("Error applying remote player skin:", e);
             }
-            
-            const headUV = {
-                right: {x: 0, y: 8, w: 8, h: 8},
-                left: {x: 16, y: 8, w: 8, h: 8},
-                top: {x: 8, y: 0, w: 8, h: 8},
-                bottom: {x: 16, y: 0, w: 8, h: 8},
-                front: {x: 8, y: 8, w: 8, h: 8},
-                back: {x: 24, y: 8, w: 8, h: 8}
-            };
-            
-            const bodyUV = {
-                right: {x: 16, y: 20, w: 4, h: 12},
-                left: {x: 28, y: 20, w: 4, h: 12},
-                top: {x: 20, y: 16, w: 8, h: 4},
-                bottom: {x: 28, y: 16, w: 8, h: 4},
-                front: {x: 20, y: 20, w: 8, h: 12},
-                back: {x: 32, y: 20, w: 8, h: 12}
-            };
-            
-            const armRightUV = {
-                right: {x: 40, y: 20, w: 4, h: 12},
-                left: {x: 48, y: 20, w: 4, h: 12},
-                top: {x: 44, y: 16, w: 4, h: 4},
-                bottom: {x: 48, y: 16, w: 4, h: 4},
-                front: {x: 44, y: 20, w: 4, h: 12},
-                back: {x: 52, y: 20, w: 4, h: 12}
-            };
-            
-            const armLeftUV = skinHeight >= 64 ? {
-                right: {x: 32, y: 52, w: 4, h: 12},
-                left: {x: 40, y: 52, w: 4, h: 12},
-                top: {x: 36, y: 48, w: 4, h: 4},
-                bottom: {x: 40, y: 48, w: 4, h: 4},
-                front: {x: 36, y: 52, w: 4, h: 12},
-                back: {x: 44, y: 52, w: 4, h: 12}
-            } : armRightUV;
-            
-            const legRightUV = {
-                right: {x: 0, y: 20, w: 4, h: 12},
-                left: {x: 8, y: 20, w: 4, h: 12},
-                top: {x: 4, y: 16, w: 4, h: 4},
-                bottom: {x: 8, y: 16, w: 4, h: 4},
-                front: {x: 4, y: 20, w: 4, h: 12},
-                back: {x: 12, y: 20, w: 4, h: 12}
-            };
-            
-            const legLeftUV = skinHeight >= 64 ? {
-                right: {x: 16, y: 52, w: 4, h: 12},
-                left: {x: 24, y: 52, w: 4, h: 12},
-                top: {x: 20, y: 48, w: 4, h: 4},
-                bottom: {x: 24, y: 48, w: 4, h: 4},
-                front: {x: 20, y: 52, w: 4, h: 12},
-                back: {x: 28, y: 52, w: 4, h: 12}
-            } : legRightUV;
-            
-            remotehead.material = createBoxMaterialsForRemote(headUV);
-            body.material = createBoxMaterialsForRemote(bodyUV);
-            armL.material = createBoxMaterialsForRemote(armLeftUV);
-            armR.material = createBoxMaterialsForRemote(armRightUV);
-            legL.material = createBoxMaterialsForRemote(legLeftUV);
-            legR.material = createBoxMaterialsForRemote(legRightUV);
         };
         img.src = data.skin;
     }
@@ -2192,7 +2229,6 @@ export async function initGame(THREE, gameRendererIntegration){
         chatInput.style.display = "none";
         chatInput.value = "";
         hideChatHistory();
-        renderer.domElement.requestPointerLock();
         e.preventDefault();
       }
       return; // Block all other controls while chat is open
@@ -2213,7 +2249,7 @@ export async function initGame(THREE, gameRendererIntegration){
 
       if (!isOpen) {
         e.preventDefault(); // stop "t" being typed
-        document.exitPointerLock(); // Release pointer lock so mouse is visible
+        document.exitPointerLock();
 
         chatInputElem.style.display = "block";
         chatInputElem.value = ""; // Start with empty so user can type immediately
@@ -3802,112 +3838,154 @@ export async function initGame(THREE, gameRendererIntegration){
     if (!skinData) return;
     player.skin = skinData;
     const img = new Image();
+    img.onerror = () => {
+      console.error("Failed to load skin image");
+    };
     img.onload = () => {
-      const skinWidth = img.width;
-      const skinHeight = img.height;
+      try {
+        const skinWidth = img.width;
+        const skinHeight = img.height;
+        
+        if (skinWidth <= 0 || skinHeight <= 0) {
+          console.error("Invalid skin dimensions");
+          return;
+        }
+        
+        // Create a single unified texture atlas canvas for optimal performance
+        const atlasCanvas = document.createElement('canvas');
+        atlasCanvas.width = skinWidth;
+        atlasCanvas.height = skinHeight;
+        const atlasCtx = atlasCanvas.getContext('2d');
+        atlasCtx.imageSmoothingEnabled = false;
+        atlasCtx.drawImage(img, 0, 0);
+        
+        const atlasTexture = new THREE.CanvasTexture(atlasCanvas);
+        atlasTexture.magFilter = THREE.NearestFilter;
+        atlasTexture.minFilter = THREE.NearestFilter;
+        atlasTexture.flipY = false;
+        
+        const skinMaterial = new THREE.MeshStandardMaterial({
+          map: atlasTexture,
+          side: THREE.FrontSide
+        });
+        
+        // Helper to compute UV coordinates from pixel regions
+        const computeUV = (x, y, w, h) => {
+          const u1 = x / skinWidth;
+          const v1 = 1 - (y + h) / skinHeight;
+          const u2 = (x + w) / skinWidth;
+          const v2 = 1 - y / skinHeight;
+          return [u1, v2, u2, v2, u1, v1, u2, v1];
+        };
+        
+        // Apply UVs to geometry
+        const setUVs = (mesh, uvs) => {
+          if (!mesh || !mesh.geometry) return;
+          try {
+            const uvAttr = new Float32Array(uvs.flat());
+            mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvAttr, 2));
+          } catch (e) {
+            console.warn("Error setting UVs:", e);
+          }
+        };
+        
+        // Define UV regions for each body part face [+X, -X, +Y, -Y, +Z, -Z]
+        const headUVs = [
+          computeUV(0, 8, 8, 8),      // +X (right)
+        computeUV(16, 8, 8, 8),     // -X (left)
+        computeUV(8, 0, 8, 8),      // +Y (top)
+        computeUV(16, 0, 8, 8),     // -Y (bottom)
+        computeUV(24, 8, 8, 8),     // +Z (back)
+        computeUV(8, 8, 8, 8)       // -Z (front)
+      ];
       
-      function extractPart(x, y, w, h) {
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        
-        // Flip horizontally to fix backwards skin
-        // Minecraft skins are mapped such that the default drawImage might appear flipped 
-        // depending on how the box is UV mapped. The user says it's backwards.
-        // Standard Minecraft skins are often mirrored for some parts.
-        // Let's remove the scale(-1, 1) if it was causing the "backwards" issue, 
-        // or keep it if it was intended to fix it but maybe the UVs are wrong.
-        // Actually, the user says "skin applies backwards", which usually means 
-        // the front is on the back or the textures are mirrored.
-        
-        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.magFilter = THREE.NearestFilter;
-        tex.minFilter = THREE.NearestFilter;
-        return new THREE.MeshStandardMaterial({ map: tex });
+      const bodyUVs = [
+        computeUV(16, 20, 4, 12),   // +X (right)
+        computeUV(28, 20, 4, 12),   // -X (left)
+        computeUV(20, 16, 8, 4),    // +Y (top)
+        computeUV(28, 16, 8, 4),    // -Y (bottom)
+        computeUV(32, 20, 8, 12),   // +Z (back)
+        computeUV(20, 20, 8, 12)    // -Z (front)
+      ];
+      
+      const armRightUVs = [
+        computeUV(40, 20, 4, 12),   // +X (right)
+        computeUV(48, 20, 4, 12),   // -X (left)
+        computeUV(44, 16, 4, 4),    // +Y (top)
+        computeUV(48, 16, 4, 4),    // -Y (bottom)
+        computeUV(52, 20, 4, 12),   // +Z (back)
+        computeUV(44, 20, 4, 12)    // -Z (front)
+      ];
+      
+      const armLeftUVs = skinHeight >= 64 ? [
+        computeUV(32, 52, 4, 12),   // +X (right)
+        computeUV(40, 52, 4, 12),   // -X (left)
+        computeUV(36, 48, 4, 4),    // +Y (top)
+        computeUV(40, 48, 4, 4),    // -Y (bottom)
+        computeUV(44, 52, 4, 12),   // +Z (back)
+        computeUV(36, 52, 4, 12)    // -Z (front)
+      ] : armRightUVs;
+      
+      const legRightUVs = [
+        computeUV(0, 20, 4, 12),    // +X (right)
+        computeUV(8, 20, 4, 12),    // -X (left)
+        computeUV(4, 16, 4, 4),     // +Y (top)
+        computeUV(8, 16, 4, 4),     // -Y (bottom)
+        computeUV(12, 20, 4, 12),   // +Z (back)
+        computeUV(4, 20, 4, 12)     // -Z (front)
+      ];
+      
+      const legLeftUVs = skinHeight >= 64 ? [
+        computeUV(16, 52, 4, 12),   // +X (right)
+        computeUV(24, 52, 4, 12),   // -X (left)
+        computeUV(20, 48, 4, 4),    // +Y (top)
+        computeUV(24, 48, 4, 4),    // -Y (bottom)
+        computeUV(28, 52, 4, 12),   // +Z (back)
+        computeUV(20, 52, 4, 12)    // -Z (front)
+      ] : legRightUVs;
+      
+      // Apply shared material and UV mapping to all limbs
+      if (player.limbs.head) {
+        player.limbs.head.material = skinMaterial;
+        setUVs(player.limbs.head, headUVs);
+      }
+      if (player.limbs.body) {
+        player.limbs.body.material = skinMaterial;
+        setUVs(player.limbs.body, bodyUVs);
+      }
+      if (player.limbs.armL) {
+        player.limbs.armL.material = skinMaterial;
+        setUVs(player.limbs.armL, armLeftUVs);
+      }
+      if (player.limbs.armR) {
+        player.limbs.armR.material = skinMaterial;
+        setUVs(player.limbs.armR, armRightUVs);
+      }
+      if (player.limbs.legL) {
+        player.limbs.legL.material = skinMaterial;
+        setUVs(player.limbs.legL, legLeftUVs);
+      }
+      if (player.limbs.legR) {
+        player.limbs.legR.material = skinMaterial;
+        setUVs(player.limbs.legR, legRightUVs);
       }
       
-      function createBoxMaterials(uvs) {
-        // Three.js BoxGeometry material order: +X(0), -X(1), +Y(2), -Y(3), +Z(4), -Z(5)
-        // The player model faces toward -Z (camera default look direction).
-        //   +X face (index 0) = player's right side (visible from +X)  → skin right
-        //   -X face (index 1) = player's left side  (visible from -X)  → skin left
-        //   +Z face (index 4) = player's game BACK  (visible from +Z)  → skin back
-        //   -Z face (index 5) = player's game FRONT (visible from -Z)  → skin front
-        return [
-          extractPart(uvs.right.x, uvs.right.y, uvs.right.w, uvs.right.h),  // +X = right
-          extractPart(uvs.left.x, uvs.left.y, uvs.left.w, uvs.left.h),      // -X = left
-          extractPart(uvs.top.x, uvs.top.y, uvs.top.w, uvs.top.h),          // +Y = top
-          extractPart(uvs.bottom.x, uvs.bottom.y, uvs.bottom.w, uvs.bottom.h), // -Y = bottom
-          extractPart(uvs.back.x, uvs.back.y, uvs.back.w, uvs.back.h),      // +Z = game BACK
-          extractPart(uvs.front.x, uvs.front.y, uvs.front.w, uvs.front.h)   // -Z = game FRONT
+      // Apply to first person hand
+      if (player.fp.hand) {
+        player.fp.hand.material = skinMaterial;
+        const fpHandUVs = [
+          computeUV(44, 20, 4, 12),  // +X (right)
+          computeUV(48, 20, 4, 12),  // -X (left)
+          computeUV(44, 16, 4, 4),   // +Y (top)
+          computeUV(48, 16, 4, 4),   // -Y (bottom)
+          computeUV(52, 20, 4, 12),  // +Z (back)
+          computeUV(44, 20, 4, 12)   // -Z (front)
         ];
+        setUVs(player.fp.hand, fpHandUVs);
       }
-      
-      const headUV = {
-        right: {x: 0, y: 8, w: 8, h: 8},
-        left: {x: 16, y: 8, w: 8, h: 8},
-        top: {x: 8, y: 0, w: 8, h: 8},
-        bottom: {x: 16, y: 0, w: 8, h: 8},
-        front: {x: 8, y: 8, w: 8, h: 8},
-        back: {x: 24, y: 8, w: 8, h: 8}
-      };
-      
-      const bodyUV = {
-        right: {x: 16, y: 20, w: 4, h: 12},
-        left: {x: 28, y: 20, w: 4, h: 12},
-        top: {x: 20, y: 16, w: 8, h: 4},
-        bottom: {x: 28, y: 16, w: 8, h: 4},
-        front: {x: 20, y: 20, w: 8, h: 12},
-        back: {x: 32, y: 20, w: 8, h: 12}
-      };
-      
-      const armRightUV = {
-        right: {x: 40, y: 20, w: 4, h: 12},
-        left: {x: 48, y: 20, w: 4, h: 12},
-        top: {x: 44, y: 16, w: 4, h: 4},
-        bottom: {x: 48, y: 16, w: 4, h: 4},
-        front: {x: 44, y: 20, w: 4, h: 12},
-        back: {x: 52, y: 20, w: 4, h: 12}
-      };
-      
-      const armLeftUV = skinHeight >= 64 ? {
-        right: {x: 32, y: 52, w: 4, h: 12},
-        left: {x: 40, y: 52, w: 4, h: 12},
-        top: {x: 36, y: 48, w: 4, h: 4},
-        bottom: {x: 40, y: 48, w: 4, h: 4},
-        front: {x: 36, y: 52, w: 4, h: 12},
-        back: {x: 44, y: 52, w: 4, h: 12}
-      } : armRightUV;
-      
-      const legRightUV = {
-        right: {x: 0, y: 20, w: 4, h: 12},
-        left: {x: 8, y: 20, w: 4, h: 12},
-        top: {x: 4, y: 16, w: 4, h: 4},
-        bottom: {x: 8, y: 16, w: 4, h: 4},
-        front: {x: 4, y: 20, w: 4, h: 12},
-        back: {x: 12, y: 20, w: 4, h: 12}
-      };
-      
-      const legLeftUV = skinHeight >= 64 ? {
-        right: {x: 16, y: 52, w: 4, h: 12},
-        left: {x: 24, y: 52, w: 4, h: 12},
-        top: {x: 20, y: 48, w: 4, h: 4},
-        bottom: {x: 24, y: 48, w: 4, h: 4},
-        front: {x: 20, y: 52, w: 4, h: 12},
-        back: {x: 28, y: 52, w: 4, h: 12}
-      } : legRightUV;
-      
-      if (player.limbs.head)  player.limbs.head.material  = createBoxMaterials(headUV);
-      if (player.limbs.body)  player.limbs.body.material  = createBoxMaterials(bodyUV);
-      if (player.limbs.armL)  player.limbs.armL.material  = createBoxMaterials(armLeftUV);
-      if (player.limbs.armR)  player.limbs.armR.material  = createBoxMaterials(armRightUV);
-      if (player.limbs.legL)  player.limbs.legL.material  = createBoxMaterials(legLeftUV);
-      if (player.limbs.legR)  player.limbs.legR.material  = createBoxMaterials(legRightUV);
-      
-      player.fp.hand.material = extractPart(44, 20, 4, 12);
+      } catch (e) {
+        console.error("Error applying skin:", e);
+      }
     };
     img.src = skinData;
   }
@@ -6802,27 +6880,60 @@ export async function initGame(THREE, gameRendererIntegration){
     if (!storage[slotIndex]) storage[slotIndex] = { type: null, count: 0 };
 
     if (player.draggedItem) {
+      // Dragging an item FROM inventory TO chest
       if (!storage[slotIndex].type || storage[slotIndex].type === player.draggedItem.type) {
         if (!storage[slotIndex].type) {
           storage[slotIndex] = { type: player.draggedItem.type, count: player.draggedItem.count };
         } else {
           storage[slotIndex].count += player.draggedItem.count;
         }
+        // Remove the dragged item from inventory
+        const itemType = player.draggedItem.type;
+        const itemCount = player.draggedItem.count;
         player.draggedItem = null;
         const dragEl = document.getElementById("dragged-item");
         if (dragEl) dragEl.remove();
+        
+        // Remove item from main inventory (slots 0-26) when moved to chest
+        let remaining = itemCount;
+        for (let i = 0; i < 27 && remaining > 0; i++) {
+          const invItem = player.inventory[i];
+          if (invItem && invItem.type === itemType) {
+            const toRemove = Math.min(invItem.count, remaining);
+            invItem.count -= toRemove;
+            remaining -= toRemove;
+            if (invItem.count <= 0) {
+              player.inventory[i] = { type: null, count: 0 };
+            }
+          }
+        }
+        // If still items remaining, take from hotbar
+        for (let i = 27; i < 36 && remaining > 0; i++) {
+          const invItem = player.inventory[i];
+          if (invItem && invItem.type === itemType) {
+            const toRemove = Math.min(invItem.count, remaining);
+            invItem.count -= toRemove;
+            remaining -= toRemove;
+            if (invItem.count <= 0) {
+              player.inventory[i] = { type: null, count: 0 };
+            }
+          }
+        }
       }
     } else if (storage[slotIndex] && storage[slotIndex].type) {
+      // Dragging an item FROM chest TO inventory
       player.draggedItem = { ...storage[slotIndex] };
       storage[slotIndex] = { type: null, count: 0 };
     }
+    
     renderChestStorage();
     renderChestInventory();
     renderChestHotbar();
     renderInventoryGrid();
-    // Sync chest data to server
+    // Sync chest data and inventory to server
     if (isMultiplayer && socket) {
       socket.emit("chestUpdate", { position: currentChestPosition, storage: chestStorage[currentChestPosition] });
+      socket.emit("inventoryUpdate", { inventory: player.inventory });
     }
   }
 
@@ -6835,6 +6946,7 @@ export async function initGame(THREE, gameRendererIntegration){
     if (!player.inventory[slotIndex]) player.inventory[slotIndex] = { type: null, count: 0 };
 
     if (player.draggedItem) {
+      // Dragging an item FROM chest TO inventory
       if (!player.inventory[slotIndex].type || player.inventory[slotIndex].type === player.draggedItem.type) {
         if (!player.inventory[slotIndex].type) {
           player.inventory[slotIndex] = { type: player.draggedItem.type, count: player.draggedItem.count };
@@ -6846,16 +6958,19 @@ export async function initGame(THREE, gameRendererIntegration){
         if (dragEl) dragEl.remove();
       }
     } else if (player.inventory[slotIndex] && player.inventory[slotIndex].type) {
+      // Dragging an item FROM inventory TO (will be placed in chest or back)
       player.draggedItem = { ...player.inventory[slotIndex] };
       player.inventory[slotIndex] = { type: null, count: 0 };
     }
+    
     renderChestStorage();
     renderChestInventory();
     renderChestHotbar();
     renderInventoryGrid();
-    // Sync chest data to server
+    // Sync chest data and inventory to server
     if (isMultiplayer && socket) {
       socket.emit("chestUpdate", { position: currentChestPosition, storage: chestStorage[currentChestPosition] });
+      socket.emit("inventoryUpdate", { inventory: player.inventory });
     }
   }
 
@@ -7593,6 +7708,7 @@ updateBreaking();
           camera.quaternion.multiplyQuaternions(camera.quaternion, pitchQuat);
       } else if (player.cameraMode === 3) {
           // F+5 orbit camera: circles the player, mouse X controls the orbit angle
+          // Always show the player model; normal 3D rendering will occlude with blocks
           player.model.visible = true;
           if (player.fp && player.fp.handGroup) player.fp.handGroup.visible = false;
 
