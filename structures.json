@@ -6,13 +6,13 @@
       "y": 10,
       "z": 10
     },
-    "rarity": 100,
+    "rarity": 1,
     "spawnHeight": {
       "min": 60,
       "max": 80
     },
     "rules": {
-      "onGround": true,
+      "onGround": false,
       "flatArea": false,
       "noWater": false,
       "noTrees": false

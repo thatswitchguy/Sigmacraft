@@ -158,7 +158,8 @@ io.on("connection", (socket) => {
         // data = { position: "x,y,z", storage: [items] }
         if (data && data.position && data.storage) {
             chestStorage[data.position] = data.storage;
-            socket.broadcast.emit("chestUpdate", data);
+            // Broadcast to ALL players including the sender
+            io.emit("chestUpdate", data);
         }
     });
 
@@ -176,14 +177,39 @@ io.on("connection", (socket) => {
         if (players[targetId]) {
             // Deal 0.5 hearts (half heart) = 1 damage point as per Minecraft
             players[targetId].health = Math.max(0, players[targetId].health - 1);
-            io.emit("playerHealth", { id: targetId, health: players[targetId].health });
+            
+            // Emit hit effect to all players
+            io.emit("playerHit", { id: targetId, health: players[targetId].health });
+            
+            // Check if player died
+            if (players[targetId].health <= 0) {
+                io.emit("playerDeath", { id: targetId });
+            }
         }
     });
 
     socket.on("playerFallDamage", (damage) => {
         if (players[socket.id]) {
             players[socket.id].health = Math.max(0, players[socket.id].health - damage);
-            io.emit("playerHealth", { id: socket.id, health: players[socket.id].health });
+            
+            // Emit hit effect to all players
+            io.emit("playerHit", { id: socket.id, health: players[socket.id].health });
+            
+            // Check if player died
+            if (players[socket.id].health <= 0) {
+                io.emit("playerDeath", { id: socket.id });
+            }
+        }
+    });
+
+    socket.on("playerDeath", (data) => {
+        // Broadcast death to all players
+        if (players[socket.id]) {
+            players[socket.id].health = 0;
+            io.emit("playerDeath", { id: socket.id });
+            // Remove player from the multiplayer world
+            delete players[socket.id];
+            io.emit("playerLeft", socket.id);
         }
     });
 
@@ -199,6 +225,32 @@ io.on("connection", (socket) => {
             username: data.username,
             message: data.message
         });
+    });
+
+    socket.on("inventoryUpdate", (data) => {
+        if (players[socket.id] && data.inventory) {
+            players[socket.id].inventory = data.inventory;
+            if (data.selectedSlot !== undefined) players[socket.id].selectedSlot = data.selectedSlot;
+            // Broadcast updated inventory to all other players
+            socket.broadcast.emit("playerInventoryUpdate", { 
+                id: socket.id, 
+                inventory: data.inventory,
+                selectedSlot: data.selectedSlot
+            });
+        }
+    });
+
+    socket.on("playerDimension", (data) => {
+        // data = { dimension: "overworld" | "nether", pos: {x, y, z} }
+        if (players[socket.id]) {
+            players[socket.id].dimension = data.dimension || "overworld";
+            players[socket.id].pos = data.pos || players[socket.id].pos;
+            socket.broadcast.emit("playerDimensionChange", { 
+                id: socket.id, 
+                dimension: data.dimension,
+                pos: data.pos
+            });
+        }
     });
 });
 

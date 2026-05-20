@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Home</title>
+  <title>Home - Classroom</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -16,7 +16,7 @@
       <button id="playBtn" class="mc-btn">Singleplayer</button>
       <button id="multiplayerBtn" class="mc-btn">Multiplayer</button>
       <button id="devModeBtn" class="mc-btn">Options</button>
-      <div class="version-text">v.1.4.5</div>
+      <div class="version-text">v.1.4.6</div>
     </div>
   </div>
   <a href="credits.html" class="credits-link">Credits and Bugs</a>
@@ -81,6 +81,7 @@
       <button class="dev-tab" data-tab="items">Items</button>
       <button class="dev-tab" data-tab="crafting">Crafting</button>
       <button class="dev-tab" data-tab="furnace">Furnace</button>
+      <button class="dev-tab" data-tab="animations">Animations</button>
       <button id="fullScreenEditorBtn" class="dev-tab">Blender Mode</button>
     </div>
 
@@ -382,6 +383,65 @@
             </div>
             <div class="action-buttons">
               <button id="resetFurnaceSettingsBtn" class="danger-btn">Clear All Recipes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="animationsTab" class="dev-tab-content">
+        <div class="dev-layout">
+          <div class="dev-sidebar">
+            <div class="sidebar-header">
+              <h4>Animations</h4>
+              <button id="addAnimationBtn" class="small-btn">+</button>
+            </div>
+            <div id="animationSidebarList" class="sidebar-list"></div>
+          </div>
+          <div class="editor-main">
+            <div class="editor-controls">
+              <div class="control-group">
+                <label>Animation Name</label>
+                <input type="text" id="editAnimationName" placeholder="e.g. nether_portal_spin" class="mc-input">
+              </div>
+              <div class="control-group">
+                <label>Animation Type</label>
+                <select id="editAnimationType" class="mc-select">
+                  <option value="rotation">Rotation</option>
+                  <option value="translation">Translation</option>
+                  <option value="scale">Scale</option>
+                  <option value="color">Color</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Duration (seconds)</label>
+                <input type="number" id="editAnimationDuration" value="2" min="0.1" step="0.1" class="mc-input">
+              </div>
+              <div class="control-group">
+                <label>Easing</label>
+                <select id="editAnimationEasing" class="mc-select">
+                  <option value="linear">Linear</option>
+                  <option value="easeIn">Ease In</option>
+                  <option value="easeOut">Ease Out</option>
+                  <option value="easeInOut">Ease In Out</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label>Loop</label>
+                <input type="checkbox" id="editAnimationLoop" checked>
+              </div>
+              <div class="control-group">
+                <label>Target Block</label>
+                <input type="text" id="editAnimationTarget" placeholder="e.g. nether_portal" class="mc-input">
+              </div>
+              <div class="control-group">
+                <label>Animation Values (JSON)</label>
+                <textarea id="editAnimationValues" class="mc-input" style="height:100px; font-family:monospace; font-size:12px;" placeholder='{"x": 0, "y": 6.28, "z": 0}'></textarea>
+              </div>
+            </div>
+            <div class="action-buttons">
+              <button id="saveAnimationBtn" class="primary-btn">Save Animation</button>
+              <button id="deleteAnimationBtn" class="danger-btn">Delete</button>
+              <button id="previewAnimationBtn" class="mc-btn">Preview</button>
             </div>
           </div>
         </div>

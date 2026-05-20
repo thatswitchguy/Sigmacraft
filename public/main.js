@@ -511,6 +511,355 @@ function updateCamera() {
     return overlapsX && overlapsY && overlapsZ;
   }
 
+  // ─── NETHER PORTAL SYSTEM ────────────────────────────────────────────
+  let activePortals = []; // Track portals in the world
+  let portalAnimationTime = 0;
+  let lastPortalCheckTime = 0;
+  let portalTextures = {}; // Store animated portal textures
+  let playerDimension = "overworld"; // Track which dimension player is in
+
+  // Function to detect if blocks form a valid 4x5 obsidian frame (with optional missing corners)
+  function isValidPortalFrame(centerX, centerY, centerZ) {
+    // Check for a 4x5 obsidian frame (width=4, height=5)
+    // Frame: corners at (x-2,y,z), (x+2,y,z), (x-2,y+4,z), (x+2,y+4,z)
+    const frameBlocks = [];
+    let obsidianCount = 0;
+    
+    // Horizontal edges (width = 4, so positions at x-2, x-1, x, x+1, x+2)
+    for (let dx = -2; dx <= 2; dx++) {
+      // Bottom frame (y = centerY)
+      const bottomBlock = findBlockAt(centerX + dx, centerY, centerZ);
+      if (bottomBlock && bottomBlock.type === "obsidian") {
+        frameBlocks.push([centerX + dx, centerY, centerZ]);
+        obsidianCount++;
+      }
+      
+      // Top frame (y = centerY + 4)
+      const topBlock = findBlockAt(centerX + dx, centerY + 4, centerZ);
+      if (topBlock && topBlock.type === "obsidian") {
+        frameBlocks.push([centerX + dx, centerY + 4, centerZ]);
+        obsidianCount++;
+      }
+    }
+    
+    // Vertical edges (height = 5, so positions at y, y+1, y+2, y+3, y+4)
+    for (let dy = 1; dy <= 3; dy++) { // Skip corners (0 and 4)
+      // Left frame (x = centerX - 2)
+      const leftBlock = findBlockAt(centerX - 2, centerY + dy, centerZ);
+      if (leftBlock && leftBlock.type === "obsidian") {
+        frameBlocks.push([centerX - 2, centerY + dy, centerZ]);
+        obsidianCount++;
+      }
+      
+      // Right frame (x = centerX + 2)
+      const rightBlock = findBlockAt(centerX + 2, centerY + dy, centerZ);
+      if (rightBlock && rightBlock.type === "obsidian") {
+        frameBlocks.push([centerX + 2, centerY + dy, centerZ]);
+        obsidianCount++;
+      }
+    }
+    
+    // Need at least 14 obsidian blocks (min 16 - 2 corners can be missing)
+    // Actually allow for corners to be missing: need at least 12 blocks
+    return obsidianCount >= 12;
+  }
+
+  function findBlockAt(x, y, z) {
+    return blocks3D.find(b =>
+      Math.round(b.mesh.position.x) === x &&
+      Math.round(b.mesh.position.y) === y &&
+      Math.round(b.mesh.position.z) === z
+    );
+  }
+
+  function getPortalInteriorBlocks(centerX, centerY, centerZ) {
+    // Get the 3x4 interior of the portal (inside the frame)
+    const interior = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = 1; dy <= 4; dy++) {
+        const block = findBlockAt(centerX + dx, centerY + dy, centerZ);
+        if (!block) {
+          interior.push([centerX + dx, centerY + dy, centerZ]);
+        }
+      }
+    }
+    return interior;
+  }
+
+  function activatePortal(centerX, centerY, centerZ) {
+    if (!isValidPortalFrame(centerX, centerY, centerZ)) return false;
+    
+    const portalKey = `${centerX},${centerY},${centerZ}`;
+    
+    // Check if portal already exists
+    if (activePortals.find(p => p.key === portalKey)) return true;
+    
+    const interior = getPortalInteriorBlocks(centerX, centerY, centerZ);
+    
+    // Create portal mesh with animated texture
+    const portalGeometry = new THREE.BoxGeometry(3, 4, 0.1);
+    const portalMaterial = new THREE.MeshStandardMaterial({
+      color: 0x7400ff,
+      emissive: 0x7400ff,
+      emissiveIntensity: 0.8,
+      transparent: true,
+      opacity: 0.7,
+      side: THREE.DoubleSide
+    });
+    
+    const portalMesh = new THREE.Mesh(portalGeometry, portalMaterial);
+    portalMesh.position.set(centerX, centerY + 2, centerZ);
+    scene.add(portalMesh);
+    
+    // Add glow effect
+    const glowGeometry = new THREE.BoxGeometry(3.2, 4.2, 0.2);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color: 0x7400ff,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.BackSide
+    });
+    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+    glowMesh.position.copy(portalMesh.position);
+    scene.add(glowMesh);
+    
+    activePortals.push({
+      key: portalKey,
+      centerX, centerY, centerZ,
+      mesh: portalMesh,
+      glowMesh: glowMesh,
+      activationTime: Date.now(),
+      interior: interior
+    });
+    
+    addChatMessage("Portal activated!");
+    return true;
+  }
+
+  function tryPortalTeleport() {
+    for (const portal of activePortals) {
+      const px = player.group.position.x;
+      const py = player.group.position.y;
+      const pz = player.group.position.z;
+      
+      // Check if player is inside portal bounds
+      const inPortalX = Math.abs(px - portal.centerX) <= 1.5;
+      const inPortalY = py >= portal.centerY + 1 && py <= portal.centerY + 5;
+      const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
+      
+      if (inPortalX && inPortalY && inPortalZ) {
+        // Teleport player to nether
+        teleportToNether(px * 8, py, pz * 8); // Nether coords are 8x the overworld coords
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function teleportToNether(x, y, z) {
+    playerDimension = "nether";
+    player.dimension = "nether";
+    
+    // Clear overworld blocks
+    blocks3D.forEach(b => scene.remove(b.mesh));
+    blocks3D.length = 0;
+    
+    // Generate nether world with portals at 0,-200,0
+    generateNetherWorld(0, -200, 0);
+    
+    // Broadcast dimension change to other players
+    if (isMultiplayer && socket) {
+      socket.emit("playerDimension", { dimension: "nether", pos: { x: 0, y: -200, z: 0 } });
+    }
+    
+    addChatMessage("Entered the Nether!");
+  }
+
+  function teleportToOverworld(x, y, z) {
+    playerDimension = "overworld";
+    player.dimension = "overworld";
+    
+    // Restore overworld appearance
+    scene.background = new THREE.Color(0x87ceeb); // Light blue sky
+    scene.fog = null; // Remove nether fog
+    ambientLight.color.setHex(0xffffff); // White light
+    ambientLight.intensity = 0.9; // Brighter
+    
+    // Clear nether blocks
+    blocks3D.forEach(b => scene.remove(b.mesh));
+    blocks3D.length = 0;
+    activePortals = [];
+    
+    // Regenerate overworld at the mapped coordinates
+    const overworldX = x / 8;
+    const overworldY = y;
+    const overworldZ = z / 8;
+    
+    generateWorld(worldSeed).then(() => {
+      player.group.position.set(Math.round(overworldX), Math.round(overworldY), Math.round(overworldZ));
+    });
+    
+    // Broadcast dimension change to other players
+    if (isMultiplayer && socket) {
+      socket.emit("playerDimension", { dimension: "overworld", pos: { x: Math.round(overworldX), y: Math.round(overworldY), z: Math.round(overworldZ) } });
+    }
+    
+    addChatMessage("Entered the Overworld!");
+  }
+
+  async function generateNetherWorld(startX, startY, startZ) {
+    // Show loading screen
+    const loadingScreen = document.getElementById("loadingScreen");
+    if (loadingScreen) loadingScreen.style.display = "flex";
+    
+    // Change scene appearance for nether
+    scene.background = new THREE.Color(0x4a0000); // Dark red background for nether
+    
+    // Add fog for nether atmosphere
+    scene.fog = new THREE.Fog(0x4a0000, 60, 150); // Red fog
+    
+    // Adjust lighting for nether
+    ambientLight.color.setHex(0xff6600); // Orange-red ambient light
+    ambientLight.intensity = 0.6;
+    
+    let simplex = null;
+    if (window.SimplexNoise) {
+      simplex = new SimplexNoise(worldSeed || Math.random());
+      const size = 25;
+      
+      for (let x = -size; x < size; x++) {
+        for (let z = -size; z < size; z++) {
+          // Nether terrain: mostly stone and netherrack with more variation
+          const noise = simplex.noise2D(x / 30, z / 30);
+          const height = Math.floor(12 + noise * 20); // Height varies 12-32
+          
+          for (let y = 0; y <= height; y++) {
+            let type = "netherrack";
+            if (y === 0) {
+              type = "bedrock"; // Bedrock floor
+            } else if (Math.random() > 0.88) {
+              type = "sigma_ore"; // Rare sigma ore in nether
+            } else if (Math.random() > 0.95) {
+              type = "stone"; // Some stone mixed in
+            }
+            
+            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            blocks3D.push({ mesh, type, pos: { x, y, z } });
+          }
+          
+          // Create netherrack ceiling (roof at y=32)
+          for (let cy = height + 1; cy <= 32; cy++) {
+            const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+            mesh.position.set(x, cy, z);
+            scene.add(mesh);
+            blocks3D.push({ mesh, type: "netherrack", pos: { x, y: cy, z } });
+          }
+        }
+      }
+      
+      // Create BEDROCK WALLS with 1-2 layers of netherrack
+      for (let x = -size; x < size; x++) {
+        for (let z = -size; z < size; z++) {
+          // Check if this is a wall position (edge of nether)
+          if (Math.abs(x) === size - 1 || Math.abs(z) === size - 1) {
+            // Create bedrock wall from bottom to top
+            for (let sy = 0; sy <= 32; sy++) {
+              // Check if block already exists at this position
+              if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === z)) {
+                const mat = blockMaterials["bedrock"] || new THREE.MeshStandardMaterial({ color: 0x222222 });
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                mesh.position.set(x, sy, z);
+                scene.add(mesh);
+                blocks3D.push({ mesh, type: "bedrock", pos: { x, y: sy, z } });
+              }
+            }
+            
+            // Add 1-2 layers of netherrack around the bedrock walls
+            for (let layer = 1; layer <= 2; layer++) {
+              const offset = (x < 0) ? -layer : (x > 0) ? layer : 0;
+              const offsetZ = (z < 0) ? -layer : (z > 0) ? layer : 0;
+              
+              if (offset !== 0) {
+                for (let sy = 0; sy <= 32; sy++) {
+                  const nx = x + offset;
+                  if (!blocks3D.some(b => b.pos.x === nx && b.pos.y === sy && b.pos.z === z)) {
+                    const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                    mesh.position.set(nx, sy, z);
+                    scene.add(mesh);
+                    blocks3D.push({ mesh, type: "netherrack", pos: { x: nx, y: sy, z } });
+                  }
+                }
+              }
+              
+              if (offsetZ !== 0) {
+                for (let sy = 0; sy <= 32; sy++) {
+                  const nz = z + offsetZ;
+                  if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === nz)) {
+                    const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+                    mesh.position.set(x, sy, nz);
+                    scene.add(mesh);
+                    blocks3D.push({ mesh, type: "netherrack", pos: { x, y: sy, z: nz } });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Create a return portal at spawn
+      createNetherSpawnPortal();
+    }
+    
+    player.group.position.set(startX, startY + 5, startZ);
+    occlusionDirty = true;
+    
+    if (loadingScreen) loadingScreen.style.display = "none";
+  }
+
+  function createNetherSpawnPortal() {
+    // Create a portal at origin for returning to overworld
+    const centerX = 0;
+    const centerY = 5;
+    const centerZ = 0;
+    
+    // Create frame
+    for (let dx = -2; dx <= 2; dx++) {
+      const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const mesh1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh1.position.set(centerX + dx, centerY, centerZ);
+      scene.add(mesh1);
+      blocks3D.push({ mesh: mesh1, type: "obsidian", pos: { x: centerX + dx, y: centerY, z: centerZ } });
+      
+      const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh2.position.set(centerX + dx, centerY + 4, centerZ);
+      scene.add(mesh2);
+      blocks3D.push({ mesh: mesh2, type: "obsidian", pos: { x: centerX + dx, y: centerY + 4, z: centerZ } });
+    }
+    
+    for (let dy = 1; dy <= 3; dy++) {
+      const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const mesh1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh1.position.set(centerX - 2, centerY + dy, centerZ);
+      scene.add(mesh1);
+      blocks3D.push({ mesh: mesh1, type: "obsidian", pos: { x: centerX - 2, y: centerY + dy, z: centerZ } });
+      
+      const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh2.position.set(centerX + 2, centerY + dy, centerZ);
+      scene.add(mesh2);
+      blocks3D.push({ mesh: mesh2, type: "obsidian", pos: { x: centerX + 2, y: centerY + dy, z: centerZ } });
+    }
+    
+    // Activate portal
+    activatePortal(centerX, centerY, centerZ);
+  }
+
   // RAYCAST
   const raycaster = new THREE.Raycaster();
   let swingTime = 0;
@@ -702,6 +1051,58 @@ function updateCamera() {
         }
       }
     }
+  }
+
+  // ✅ Apply red damage effect when hit
+  function applyRedDamageEffect(model) {
+    if (!model) return;
+    
+    // Store original colors
+    const originalColors = new Map();
+    
+    // Turn all meshes red
+    model.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach((mat) => {
+            if (mat.color) {
+              originalColors.set(mat, { ...mat.color });
+              mat.color.set(0xff0000); // Red
+            }
+          });
+        } else {
+          if (child.material.color) {
+            originalColors.set(child.material, { ...child.material.color });
+            child.material.color.set(0xff0000); // Red
+          }
+        }
+      }
+    });
+    
+    // Revert to original colors after 0.2 seconds
+    setTimeout(() => {
+      originalColors.forEach((color, mat) => {
+        if (mat.color) {
+          mat.color.setHex((color.r << 16) | (color.g << 8) | color.b);
+        }
+      });
+    }, 200);
+  }
+
+  // ✅ Apply dead pose (lie down)
+  function applyDeadPose(model) {
+    if (!model) return;
+    
+    // Rotate the entire model to lie down
+    model.rotation.z = Math.PI / 2; // Rotate 90 degrees
+    model.position.y -= 0.3; // Lower slightly
+    
+    // Also make the limbs rigid/stiff
+    model.traverse((child) => {
+      if (child.isMesh) {
+        // Could add death color overlay here if desired
+      }
+    });
   }
 
   function showBlockCountMessage(action, blockName, count) {
@@ -1098,7 +1499,31 @@ function updateCamera() {
         initFurnaceUI();
         return;
       }
+      
+      // Check for flint and steel on obsidian to activate portal
       const slot = player.inventory[player.selectedSlot];
+      if (slot && slot.type === "flint_and_steel" && hitBlock && hitBlock.type === "obsidian") {
+        // Try to find and activate a portal frame
+        const bx = Math.round(hitBlock.mesh.position.x);
+        const by = Math.round(hitBlock.mesh.position.y);
+        const bz = Math.round(hitBlock.mesh.position.z);
+        
+        // Check different portal frame centers
+        for (let dx = -2; dx <= 2; dx++) {
+          for (let dy = -4; dy <= 0; dy++) {
+            if (activatePortal(bx + dx, by + dy, bz)) {
+              // Consume one flint and steel
+              slot.count--;
+              if (slot.count <= 0) slot.type = null;
+              updateHotbarUI();
+              return;
+            }
+          }
+        }
+        addChatMessage("No valid portal frame found.");
+        return;
+      }
+      
       if (!slot || !slot.type || slot.count <= 0) return;
       
       const blockName = slot.type;
@@ -1526,6 +1951,24 @@ function updateCamera() {
     updateProgress("Generating trees");
     await yieldFrame();
 
+    // ✅ ADD BEDROCK LAYER 200 BLOCKS UNDERNEATH Y=0
+    const bedrockLayer = -200;
+    if (simplex) {
+      const size = 20;
+      for (let x = -size; x < size; x++) {
+        for (let z = -size; z < size; z++) {
+          const mat = blockMaterials["bedrock"] || new THREE.MeshStandardMaterial({ color: 0x222222 });
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+          mesh.position.set(x, bedrockLayer, z);
+          scene.add(mesh);
+          blocks3D.push({ mesh, type: "bedrock", pos: { x, y: bedrockLayer, z } });
+        }
+      }
+    }
+
+    updateProgress("Generating trees");
+    await yieldFrame();
+
     // Tree generation pass (after terrain)
     if (simplex) {
       const size = 40;
@@ -1848,6 +2291,60 @@ function updateCamera() {
       }
     });
 
+    socket.on("playerHit", (data) => {
+      // Handle hit effect: turn player model red temporarily
+      if (!data || !data.id) return;
+      
+      if (data.id === socket.id) {
+        // Local player was hit - turn red briefly
+        player.health = Math.max(0, Math.min(20, data.health));
+        applyRedDamageEffect(player.model);
+        renderHealth();
+      } else if (remotePlayers[data.id]) {
+        // Remote player was hit - turn them red briefly
+        remotePlayers[data.id].health = data.health;
+        applyRedDamageEffect(remotePlayers[data.id].model);
+      }
+    });
+
+    socket.on("playerDeath", (data) => {
+      // Handle death: lie down and remove from world
+      if (!data || !data.id) return;
+      
+      if (data.id === socket.id) {
+        // Local player died
+        player.health = 0;
+        applyDeadPose(player.model);
+        renderHealth();
+        
+        // Remove from multiplayer world after a brief delay
+        setTimeout(() => {
+          if (socket) {
+            socket.emit("leave");
+            socket.disconnect();
+          }
+          // Show death screen
+          const deathScreen = document.createElement('div');
+          deathScreen.id = 'deathScreen';
+          deathScreen.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:9999;';
+          deathScreen.innerHTML = '<div style="text-align:center; color:white; font-family:Minecraftia;"><h1 style="font-size:48px; margin-bottom:30px;">You Died!</h1><button onclick="location.reload()" class="mc-btn" style="padding:12px 24px; font-size:20px;">Respawn</button></div>';
+          document.body.appendChild(deathScreen);
+        }, 1000);
+      } else if (remotePlayers[data.id]) {
+        // Remote player died
+        remotePlayers[data.id].health = 0;
+        applyDeadPose(remotePlayers[data.id].model);
+        
+        // Remove remote player from world after animation
+        setTimeout(() => {
+          if (remotePlayers[data.id]) {
+            scene.remove(remotePlayers[data.id].group);
+            delete remotePlayers[data.id];
+          }
+        }, 2000);
+      }
+    });
+
     socket.on("worldData", (blocks) => {
         if (worldGenerating) { pendingWorldData = blocks; return; }
         applyWorldData(blocks);
@@ -1933,6 +2430,27 @@ function updateCamera() {
             chestStorage[data.position] = data.storage;
             if (currentChestPosition === data.position) {
                 renderChestStorage();
+            }
+        }
+    });
+
+    socket.on("playerInventoryUpdate", (data) => {
+        // Update remote player's inventory when they make changes
+        if (data && data.id && remotePlayers[data.id]) {
+            remotePlayers[data.id].inventory = data.inventory;
+            remotePlayers[data.id].selectedSlot = data.selectedSlot;
+            // Optionally update visual representation if player is visible
+        }
+    });
+
+    socket.on("playerDimensionChange", (data) => {
+        // Handle when a remote player changes dimensions
+        if (data && data.id && remotePlayers[data.id]) {
+            remotePlayers[data.id].dimension = data.dimension;
+            if (data.dimension !== player.dimension) {
+                // Player is in a different dimension - remove from view if desired
+                // For now, we keep them visible but note the dimension change
+                remotePlayers[data.id].group.userData.dimension = data.dimension;
             }
         }
     });
@@ -2287,6 +2805,10 @@ function updateCamera() {
         player.selectedSlot = 27 + slot;
         if (typeof updateHotbarUI === 'function') {
           updateHotbarUI();
+        }
+        // Sync selected slot with other players
+        if (isMultiplayer && socket) {
+          socket.emit("inventoryUpdate", { inventory: player.inventory, selectedSlot: player.selectedSlot });
         }
       }
     }
@@ -5284,6 +5806,153 @@ function updateCamera() {
     }
   }
 
+  // ✅ ANIMATIONS TAB INITIALIZATION
+  let animationsData = (() => {
+    try {
+      const stored = localStorage.getItem("sigmacraft_animations");
+      return stored ? JSON.parse(stored) : {};
+    } catch (e) { return {}; }
+  })();
+
+  function saveAnimations() {
+    try {
+      localStorage.setItem("sigmacraft_animations", JSON.stringify(animationsData));
+    } catch (e) { console.error("Failed to save animations:", e); }
+  }
+
+  function renderAnimationsList() {
+    const list = document.getElementById("animationSidebarList");
+    if (!list) return;
+    list.innerHTML = "";
+    Object.keys(animationsData).forEach(animId => {
+      const btn = document.createElement("button");
+      btn.className = "sidebar-item";
+      btn.textContent = animationsData[animId].name || animId;
+      btn.onclick = () => selectAnimation(animId);
+      list.appendChild(btn);
+    });
+  }
+
+  function selectAnimation(animId) {
+    const anim = animationsData[animId];
+    if (!anim) return;
+    document.getElementById("editAnimationName").value = anim.name || "";
+    document.getElementById("editAnimationType").value = anim.type || "rotation";
+    document.getElementById("editAnimationDuration").value = anim.duration || 2;
+    document.getElementById("editAnimationEasing").value = anim.easing || "linear";
+    document.getElementById("editAnimationLoop").checked = anim.loop !== false;
+    document.getElementById("editAnimationTarget").value = anim.target || "";
+    document.getElementById("editAnimationValues").value = JSON.stringify(anim.values || {}, null, 2);
+    window._selectedAnimId = animId;
+  }
+
+  const addAnimBtn = document.getElementById("addAnimationBtn");
+  if (addAnimBtn && !addAnimBtn._initDone) {
+    addAnimBtn._initDone = true;
+    addAnimBtn.onclick = () => {
+      const animId = prompt("Enter animation ID (e.g., portal_spin):", "");
+      if (!animId) return;
+      if (animationsData[animId]) {
+        alert("Animation already exists!");
+        return;
+      }
+      animationsData[animId] = {
+        name: animId,
+        type: "rotation",
+        duration: 2,
+        easing: "linear",
+        loop: true,
+        target: "",
+        values: {}
+      };
+      saveAnimations();
+      renderAnimationsList();
+      selectAnimation(animId);
+    };
+  }
+
+  const saveAnimBtn = document.getElementById("saveAnimationBtn");
+  if (saveAnimBtn && !saveAnimBtn._initDone) {
+    saveAnimBtn._initDone = true;
+    saveAnimBtn.onclick = () => {
+      const animId = window._selectedAnimId || "new_anim";
+      try {
+        animationsData[animId] = {
+          name: document.getElementById("editAnimationName").value || animId,
+          type: document.getElementById("editAnimationType").value,
+          duration: parseFloat(document.getElementById("editAnimationDuration").value) || 2,
+          easing: document.getElementById("editAnimationEasing").value,
+          loop: document.getElementById("editAnimationLoop").checked,
+          target: document.getElementById("editAnimationTarget").value,
+          values: JSON.parse(document.getElementById("editAnimationValues").value || "{}")
+        };
+        saveAnimations();
+        renderAnimationsList();
+        alert("Animation saved!");
+      } catch (e) {
+        alert("Error saving animation: " + e.message);
+      }
+    };
+  }
+
+  const deleteAnimBtn = document.getElementById("deleteAnimationBtn");
+  if (deleteAnimBtn && !deleteAnimBtn._initDone) {
+    deleteAnimBtn._initDone = true;
+    deleteAnimBtn.onclick = () => {
+      const animId = window._selectedAnimId;
+      if (!animId) { alert("Select an animation first"); return; }
+      if (confirm("Delete this animation?")) {
+        delete animationsData[animId];
+        saveAnimations();
+        renderAnimationsList();
+        document.getElementById("editAnimationName").value = "";
+      }
+    };
+  }
+
+  const previewAnimBtn = document.getElementById("previewAnimationBtn");
+  if (previewAnimBtn && !previewAnimBtn._initDone) {
+    previewAnimBtn._initDone = true;
+    previewAnimBtn.onclick = () => {
+      const animId = window._selectedAnimId;
+      if (!animId) { alert("Select an animation first"); return; }
+      const anim = animationsData[animId];
+      if (!anim) return;
+      
+      // Find and apply animation to blocks
+      const targetBlocks = blocks3D.filter(b => b.type === anim.target);
+      if (targetBlocks.length === 0) {
+        alert("No blocks found matching: " + anim.target);
+        return;
+      }
+      
+      // Simple animation loop for preview
+      const startTime = Date.now();
+      const duration = anim.duration * 1000;
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = (elapsed % duration) / duration;
+        
+        targetBlocks.forEach(block => {
+          if (anim.type === "rotation") {
+            const values = anim.values;
+            if (values.x) block.mesh.rotation.x = progress * values.x;
+            if (values.y) block.mesh.rotation.y = progress * values.y;
+            if (values.z) block.mesh.rotation.z = progress * values.z;
+          }
+        });
+        
+        if (elapsed < duration * 2) {
+          requestAnimationFrame(animate);
+        }
+      };
+      animate();
+    };
+  }
+
+  renderAnimationsList();
+
   // Furnace state — timer-based smelting
   const FURNACE_BURN_TIMES = { coal: 4, wood: 6, wooden_planks: 6, stick: 7 };
   let furnaceSmeltTimer = 0;    // seconds remaining in current smelt
@@ -7571,6 +8240,31 @@ updateBreaking();
               renderHealth();
           }
           lastHealTime = now;
+      }
+
+      // Check for portal teleportation
+      if (playerDimension === "overworld") {
+        tryPortalTeleport();
+      } else if (playerDimension === "nether") {
+        // Check for return portals in nether
+        for (const portal of activePortals) {
+          const px = player.group.position.x;
+          const py = player.group.position.y;
+          const pz = player.group.position.z;
+          
+          const inPortalX = Math.abs(px - portal.centerX) <= 1.5;
+          const inPortalY = py >= portal.centerY + 1 && py <= portal.centerY + 5;
+          const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
+          
+          if (inPortalX && inPortalY && inPortalZ) {
+            // Teleport back to overworld
+            const overworldX = player.group.position.x / 8;
+            const overworldY = player.group.position.y;
+            const overworldZ = player.group.position.z / 8;
+            teleportToOverworld(player.group.position.x, player.group.position.y, player.group.position.z);
+            break;
+          }
+        }
       }
 
       player.group.rotation.y = player.yaw;

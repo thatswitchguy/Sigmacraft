@@ -310,5 +310,126 @@
     ],
     "output": "chest",
     "outputCount": 1
+  },
+  {
+    "id": "flint_and_steel_1779200746949",
+    "name": "Flint and Steel",
+    "type": "3x3",
+    "pattern": [
+      "iron",
+      null,
+      null,
+      null,
+      "iron",
+      null,
+      null,
+      null,
+      null
+    ],
+    "output": "flint_and_steel",
+    "outputCount": 1
+  },
+  {
+    "id": "flint_and_steel_1779200757632",
+    "name": "Flint and Steel",
+    "type": "2x2",
+    "pattern": [
+      "iron",
+      null,
+      null,
+      "iron"
+    ],
+    "output": "flint_and_steel",
+    "outputCount": 1
+  },
+  {
+    "id": "obsidian_1779200940666",
+    "name": "Obsidian",
+    "type": "3x3",
+    "pattern": [
+      "iron",
+      "iron",
+      "iron",
+      "iron",
+      "stone",
+      "iron",
+      "iron",
+      "iron",
+      "iron"
+    ],
+    "output": "obsidian",
+    "outputCount": 1
+  },
+  {
+    "id": "iron_axe_1779295715263",
+    "name": "Iron axe",
+    "type": "3x3",
+    "pattern": [
+      "iron",
+      "iron",
+      null,
+      "iron",
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "iron_axe",
+    "outputCount": 1
+  },
+  {
+    "id": "stone_pickaxe_1779296883318",
+    "name": "Stone pickaxe",
+    "type": "3x3",
+    "pattern": [
+      "stone",
+      "stone",
+      "stone",
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "stone_pickaxe",
+    "outputCount": 1
+  },
+  {
+    "id": "stone_shovel_1779296908067",
+    "name": "Stone shovel",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "stone",
+      null,
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "stone_shovel",
+    "outputCount": 1
+  },
+  {
+    "id": "iron_shovel_1779296933084",
+    "name": "Iron shovel",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "iron",
+      null,
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "iron_shovel",
+    "outputCount": 1
   }
 ]
