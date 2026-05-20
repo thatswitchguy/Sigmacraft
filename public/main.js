@@ -707,10 +707,10 @@ function updateCamera() {
     addChatMessage("Entered the Overworld!");
   }
 
-  async function generateNetherWorld(startX, startY, startZ) {
-    // Show loading screen
+  async function generateNetherWorld(startX, startY, startZ, hideLoadingScreen = false) {
+    // Show loading screen (unless hideLoadingScreen is true, for portal teleports)
     const loadingScreen = document.getElementById("loadingScreen");
-    if (loadingScreen) loadingScreen.style.display = "flex";
+    if (loadingScreen && !hideLoadingScreen) loadingScreen.style.display = "flex";
     
     // Change scene appearance for nether
     scene.background = new THREE.Color(0x4a0000); // Dark red background for nether
@@ -4730,8 +4730,10 @@ function updateCamera() {
     const tool = toolTypes[id];
     const idEl = document.getElementById("editToolId");
     const nameEl = document.getElementById("editToolName");
+    const damageEl = document.getElementById("editToolDamage");
     if (idEl) idEl.value = id;
     if (nameEl) nameEl.value = tool.name || id;
+    if (damageEl) damageEl.value = tool.damage || 0;
     currentToolPixels = Array.isArray(tool.texture) ? [...tool.texture] : Array(256).fill(tool.texture || "#8B4513");
     createToolPixelGrid();
     init3DToolPreview();
@@ -5017,15 +5019,17 @@ function updateCamera() {
       saveBtn.onclick = async () => {
         if (!editingToolId) return alert("Select a tool first");
         const name = document.getElementById("editToolName").value.trim();
+        const damage = parseFloat(document.getElementById("editToolDamage").value) || 0;
         const multipliers = {};
         document.querySelectorAll("#toolBreakMultipliers input[data-block-id]").forEach(inp => {
           multipliers[inp.dataset.blockId] = parseFloat(inp.value) || 1.0;
         });
         toolTypes[editingToolId].name = name;
         toolTypes[editingToolId].texture = [...currentToolPixels];
+        toolTypes[editingToolId].damage = damage;
         toolTypes[editingToolId].breakMultipliers = multipliers;
         await fetch("/update-tool", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ toolId: editingToolId, toolName: name, textureData: currentToolPixels, breakMultipliers: multipliers }) });
+          body: JSON.stringify({ toolId: editingToolId, toolName: name, textureData: currentToolPixels, damage: damage, breakMultipliers: multipliers }) });
         updateToolSidebar();
         setupInventoryUI();
         alert("Tool saved!");
