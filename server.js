@@ -174,16 +174,32 @@ io.on("connection", (socket) => {
     });
 
     socket.on("playerAttack", (targetId) => {
-        if (players[targetId]) {
-            // Deal 0.5 hearts (half heart) = 1 damage point as per Minecraft
-            players[targetId].health = Math.max(0, players[targetId].health - 1);
+        if (players[targetId] && players[socket.id]) {
+            // Check if attacker has proper tool and calculate damage based on tool
+            const attacker = players[socket.id];
+            const heldType = attacker.heldType;
+            let damage = 1; // Default damage: 0.5 hearts = 1 damage point
             
-            // Emit hit effect to all players
-            io.emit("playerHit", { id: targetId, health: players[targetId].health });
+            // Deal damage
+            players[targetId].health = Math.max(0, players[targetId].health - damage);
+            
+            // Emit hit effect to all players with damage info
+            io.emit("playerHit", { 
+                id: targetId, 
+                health: players[targetId].health,
+                damage: damage,
+                attackerId: socket.id
+            });
+            
+            console.log(`${attacker.username || 'Player'} attacked ${players[targetId].username || 'Player'} for ${damage} damage. Health: ${players[targetId].health}`);
             
             // Check if player died
             if (players[targetId].health <= 0) {
-                io.emit("playerDeath", { id: targetId });
+                io.emit("playerDeath", { 
+                    id: targetId,
+                    killedBy: socket.id
+                });
+                console.log(`${players[targetId].username || 'Player'} was defeated by ${attacker.username || 'Player'}`);
             }
         }
     });

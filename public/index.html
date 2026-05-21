@@ -441,7 +441,31 @@
                 <label>Animation Values (JSON)</label>
                 <textarea id="editAnimationValues" class="mc-input" style="height:100px; font-family:monospace; font-size:12px;" placeholder='{"x": 0, "y": 6.28, "z": 0}'></textarea>
               </div>
+              <div class="control-group">
+                <label>Number of Frames</label>
+                <input type="number" id="editAnimationFrames" value="1" min="1" max="32" class="mc-input">
+              </div>
             </div>
+            <!-- Frame Texture Editor -->
+            <details style="margin-top: 15px;">
+              <summary style="cursor: pointer; font-weight: bold;">Frame Texture Editor</summary>
+              <div style="margin-top: 10px; padding: 10px; background: #1a1a1a; border-radius: 4px;">
+                <div class="control-group">
+                  <label>Select Frame</label>
+                  <select id="animationFrameSelect" class="mc-select" style="width: 100%;">
+                    <option value="0">Frame 1</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label>Color Picker</label>
+                  <input type="color" id="animationColorPicker" value="#8B4513">
+                  <button id="animationTransparencyBtn" style="margin-left: 10px; padding: 4px 8px;">Toggle Transparency</button>
+                </div>
+                <div class="pixel-grid-container">
+                  <div id="animationPixelGrid" class="pixel-grid"></div>
+                </div>
+              </div>
+            </details>
             <div class="action-buttons">
               <button id="saveAnimationBtn" class="primary-btn">Save Animation</button>
               <button id="deleteAnimationBtn" class="danger-btn">Delete</button>

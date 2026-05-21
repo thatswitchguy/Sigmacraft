@@ -250,8 +250,13 @@ export async function initGame(THREE, gameRendererIntegration){
   player.fp.makeAlwaysOnTop = makeAlwaysOnTop;
 
   const RendererClass = THREE.WebGPURenderer ? THREE.WebGPURenderer : THREE.WebGLRenderer;
-  const renderer = new RendererClass({ antialias: true });
+  const renderer = new RendererClass({ 
+    antialias: true,
+    powerPreference: 'high-performance'  // Prefer high-performance GPU
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));  // Cap pixel ratio for performance
+  renderer.shadowMap.type = THREE.PCFShadowMap;  // Faster shadow mapping
   document.body.appendChild(renderer.domElement);
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
@@ -664,8 +669,8 @@ function updateCamera() {
     blocks3D.forEach(b => scene.remove(b.mesh));
     blocks3D.length = 0;
     
-    // Generate nether world with portals at 0,-200,0
-    generateNetherWorld(0, -200, 0);
+    // Generate nether world with portals at 0,-200,0 (hide loading screen for instant feel)
+    generateNetherWorld(0, -200, 0, true);
     
     // Broadcast dimension change to other players
     if (isMultiplayer && socket) {
@@ -690,12 +695,12 @@ function updateCamera() {
     blocks3D.length = 0;
     activePortals = [];
     
-    // Regenerate overworld at the mapped coordinates
+    // Regenerate overworld at the mapped coordinates (hide loading screen for instant feel)
     const overworldX = x / 8;
     const overworldY = y;
     const overworldZ = z / 8;
     
-    generateWorld(worldSeed).then(() => {
+    generateWorld(worldSeed, true).then(() => {
       player.group.position.set(Math.round(overworldX), Math.round(overworldY), Math.round(overworldZ));
     });
     
@@ -1435,7 +1440,12 @@ function updateCamera() {
           if (playerMeshes[Object.keys(remotePlayers).indexOf(playerId)].children.some(child => 
               playerIntersects[0].object === child || playerIntersects[0].object.parent === child
           )) {
-            if (socket) socket.emit("playerAttack", playerId);
+            if (socket) {
+              socket.emit("playerAttack", playerId);
+              // Add visual feedback - knockback effect
+              const dir = remotePlayer.group.position.clone().sub(player.group.position).normalize();
+              remotePlayer.group.position.addScaledVector(dir, 0.5);
+            }
             return;
           }
         }
@@ -1781,12 +1791,12 @@ function updateCamera() {
     };
   }
 
-  async function generateWorld(seed) {
+  async function generateWorld(seed, hideLoadingScreen = false) {
     console.log("Generating world with seed:", seed);
     
-    // Show loading screen
+    // Show loading screen (unless hideLoadingScreen is true, for portal teleports)
     const loadingScreen = document.getElementById("loadingScreen");
-    if (loadingScreen) {
+    if (loadingScreen && !hideLoadingScreen) {
       loadingScreen.style.display = "flex";
     }
 
@@ -2174,7 +2184,7 @@ function updateCamera() {
         p.prevPos = p.prevPos || p.group.position.clone();
         const moved = p.group.position.distanceTo(data.pos) > 0.01;
         if (moved) {
-          p.walkTime = (p.walkTime || 0) + 0.3;
+          p.walkTime = (p.walkTime || 0) + 0.15; // Smoother animation update
           const angle = Math.sin(p.walkTime) * 0.5;
           if (p.limbs) {
             p.limbs.legL.rotation.x = angle;
@@ -2191,8 +2201,12 @@ function updateCamera() {
             p.limbs.armR.rotation.x = 0;
           }
         }
-        p.group.position.copy(data.pos);
-        p.group.rotation.y = data.rot.y;
+        // Smooth position interpolation instead of instant snapping
+        p.group.position.lerp(data.pos, 0.15);
+        // Smooth rotation interpolation
+        const currentRot = p.group.rotation.y;
+        const targetRot = data.rot.y;
+        p.group.rotation.y = currentRot + (targetRot - currentRot) * 0.2;
         if (p.limbs && p.limbs.head) {
           p.limbs.head.rotation.x = data.rot.pitch;
         }
@@ -2936,6 +2950,26 @@ function updateCamera() {
       });
     }
   });
+
+  // High-frequency player update for multiplayer sync (60 times per second)
+  let lastPlayerSyncTime = 0;
+  const PLAYER_SYNC_INTERVAL = 16; // ~60 FPS
+  
+  function syncPlayerMovement() {
+    if (!socket || (performance.now() - lastPlayerSyncTime) < PLAYER_SYNC_INTERVAL) return;
+    
+    lastPlayerSyncTime = performance.now();
+    const heldSlotForEmit = player.inventory[player.selectedSlot];
+    const heldTypeForEmit = (heldSlotForEmit && heldSlotForEmit.type && heldSlotForEmit.count > 0)
+      ? heldSlotForEmit.type : null;
+    
+    socket.emit("move", {
+      pos: player.group.position,
+      rot: { y: player.yaw, pitch: player.pitch },
+      heldType: heldTypeForEmit,
+      sneaking: !!player.isSneaking
+    });
+  }
 
   // Death screen exit button
   const exitToTitleBtn = document.getElementById("exitToTitleBtn");
@@ -5847,7 +5881,98 @@ function updateCamera() {
     document.getElementById("editAnimationLoop").checked = anim.loop !== false;
     document.getElementById("editAnimationTarget").value = anim.target || "";
     document.getElementById("editAnimationValues").value = JSON.stringify(anim.values || {}, null, 2);
+    const frameCount = anim.frameTextures ? Object.keys(anim.frameTextures).length : 1;
+    document.getElementById("editAnimationFrames").value = frameCount;
     window._selectedAnimId = animId;
+    
+    // Initialize frame selector
+    updateAnimationFrameSelector(frameCount);
+    window._currentAnimationFrame = 0;
+    loadAnimationFramePixels(animId, 0);
+  }
+  
+  function updateAnimationFrameSelector(frameCount) {
+    const frameSelect = document.getElementById("animationFrameSelect");
+    if (!frameSelect) return;
+    frameSelect.innerHTML = "";
+    for (let i = 0; i < frameCount; i++) {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = `Frame ${i + 1}`;
+      frameSelect.appendChild(opt);
+    }
+  }
+  
+  let currentAnimationFramePixels = Array(256).fill("#8B4513");
+  let animationTransparencyMode = false;
+  
+  function loadAnimationFramePixels(animId, frameIndex) {
+    const anim = animationsData[animId];
+    if (!anim || !anim.frameTextures || !anim.frameTextures[frameIndex]) {
+      currentAnimationFramePixels = Array(256).fill("#8B4513");
+    } else {
+      currentAnimationFramePixels = [...anim.frameTextures[frameIndex]];
+    }
+    window._currentAnimationFrame = frameIndex;
+    createAnimationPixelGrid();
+  }
+  
+  function createAnimationPixelGrid() {
+    const grid = document.getElementById("animationPixelGrid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    for (let i = 0; i < 256; i++) {
+      const pixel = document.createElement("div");
+      pixel.className = "pixel";
+      const color = currentAnimationFramePixels[i];
+      if (color === "transparent") {
+        pixel.style.backgroundColor = "transparent";
+        pixel.style.border = "1px solid #999";
+      } else {
+        pixel.style.backgroundColor = color;
+      }
+      pixel.onclick = () => {
+        let color;
+        if (animationTransparencyMode) {
+          color = "transparent";
+        } else {
+          const picker = document.getElementById("animationColorPicker");
+          if (!picker) return;
+          color = picker.value;
+        }
+        currentAnimationFramePixels[i] = color;
+        if (color === "transparent") {
+          pixel.style.backgroundColor = "transparent";
+          pixel.style.border = "1px solid #999";
+        } else {
+          pixel.style.backgroundColor = color;
+          pixel.style.border = "none";
+        }
+      };
+      grid.appendChild(pixel);
+    }
+  }
+  
+  // Animation frame selector
+  const animFrameSelect = document.getElementById("animationFrameSelect");
+  if (animFrameSelect && !animFrameSelect._initDone) {
+    animFrameSelect._initDone = true;
+    animFrameSelect.onchange = (e) => {
+      const animId = window._selectedAnimId;
+      if (!animId) return;
+      const frameIndex = parseInt(e.target.value);
+      loadAnimationFramePixels(animId, frameIndex);
+    };
+  }
+  
+  // Transparency toggle for animation frames
+  const animTransparencyBtn = document.getElementById("animationTransparencyBtn");
+  if (animTransparencyBtn && !animTransparencyBtn._initDone) {
+    animTransparencyBtn._initDone = true;
+    animTransparencyBtn.onclick = () => {
+      animationTransparencyMode = !animationTransparencyMode;
+      animTransparencyBtn.textContent = animationTransparencyMode ? "Disable Transparency" : "Toggle Transparency";
+    };
   }
 
   const addAnimBtn = document.getElementById("addAnimationBtn");
@@ -5881,6 +6006,14 @@ function updateCamera() {
     saveAnimBtn.onclick = () => {
       const animId = window._selectedAnimId || "new_anim";
       try {
+        const frameCount = parseInt(document.getElementById("editAnimationFrames").value) || 1;
+        
+        // Save current frame pixels
+        if (!animationsData[animId].frameTextures) {
+          animationsData[animId].frameTextures = {};
+        }
+        animationsData[animId].frameTextures[window._currentAnimationFrame || 0] = [...currentAnimationFramePixels];
+        
         animationsData[animId] = {
           name: document.getElementById("editAnimationName").value || animId,
           type: document.getElementById("editAnimationType").value,
@@ -5888,13 +6021,14 @@ function updateCamera() {
           easing: document.getElementById("editAnimationEasing").value,
           loop: document.getElementById("editAnimationLoop").checked,
           target: document.getElementById("editAnimationTarget").value,
-          values: JSON.parse(document.getElementById("editAnimationValues").value || "{}")
+          values: JSON.parse(document.getElementById("editAnimationValues").value || "{}"),
+          frameTextures: animationsData[animId].frameTextures || {}
         };
         saveAnimations();
         renderAnimationsList();
         alert("Animation saved!");
       } catch (e) {
-        alert("Error saving animation: " + e.message);
+        alert("Error: " + e.message);
       }
     };
   }
@@ -8131,6 +8265,9 @@ function updateCamera() {
 
       // Furnace timer
       updateFurnaceSmelt(delta);
+      
+      // High-frequency multiplayer sync (60x per second for smooth player movement)
+      if (isMultiplayer) syncPlayerMovement();
 
       // FPS Counter logic (must run before renderDistSq calculation)
       frames++;
@@ -8143,7 +8280,6 @@ function updateCamera() {
               fpsElement.textContent = `FPS: ${currentFps}\nX: ${px} Y: ${py} Z: ${pz}`;
               fpsElement.style.display = "block";
           }
-          
           
           // Track low FPS duration
           if (currentFps <= LOW_FPS_THRESHOLD) {
@@ -8159,10 +8295,9 @@ function updateCamera() {
       }
       
       const lowFpsActive = lowFpsStartTime !== null && (now - lowFpsStartTime) >= LOW_FPS_DURATION;
-      // Render distance: read from settings slider (5 or 10), drop to 5 on low FPS
+      // Render distance: directly use slider value (no adaptive system)
       const rdSlider = document.getElementById("renderDistanceSlider");
-      const rdSetting = rdSlider ? parseInt(rdSlider.value) : 10;
-      const renderDist = lowFpsActive ? 5 : rdSetting;
+      const renderDist = rdSlider ? parseInt(rdSlider.value) : 10;
       const renderDistSq = renderDist * renderDist;
 
       // Update camera frustum for this frame
@@ -8215,6 +8350,13 @@ function updateCamera() {
           tempBox.min.set(p.x - 0.5, p.y - 0.5, p.z - 0.5);
           tempBox.max.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
           b.mesh.visible = viewFrustum.intersectsBox(tempBox);
+          
+          // LOD optimization: Reduce shadow precision for distant blocks
+          if (distSq > (renderDist * 0.75) * (renderDist * 0.75)) {
+              b.mesh.castShadow = false;
+          } else {
+              b.mesh.castShadow = true;
+          }
       });
 
       // Apply same to remote players
