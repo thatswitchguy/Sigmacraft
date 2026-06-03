@@ -606,6 +606,7 @@ function updateCamera() {
   let activePortals = []; // Track portals in the world
   let portalAnimationTime = 0;
   let lastPortalCheckTime = 0;
+  let portalTeleportCooldown = 0; // ms timestamp — portal detection blocked until this time
   let portalTextures = {}; // Store animated portal textures
   let playerDimension = "overworld"; // Track which dimension player is in
 
@@ -856,12 +857,12 @@ function updateCamera() {
     playerDimension = "nether";
     player.dimension = "nether";
     
-    // Spawn above the nether terrain floor at -200,-200,-200
-    // Nether floor is at NETHER_START.y, minimum terrain height is 12, so surface ~NETHER_START.y+13
-    const netherSpawnY = NETHER_START.y + 14;
-    player.group.position.set(NETHER_START.x, netherSpawnY, NETHER_START.z);
+    // Spawn above the nether terrain floor (floor netherrack ends ~startY+16 max)
+    const netherSpawnY = NETHER_START.y + 16;
+    player.group.position.set(NETHER_START.x + 8, netherSpawnY, NETHER_START.z + 8);
     player.velocity.y = 0;
-    
+    portalTeleportCooldown = performance.now() + 3000; // block portal detection for 3s on arrival
+
     // Clear overworld blocks
     blocks3D.forEach(b => scene.remove(b.mesh));
     blocks3D.length = 0;
@@ -913,133 +914,116 @@ function updateCamera() {
   }
 
   async function generateNetherWorld(startX, startY, startZ, hideLoadingScreen = false) {
-    // Show loading screen (unless hideLoadingScreen is true, for portal teleports)
     const loadingScreen = document.getElementById("loadingScreen");
     if (loadingScreen && !hideLoadingScreen) loadingScreen.style.display = "flex";
-    
-    // Change scene appearance for nether
-    scene.background = new THREE.Color(0x4a0000); // Dark red background for nether
-    
-    // Add fog for nether atmosphere
-    scene.fog = new THREE.Fog(0x4a0000, 60, 150); // Red fog
-    
-    // Adjust lighting for nether using the main sunlight source
+
+    // Nether atmosphere
+    scene.background = new THREE.Color(0x4a0000);
+    scene.fog = new THREE.Fog(0x4a0000, 80, 220);
     sun.color.setHex(0xff6600);
     sun.intensity = 0.9;
-    
-    // Increase ambient light for nether since there's less sky light
     if (ambientLight) ambientLight.intensity = 0.6;
-    
-    let simplex = null;
+
+    // Nether cave: floor at startY (-200), bedrock ceiling at startY+100 (-100)
+    const WIDTH = 50;           // horizontal extent (x and z)
+    const CEIL_OFFSET = 100;    // bedrock ceiling at startY+100 = y:-100
+    const ceilY = startY + CEIL_OFFSET;
+
+    // Shared geometry per type — one BoxGeometry reused for all meshes of each type
+    const geoCache = {};
+    const getGeo = () => {
+      if (!geoCache._box) geoCache._box = new THREE.BoxGeometry(1, 1, 1);
+      return geoCache._box;
+    };
+    const getMat = (type) =>
+      blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+
+    // O(1) position deduplication — much faster than blocks3D.some()
+    const posSet = new Set();
+    const addBlock = (x, y, z, type) => {
+      const key = `${x},${y},${z}`;
+      if (posSet.has(key)) return;
+      posSet.add(key);
+      const mesh = new THREE.Mesh(getGeo(), getMat(type));
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type, pos: { x, y, z } });
+    };
+
     if (window.SimplexNoise) {
-      simplex = new SimplexNoise(currentWorldSeed || Math.random());
-      const size = 25;
-      
-      for (let x = startX; x < startX + size * 2; x++) {
-        for (let z = startZ; z < startZ + size * 2; z++) {
-          const localX = x;
-          const localZ = z;
-          const noise = simplex.noise2D((x - startX) / 30, (z - startZ) / 30);
-          const height = Math.floor(12 + noise * 20); // Height varies 12-32
-          
-          for (let y = startY; y <= startY + height; y++) {
-            let type = "netherrack";
-            if (y === startY) {
-              type = "bedrock"; // Bedrock floor
-            } else if (Math.random() > 0.88) {
-              type = "sigma_ore"; // Rare sigma ore in nether
-            } else if (Math.random() > 0.95) {
-              type = "stone"; // Some stone mixed in
-            }
-            
-            const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            mesh.position.set(localX, y, localZ);
-            scene.add(mesh);
-            blocks3D.push({ mesh, type, pos: { x: localX, y, z: localZ } });
-          }
-          
-          // Create netherrack ceiling — fixed at startY+28 to startY+32, leaving open cave space
-          const ceilStart = Math.max(startY + height + 1, startY + 28);
-          for (let cy = ceilStart; cy <= startY + 32; cy++) {
-            const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-            const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            mesh.position.set(localX, cy, localZ);
-            scene.add(mesh);
-            blocks3D.push({ mesh, type: "netherrack", pos: { x: localX, y: cy, z: localZ } });
+      const simplex = new SimplexNoise(currentWorldSeed || Math.random());
+
+      // ── FLOOR + TERRAIN MOUNDS ──────────────────────────────────────────
+      for (let x = startX; x < startX + WIDTH; x++) {
+        for (let z = startZ; z < startZ + WIDTH; z++) {
+          // Bedrock base
+          addBlock(x, startY, z, "bedrock");
+          // 1-2 netherrack on top of bedrock floor
+          const floorLayers = 1 + (Math.random() > 0.5 ? 1 : 0);
+          for (let fl = 1; fl <= floorLayers; fl++) addBlock(x, startY + fl, z, "netherrack");
+
+          // Terrain mounds rising from floor netherrack (0–14 blocks tall)
+          const noise = simplex.noise2D((x - startX) / 20, (z - startZ) / 20);
+          const moundH = Math.max(0, Math.floor((noise + 0.5) * 14));
+          for (let h = floorLayers + 1; h <= floorLayers + moundH; h++) {
+            const type = Math.random() > 0.92 ? "sigma_ore" : "netherrack";
+            addBlock(x, startY + h, z, type);
           }
         }
       }
-      
-      // Create BEDROCK WALLS with 1-2 layers of netherrack
-      for (let x = startX; x < startX + size * 2; x++) {
-        for (let z = startZ; z < startZ + size * 2; z++) {
-          // Check if this is a wall position (edge of nether)
-          if (Math.abs(x - startX) === size - 1 || Math.abs(z - startZ) === size - 1) {
-            // Create bedrock wall from bottom to top
-            for (let sy = startY; sy <= startY + 32; sy++) {
-              // Check if block already exists at this position
-              if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === z)) {
-                const mat = blockMaterials["bedrock"] || new THREE.MeshStandardMaterial({ color: 0x222222 });
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-                mesh.position.set(x, sy, z);
-                scene.add(mesh);
-                blocks3D.push({ mesh, type: "bedrock", pos: { x, y: sy, z } });
-              }
-            }
-            
-            // Add 1-2 layers of netherrack around the bedrock walls
-            for (let layer = 1; layer <= 2; layer++) {
-              const offset = x === startX ? -layer : x === (startX + size * 2 - 1) ? layer : 0;
-              const offsetZ = z === startZ ? -layer : z === (startZ + size * 2 - 1) ? layer : 0;
-              
-              if (offset !== 0) {
-                for (let sy = startY; sy <= startY + 32; sy++) {
-                  const nx = x + offset;
-                  if (!blocks3D.some(b => b.pos.x === nx && b.pos.y === sy && b.pos.z === z)) {
-                    const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-                    mesh.position.set(nx, sy, z);
-                    scene.add(mesh);
-                    blocks3D.push({ mesh, type: "netherrack", pos: { x: nx, y: sy, z } });
-                  }
-                }
-              }
-              
-              if (offsetZ !== 0) {
-                for (let sy = startY; sy <= startY + 32; sy++) {
-                  const nz = z + offsetZ;
-                  if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === nz)) {
-                    const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
-                    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-                    mesh.position.set(x, sy, nz);
-                    scene.add(mesh);
-                    blocks3D.push({ mesh, type: "netherrack", pos: { x: x, y: sy, z: nz } });
-                  }
-                }
-              }
-            }
+
+      // ── BEDROCK CEILING (y=-100) + 1-3 NETHERRACK HANGING BELOW ────────
+      for (let x = startX; x < startX + WIDTH; x++) {
+        for (let z = startZ; z < startZ + WIDTH; z++) {
+          addBlock(x, ceilY, z, "bedrock");
+          const hang = 1 + Math.floor(Math.random() * 3); // 1, 2, or 3
+          for (let h = 1; h <= hang; h++) addBlock(x, ceilY - h, z, "netherrack");
+        }
+      }
+
+      // ── BEDROCK WALLS + 1-3 NETHERRACK LAYERS INWARD ───────────────────
+      // West wall (x = startX) and East wall (x = startX+WIDTH-1)
+      for (let z = startZ; z < startZ + WIDTH; z++) {
+        for (let y = startY; y <= ceilY; y++) {
+          addBlock(startX,           y, z, "bedrock");
+          addBlock(startX + WIDTH - 1, y, z, "bedrock");
+          const layers = 1 + Math.floor(Math.random() * 3);
+          for (let l = 1; l <= layers; l++) {
+            addBlock(startX + l,               y, z, "netherrack");
+            addBlock(startX + WIDTH - 1 - l,   y, z, "netherrack");
           }
         }
       }
-      
-      // Create a return portal at spawn
+      // South wall (z = startZ) and North wall (z = startZ+WIDTH-1)
+      for (let x = startX; x < startX + WIDTH; x++) {
+        for (let y = startY; y <= ceilY; y++) {
+          addBlock(x, y, startZ,           "bedrock");
+          addBlock(x, y, startZ + WIDTH - 1, "bedrock");
+          const layers = 1 + Math.floor(Math.random() * 3);
+          for (let l = 1; l <= layers; l++) {
+            addBlock(x, y, startZ + l,               "netherrack");
+            addBlock(x, y, startZ + WIDTH - 1 - l,   "netherrack");
+          }
+        }
+      }
+
+      // Return portal at spawn
       createNetherSpawnPortal(startX, startY, startZ);
     }
-    
-    // Place player above terrain surface (minimum terrain height is 12, use 14 for safety)
-    player.group.position.set(startX, startY + 14, startZ);
+
+    // Spawn player above floor terrain, offset from the return portal position
+    player.group.position.set(startX + 8, startY + 16, startZ + 8);
     occlusionDirty = true;
-    
     if (loadingScreen) loadingScreen.style.display = "none";
   }
 
   function createNetherSpawnPortal(startX = 0, startY = 0, startZ = 0) {
     // Create a portal at the nether spawn location for returning to overworld
-    // Using 4x5 frame (width=4, height=5) — placed above player spawn (startY+17 > spawn at startY+14)
-    const centerX = startX;
-    const centerY = startY + 17; // 3 blocks above player spawn so player doesn't spawn inside frame
-    const centerZ = startZ;
+    // Portal placed away from player spawn (player spawns at startX+8, startZ+8)
+    // Place portal at startX+4, startZ+15 so player can see it but doesn't spawn inside it
+    const centerX = startX + 4;
+    const centerY = startY + 17;
+    const centerZ = startZ + 15;
     
     // Create frame: 4 blocks wide (x-1 to x+2), 5 blocks tall (y to y+4)
     // Bottom frame
@@ -2344,10 +2328,11 @@ function updateCamera() {
               else if (Math.random() > 0.95) type = "stone";
               data.push({ x, y, z, type });
             }
-            const ceilStart = Math.max(sy + height + 1, sy + 28);
-            for (let cy = ceilStart; cy <= sy + 32; cy++) {
-              data.push({ x, y: cy, z, type: "netherrack" });
-            }
+                // Ceiling: bedrock at ceilY, 1-3 netherrack hanging below
+            const ceilY = sy + 100; // matches generateNetherWorld CEIL_OFFSET=100
+            data.push({ x, y: ceilY, z, type: "bedrock" });
+            const hang = 1 + Math.floor(Math.random() * 3);
+            for (let h = 1; h <= hang; h++) data.push({ x, y: ceilY - h, z, type: "netherrack" });
           }
         }
         window.precomputedNetherBlocks = data;
@@ -8655,24 +8640,22 @@ updateBreaking();
       if (playerDimension === "overworld") {
         tryPortalTeleport();
       } else if (playerDimension === "nether") {
-        // Check for return portals in nether
-        for (const portal of activePortals) {
-          const px = player.group.position.x;
-          const py = player.group.position.y;
-          const pz = player.group.position.z;
-          
-          // Check if player is inside portal bounds (2x3 interior)
-          const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
-          const inPortalY = py >= portal.centerY + 0.5 && py <= portal.centerY + 3.5;
-          const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
-          
-          if (inPortalX && inPortalY && inPortalZ) {
-            // Teleport back to overworld
-            const overworldX = player.group.position.x / 8;
-            const overworldY = player.group.position.y;
-            const overworldZ = player.group.position.z / 8;
-            teleportToOverworld(player.group.position.x, player.group.position.y, player.group.position.z);
-            break;
+        // Check for return portals in nether (skip during cooldown to prevent instant reteleport)
+        if (now > portalTeleportCooldown) {
+          for (const portal of activePortals) {
+            const px = player.group.position.x;
+            const py = player.group.position.y;
+            const pz = player.group.position.z;
+
+            const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
+            const inPortalY = py >= portal.centerY + 0.5 && py <= portal.centerY + 3.5;
+            const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
+
+            if (inPortalX && inPortalY && inPortalZ) {
+              portalTeleportCooldown = now + 3000; // 3-second cooldown after exit
+              teleportToOverworld(player.group.position.x, player.group.position.y, player.group.position.z);
+              break;
+            }
           }
         }
       }
@@ -8795,12 +8778,8 @@ updateBreaking();
             const t = (s / steps) * maxDist;
             const testPt = playerHead.clone().addScaledVector(rayDir, t);
             const tx = Math.round(testPt.x), ty = Math.round(testPt.y), tz = Math.round(testPt.z);
-            const blocked = blocks3D.some(b =>
-              Math.round(b.mesh.position.x) === tx &&
-              Math.round(b.mesh.position.y) === ty &&
-              Math.round(b.mesh.position.z) === tz &&
-              b.mesh.visible !== false
-            );
+            // O(1) lookup via blockPositionSet instead of O(n) blocks3D.some()
+            const blocked = blockPositionSet.has(`${tx},${ty},${tz}`);
             if (blocked) { safeDist = Math.max(1.5, t - 0.5); break; }
           }
           const finalPos = playerHead.clone().addScaledVector(rayDir, safeDist);
