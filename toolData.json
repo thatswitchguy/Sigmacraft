@@ -2814,7 +2814,7 @@
       "netherrack": 1,
       "obsidian": 1
     },
-    "damage": 2
+    "damage": 0
   },
   "dev_pickaxe": {
     "name": "DEV PICKAXE",
@@ -3098,6 +3098,7 @@
       "diamond_ore": 100,
       "netherrack": 100,
       "obsidian": 100
-    }
+    },
+    "damage": 10
   }
 }

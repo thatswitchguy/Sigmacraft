@@ -8,7 +8,7 @@ import http from "http";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8000;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -178,7 +178,17 @@ io.on("connection", (socket) => {
             // Check if attacker has proper tool and calculate damage based on tool
             const attacker = players[socket.id];
             const heldType = attacker.heldType;
-            let damage = 1; // Default damage: 0.5 hearts = 1 damage point
+            let damage = 1; // Default unarmed damage: 1 (half-health unit)
+            
+            // If holding a tool, use its damage value
+            if (heldType) {
+                const toolInfo = toolData[heldType];
+                if (toolInfo && typeof toolInfo.damage === 'number') {
+                    // Tool damage overrides default
+                    damage = toolInfo.damage;
+                }
+                // If tool exists but has no damage property, still use default
+            }
             
             // Deal damage
             players[targetId].health = Math.max(0, players[targetId].health - damage);
@@ -237,7 +247,8 @@ io.on("connection", (socket) => {
     });
 
     socket.on("chatMessage", (data) => {
-        io.emit("chatMessage", {
+        // Broadcast to other players only (sender already added message locally)
+        socket.broadcast.emit("chatMessage", {
             username: data.username,
             message: data.message
         });
@@ -272,7 +283,17 @@ io.on("connection", (socket) => {
 
 const BLOCK_FILE = path.join(process.cwd(), "blockData.json");
 const TIMING_FILE = path.join(process.cwd(), "blockTiming.json");
+const TOOL_FILE = path.join(process.cwd(), "toolData.json");
 const TEXTURE_DIR = path.join(process.cwd(), "public", "textures");
+
+// Load tool data at startup
+let toolData = {};
+try {
+    toolData = JSON.parse(fs.readFileSync(TOOL_FILE));
+} catch (e) {
+    console.error('Failed to load toolData.json:', e.message);
+    toolData = {};
+}
 
 if (!fs.existsSync(TEXTURE_DIR)) {
     fs.mkdirSync(TEXTURE_DIR, { recursive: true });
@@ -489,7 +510,6 @@ app.post("/delete-structure", (req, res) => {
     res.json({ success: true });
 });
 
-const TOOL_FILE = path.join(process.cwd(), "toolData.json");
 const CRAFTING_FILE = path.join(process.cwd(), "craftingRecipes.json");
 
 function loadTools() {

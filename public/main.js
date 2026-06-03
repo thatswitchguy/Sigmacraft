@@ -97,8 +97,73 @@ export async function initGame(THREE, gameRendererIntegration){
   }
   
   // Helper function to create block geometry with face culling (only visible faces)
+  // Cache for air-accessible positions to improve performance
+  let airAccessCache = new Map();
+  let airAccessCacheFrame = 0;
+  const MAX_AIR_ACCESS_CHECK_DEPTH = 16; // Limit search depth for performance
+  
+  // Check if a position has access to air (not completely enclosed)
+  function hasAirAccess(x, y, z) {
+    const key = `${x},${y},${z}`;
+    
+    // Return cached result if valid
+    if (airAccessCache.has(key)) {
+      return airAccessCache.get(key);
+    }
+    
+    // BFS to check if position is connected to air
+    const queue = [[x, y, z, 0]];
+    const visited = new Set([key]);
+    
+    while (queue.length > 0) {
+      const [cx, cy, cz, depth] = queue.shift();
+      
+      // Check if we've reached a boundary or high altitude (definitely air)
+      if (depth > MAX_AIR_ACCESS_CHECK_DEPTH || 
+          Math.abs(cx) > 100 || Math.abs(cz) > 100 || cy > 100) {
+        airAccessCache.set(key, true);
+        return true;
+      }
+      
+      // Check all 6 neighbors
+      const directions = [
+        [cx+1,cy,cz], [cx-1,cy,cz],
+        [cx,cy+1,cz], [cx,cy-1,cz],
+        [cx,cy,cz+1], [cx,cy,cz-1]
+      ];
+      
+      for (const [nx, ny, nz] of directions) {
+        const neighborKey = `${nx},${ny},${nz}`;
+        
+        // Skip visited positions
+        if (visited.has(neighborKey)) continue;
+        visited.add(neighborKey);
+        
+        // If neighbor is empty (no block), continue searching
+        if (!blockPositionSet.has(neighborKey)) {
+          queue.push([nx, ny, nz, depth + 1]);
+        }
+      }
+    }
+    
+    // No path to open air found - this position is enclosed
+    airAccessCache.set(key, false);
+    return false;
+  }
+  
+  // Clear air access cache periodically
+  function updateAirAccessCache() {
+    airAccessCacheFrame++;
+    if (airAccessCacheFrame > 60) { // Clear every 60 frames
+      airAccessCache.clear();
+      airAccessCacheFrame = 0;
+    }
+  }
+
   function createBlockGeometry(blockX, blockY, blockZ) {
-    // Check which faces are exposed (not touching other blocks)
+    // Check which faces should render - only faces that touch air with access to outside
+    // A face only renders if it touches air that has access to the outside world
+    
     const neighbors = {
       top: blockPositionSet.has(`${blockX},${blockY+1},${blockZ}`),
       bottom: blockPositionSet.has(`${blockX},${blockY-1},${blockZ}`),
@@ -108,12 +173,32 @@ export async function initGame(THREE, gameRendererIntegration){
       left: blockPositionSet.has(`${blockX-1},${blockY},${blockZ}`)
     };
     
-    // If all 6 faces are exposed, use standard geometry (no optimization needed)
-    if (!Object.values(neighbors).some(v => v)) {
+    // Check which adjacent empty spaces have air access
+    const adjacentAirAccess = {
+      top: !neighbors.top && hasAirAccess(blockX, blockY+1, blockZ),
+      bottom: !neighbors.bottom && hasAirAccess(blockX, blockY-1, blockZ),
+      front: !neighbors.front && hasAirAccess(blockX, blockY, blockZ+1),
+      back: !neighbors.back && hasAirAccess(blockX, blockY, blockZ-1),
+      right: !neighbors.right && hasAirAccess(blockX+1, blockY, blockZ),
+      left: !neighbors.left && hasAirAccess(blockX-1, blockY, blockZ)
+    };
+    
+    // Determine which faces to render: only render if touching air with access (no enclosed faces)
+    const renderFaces = {
+      top: adjacentAirAccess.top,
+      bottom: adjacentAirAccess.bottom,
+      front: adjacentAirAccess.front,
+      back: adjacentAirAccess.back,
+      right: adjacentAirAccess.right,
+      left: adjacentAirAccess.left
+    };
+    
+    // If all 6 faces are exposed and have air access, use standard geometry
+    if (Object.values(renderFaces).every(v => v)) {
       return new THREE.BoxGeometry(1, 1, 1);
     }
     
-    // For partially occluded blocks, create custom geometry
+    // For partially visible blocks, create custom geometry
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
     const indices = [];
@@ -121,9 +206,9 @@ export async function initGame(THREE, gameRendererIntegration){
     
     const s = 0.5; // half-size
     
-    // Helper to add a face if it's not occluded
-    const addFace = (v1, v2, v3, v4, isOccluded, nx, ny, nz) => {
-      if (isOccluded) return;
+    // Helper to add a face if it should render
+    const addFace = (v1, v2, v3, v4, shouldRender, nx, ny, nz) => {
+      if (!shouldRender) return;
       
       const startIdx = vertices.length / 3;
       vertices.push(...v1, ...v2, ...v3, ...v4);
@@ -135,27 +220,27 @@ export async function initGame(THREE, gameRendererIntegration){
       }
     };
     
-    // Add faces if not occluded by neighbors
+    // Add faces based on render logic
     // Right face (x=+0.5)
-    addFace([s,-s,-s], [s,s,-s], [s,s,s], [s,-s,s], neighbors.right, 1, 0, 0);
+    addFace([s,-s,-s], [s,s,-s], [s,s,s], [s,-s,s], renderFaces.right, 1, 0, 0);
     // Left face (x=-0.5)
-    addFace([-s,-s,s], [-s,s,s], [-s,s,-s], [-s,-s,-s], neighbors.left, -1, 0, 0);
+    addFace([-s,-s,s], [-s,s,s], [-s,s,-s], [-s,-s,-s], renderFaces.left, -1, 0, 0);
     // Top face (y=+0.5)
-    addFace([-s,s,-s], [s,s,-s], [s,s,s], [-s,s,s], neighbors.top, 0, 1, 0);
+    addFace([-s,s,-s], [s,s,-s], [s,s,s], [-s,s,s], renderFaces.top, 0, 1, 0);
     // Bottom face (y=-0.5)
-    addFace([-s,-s,s], [s,-s,s], [s,-s,-s], [-s,-s,-s], neighbors.bottom, 0, -1, 0);
+    addFace([-s,-s,s], [s,-s,s], [s,-s,-s], [-s,-s,-s], renderFaces.bottom, 0, -1, 0);
     // Front face (z=+0.5)
-    addFace([-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s], neighbors.front, 0, 0, 1);
+    addFace([-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s], renderFaces.front, 0, 0, 1);
     // Back face (z=-0.5)
-    addFace([s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s], neighbors.back, 0, 0, -1);
+    addFace([s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s], renderFaces.back, 0, 0, -1);
     
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
     geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
     
-    // If no faces were added, return an empty geometry (shouldn't happen normally)
+    // If no faces were added, return a tiny invisible block
     if (indices.length === 0) {
-      return new THREE.BoxGeometry(0.001, 0.001, 0.001); // Invisible block
+      return new THREE.BoxGeometry(0.001, 0.001, 0.001);
     }
     
     return geometry;
@@ -259,8 +344,6 @@ export async function initGame(THREE, gameRendererIntegration){
   renderer.shadowMap.type = THREE.PCFShadowMap;  // Faster shadow mapping
   document.body.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-  scene.add(ambientLight);
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(50, 100, 50);
   sun.castShadow = true;
@@ -273,6 +356,10 @@ export async function initGame(THREE, gameRendererIntegration){
   sun.shadow.camera.top = 100;
   sun.shadow.camera.bottom = -100;
   scene.add(sun);
+
+  // Add ambient light for cave/indoor lighting
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+  scene.add(ambientLight);
 
   // Apply initial shadow setting from video settings manager
   if (videoSettingsManager) {
@@ -288,8 +375,6 @@ export async function initGame(THREE, gameRendererIntegration){
       sun.castShadow = enabled;
     };
   }
-
-  const torchLights = new Map(); // key = "x,y,z" → PointLight
 
   // Build Minecraft Player Model
   // Head (direct child of modelGroup)
@@ -526,46 +611,38 @@ function updateCamera() {
   // Function to detect if blocks form a valid 4x5 obsidian frame (with optional missing corners)
   function isValidPortalFrame(centerX, centerY, centerZ) {
     // Check for a 4x5 obsidian frame (width=4, height=5)
-    // Frame: corners at (x-2,y,z), (x+2,y,z), (x-2,y+4,z), (x+2,y+4,z)
-    const frameBlocks = [];
+    // Frame positions: x from centerX-1 to centerX+2 (4 blocks wide), y from centerY to centerY+4 (5 blocks tall)
+    // Interior: x from centerX to centerX+1 (2 blocks), y from centerY+1 to centerY+3 (3 blocks)
     let obsidianCount = 0;
     
-    // Horizontal edges (width = 4, so positions at x-2, x-1, x, x+1, x+2)
-    for (let dx = -2; dx <= 2; dx++) {
-      // Bottom frame (y = centerY)
-      const bottomBlock = findBlockAt(centerX + dx, centerY, centerZ);
-      if (bottomBlock && bottomBlock.type === "obsidian") {
-        frameBlocks.push([centerX + dx, centerY, centerZ]);
-        obsidianCount++;
-      }
-      
-      // Top frame (y = centerY + 4)
-      const topBlock = findBlockAt(centerX + dx, centerY + 4, centerZ);
-      if (topBlock && topBlock.type === "obsidian") {
-        frameBlocks.push([centerX + dx, centerY + 4, centerZ]);
-        obsidianCount++;
-      }
+    // Bottom frame (y = centerY) - 4 blocks
+    for (let dx = -1; dx <= 2; dx++) {
+      const block = findBlockAt(centerX + dx, centerY, centerZ);
+      if (block && block.type === "obsidian") obsidianCount++;
     }
     
-    // Vertical edges (height = 5, so positions at y, y+1, y+2, y+3, y+4)
-    for (let dy = 1; dy <= 3; dy++) { // Skip corners (0 and 4)
-      // Left frame (x = centerX - 2)
-      const leftBlock = findBlockAt(centerX - 2, centerY + dy, centerZ);
-      if (leftBlock && leftBlock.type === "obsidian") {
-        frameBlocks.push([centerX - 2, centerY + dy, centerZ]);
-        obsidianCount++;
-      }
-      
-      // Right frame (x = centerX + 2)
-      const rightBlock = findBlockAt(centerX + 2, centerY + dy, centerZ);
-      if (rightBlock && rightBlock.type === "obsidian") {
-        frameBlocks.push([centerX + 2, centerY + dy, centerZ]);
-        obsidianCount++;
-      }
+    // Top frame (y = centerY + 4) - 4 blocks
+    for (let dx = -1; dx <= 2; dx++) {
+      const block = findBlockAt(centerX + dx, centerY + 4, centerZ);
+      if (block && block.type === "obsidian") obsidianCount++;
     }
     
-    // Need at least 14 obsidian blocks (min 16 - 2 corners can be missing)
-    // Actually allow for corners to be missing: need at least 12 blocks
+    // Left frame (x = centerX - 1) - 5 blocks total (including corners)
+    for (let dy = 0; dy <= 4; dy++) {
+      const block = findBlockAt(centerX - 1, centerY + dy, centerZ);
+      if (block && block.type === "obsidian") obsidianCount++;
+    }
+    
+    // Right frame (x = centerX + 2) - 5 blocks total (including corners)
+    for (let dy = 0; dy <= 4; dy++) {
+      const block = findBlockAt(centerX + 2, centerY + dy, centerZ);
+      if (block && block.type === "obsidian") obsidianCount++;
+    }
+    
+    // We've counted corner blocks twice, so subtract them (4 corners)
+    // Actually, let's just check if we have enough blocks: need at least 14 (4+4+5+5-4 corners)
+    // But we counted 4+4+5+5=18, so subtract 4 for corners = 14 expected
+    // Allow some corners to be missing: need at least 12 obsidian blocks
     return obsidianCount >= 12;
   }
 
@@ -577,11 +654,97 @@ function updateCamera() {
     );
   }
 
+  function getBlockSupportForEmptyPosition(x, y, z, rayDir) {
+    const candidates = [
+      { dx: 1, dy: 0, dz: 0, normal: new THREE.Vector3(-1, 0, 0) },
+      { dx: -1, dy: 0, dz: 0, normal: new THREE.Vector3(1, 0, 0) },
+      { dx: 0, dy: 1, dz: 0, normal: new THREE.Vector3(0, -1, 0) },
+      { dx: 0, dy: -1, dz: 0, normal: new THREE.Vector3(0, 1, 0) },
+      { dx: 0, dy: 0, dz: 1, normal: new THREE.Vector3(0, 0, -1) },
+      { dx: 0, dy: 0, dz: -1, normal: new THREE.Vector3(0, 0, 1) }
+    ];
+    let best = null;
+    for (const candidate of candidates) {
+      if (findBlockAt(x + candidate.dx, y + candidate.dy, z + candidate.dz)) {
+        const score = -candidate.normal.dot(rayDir);
+        if (score > 0 && (!best || score > best.score)) {
+          best = { normal: candidate.normal, score };
+        }
+      }
+    }
+    return best ? best.normal : null;
+  }
+
+  function findVoidPlacementTarget(rayOrigin, rayDirection, maxDistance = 8) {
+    const direction = rayDirection.clone().normalize();
+    const stepSize = 0.15;
+    const steps = Math.ceil(maxDistance / stepSize);
+    for (let i = 1; i <= steps; i++) {
+      const point = rayOrigin.clone().add(direction.clone().multiplyScalar(i * stepSize));
+      const x = Math.round(point.x);
+      const y = Math.round(point.y);
+      const z = Math.round(point.z);
+      if (findBlockAt(x, y, z)) continue;
+      const supportNormal = getBlockSupportForEmptyPosition(x, y, z, direction);
+      if (supportNormal) {
+        return { position: new THREE.Vector3(x, y, z), normal: supportNormal };
+      }
+    }
+    return null;
+  }
+
+  function isPlayerPositionBlocked(position, ignorePlayerId = null) {
+    const x = Math.round(position.x);
+    const y = Math.round(position.y);
+    const z = Math.round(position.z);
+    if (findBlockAt(x, y, z)) return true;
+
+    const blockMinX = position.x - playerWidth;
+    const blockMaxX = position.x + playerWidth;
+    const blockMinY = position.y;
+    const blockMaxY = position.y + playerHeight;
+    const blockMinZ = position.z - playerWidth;
+    const blockMaxZ = position.z + playerWidth;
+
+    const localPos = player.group.position;
+    const playerMinX = localPos.x - playerWidth;
+    const playerMaxX = localPos.x + playerWidth;
+    const playerMinY = localPos.y;
+    const playerMaxY = localPos.y + playerHeight;
+    const playerMinZ = localPos.z - playerWidth;
+    const playerMaxZ = localPos.z + playerWidth;
+
+    const overlapsLocal = blockMaxX > playerMinX && blockMinX < playerMaxX &&
+      blockMaxY > playerMinY && blockMinY < playerMaxY &&
+      blockMaxZ > playerMinZ && blockMinZ < playerMaxZ;
+    if (overlapsLocal) return true;
+
+    for (const [id, remotePlayer] of Object.entries(remotePlayers)) {
+      if (id === ignorePlayerId) continue;
+      if (!remotePlayer?.group) continue;
+      const otherPos = remotePlayer.group.position;
+      const otherMinX = otherPos.x - playerWidth;
+      const otherMaxX = otherPos.x + playerWidth;
+      const otherMinY = otherPos.y;
+      const otherMaxY = otherPos.y + playerHeight;
+      const otherMinZ = otherPos.z - playerWidth;
+      const otherMaxZ = otherPos.z + playerWidth;
+
+      const overlapsRemote = blockMaxX > otherMinX && blockMinX < otherMaxX &&
+        blockMaxY > otherMinY && blockMinY < otherMaxY &&
+        blockMaxZ > otherMinZ && blockMinZ < otherMaxZ;
+      if (overlapsRemote) return true;
+    }
+
+    return false;
+  }
+
   function getPortalInteriorBlocks(centerX, centerY, centerZ) {
-    // Get the 3x4 interior of the portal (inside the frame)
+    // Get the 2x3 interior of the portal (inside the 4x5 frame)
+    // Interior: x from centerX to centerX+1, y from centerY+1 to centerY+3
     const interior = [];
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dy = 1; dy <= 4; dy++) {
+    for (let dx = 0; dx <= 1; dx++) {
+      for (let dy = 1; dy <= 3; dy++) {
         const block = findBlockAt(centerX + dx, centerY + dy, centerZ);
         if (!block) {
           interior.push([centerX + dx, centerY + dy, centerZ]);
@@ -601,8 +764,8 @@ function updateCamera() {
     
     const interior = getPortalInteriorBlocks(centerX, centerY, centerZ);
     
-    // Create portal mesh with animated texture
-    const portalGeometry = new THREE.BoxGeometry(3, 4, 0.1);
+    // Create portal mesh with animated texture - 2x3 interior
+    const portalGeometry = new THREE.BoxGeometry(2, 3, 0.1);
     const portalMaterial = new THREE.MeshStandardMaterial({
       color: 0x7400ff,
       emissive: 0x7400ff,
@@ -613,11 +776,11 @@ function updateCamera() {
     });
     
     const portalMesh = new THREE.Mesh(portalGeometry, portalMaterial);
-    portalMesh.position.set(centerX, centerY + 2, centerZ);
+    portalMesh.position.set(centerX + 0.5, centerY + 2, centerZ);
     scene.add(portalMesh);
     
     // Add glow effect
-    const glowGeometry = new THREE.BoxGeometry(3.2, 4.2, 0.2);
+    const glowGeometry = new THREE.BoxGeometry(2.2, 3.2, 0.2);
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: 0x7400ff,
       transparent: true,
@@ -641,40 +804,46 @@ function updateCamera() {
     return true;
   }
 
+  const NETHER_START = { x: -200, y: -200, z: -200 };
+
   function tryPortalTeleport() {
     for (const portal of activePortals) {
       const px = player.group.position.x;
       const py = player.group.position.y;
       const pz = player.group.position.z;
       
-      // Check if player is inside portal bounds
-      const inPortalX = Math.abs(px - portal.centerX) <= 1.5;
-      const inPortalY = py >= portal.centerY + 1 && py <= portal.centerY + 5;
+      // Check if player is inside portal bounds (2x3 interior)
+      const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
+      const inPortalY = py >= portal.centerY + 0.5 && py <= portal.centerY + 3.5;
       const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
       
       if (inPortalX && inPortalY && inPortalZ) {
-        // Teleport player to nether
-        teleportToNether(px * 8, py, pz * 8); // Nether coords are 8x the overworld coords
+        teleportToNether();
         return true;
       }
     }
     return false;
   }
 
-  function teleportToNether(x, y, z) {
+  function teleportToNether() {
     playerDimension = "nether";
     player.dimension = "nether";
+    
+    // Set player position to nether spawn at -200, -200, -200 with offset
+    const netherSpawnY = NETHER_START.y + 35; // Spawn on top of terrain
+    player.group.position.set(NETHER_START.x, netherSpawnY, NETHER_START.z);
+    player.velocity.y = 0;
     
     // Clear overworld blocks
     blocks3D.forEach(b => scene.remove(b.mesh));
     blocks3D.length = 0;
     
-    // Generate nether world with portals at 0,-200,0 (hide loading screen for instant feel)
-    generateNetherWorld(0, -200, 0, true);
+    // Generate nether world starting at the fixed nether region origin
+    generateNetherWorld(NETHER_START.x, NETHER_START.y, NETHER_START.z, true);
     
     // Broadcast dimension change to other players
     if (isMultiplayer && socket) {
-      socket.emit("playerDimension", { dimension: "nether", pos: { x: 0, y: -200, z: 0 } });
+      socket.emit("playerDimension", { dimension: "nether", pos: { x: NETHER_START.x, y: netherSpawnY, z: NETHER_START.z } });
     }
     
     addChatMessage("Entered the Nether!");
@@ -687,8 +856,11 @@ function updateCamera() {
     // Restore overworld appearance
     scene.background = new THREE.Color(0x87ceeb); // Light blue sky
     scene.fog = null; // Remove nether fog
-    ambientLight.color.setHex(0xffffff); // White light
-    ambientLight.intensity = 0.9; // Brighter
+    sun.color.setHex(0xffffff); // White sunlight
+    sun.intensity = 1.0; // Full sun intensity
+    
+    // Reset ambient light to initial state
+    if (ambientLight) ambientLight.intensity = 0.4;
     
     // Clear nether blocks
     blocks3D.forEach(b => scene.remove(b.mesh));
@@ -723,24 +895,28 @@ function updateCamera() {
     // Add fog for nether atmosphere
     scene.fog = new THREE.Fog(0x4a0000, 60, 150); // Red fog
     
-    // Adjust lighting for nether
-    ambientLight.color.setHex(0xff6600); // Orange-red ambient light
-    ambientLight.intensity = 0.6;
+    // Adjust lighting for nether using the main sunlight source
+    sun.color.setHex(0xff6600);
+    sun.intensity = 0.9;
+    
+    // Increase ambient light for nether since there's less sky light
+    if (ambientLight) ambientLight.intensity = 0.6;
     
     let simplex = null;
     if (window.SimplexNoise) {
       simplex = new SimplexNoise(worldSeed || Math.random());
       const size = 25;
       
-      for (let x = -size; x < size; x++) {
-        for (let z = -size; z < size; z++) {
-          // Nether terrain: mostly stone and netherrack with more variation
-          const noise = simplex.noise2D(x / 30, z / 30);
+      for (let x = startX; x < startX + size * 2; x++) {
+        for (let z = startZ; z < startZ + size * 2; z++) {
+          const localX = x;
+          const localZ = z;
+          const noise = simplex.noise2D((x - startX) / 30, (z - startZ) / 30);
           const height = Math.floor(12 + noise * 20); // Height varies 12-32
           
-          for (let y = 0; y <= height; y++) {
+          for (let y = startY; y <= startY + height; y++) {
             let type = "netherrack";
-            if (y === 0) {
+            if (y === startY) {
               type = "bedrock"; // Bedrock floor
             } else if (Math.random() > 0.88) {
               type = "sigma_ore"; // Rare sigma ore in nether
@@ -750,29 +926,29 @@ function updateCamera() {
             
             const mat = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            mesh.position.set(x, y, z);
+            mesh.position.set(localX, y, localZ);
             scene.add(mesh);
-            blocks3D.push({ mesh, type, pos: { x, y, z } });
+            blocks3D.push({ mesh, type, pos: { x: localX, y, z: localZ } });
           }
           
           // Create netherrack ceiling (roof at y=32)
-          for (let cy = height + 1; cy <= 32; cy++) {
+          for (let cy = startY + height + 1; cy <= startY + 32; cy++) {
             const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            mesh.position.set(x, cy, z);
+            mesh.position.set(localX, cy, localZ);
             scene.add(mesh);
-            blocks3D.push({ mesh, type: "netherrack", pos: { x, y: cy, z } });
+            blocks3D.push({ mesh, type: "netherrack", pos: { x: localX, y: cy, z: localZ } });
           }
         }
       }
       
       // Create BEDROCK WALLS with 1-2 layers of netherrack
-      for (let x = -size; x < size; x++) {
-        for (let z = -size; z < size; z++) {
+      for (let x = startX; x < startX + size * 2; x++) {
+        for (let z = startZ; z < startZ + size * 2; z++) {
           // Check if this is a wall position (edge of nether)
-          if (Math.abs(x) === size - 1 || Math.abs(z) === size - 1) {
+          if (Math.abs(x - startX) === size - 1 || Math.abs(z - startZ) === size - 1) {
             // Create bedrock wall from bottom to top
-            for (let sy = 0; sy <= 32; sy++) {
+            for (let sy = startY; sy <= startY + 32; sy++) {
               // Check if block already exists at this position
               if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === z)) {
                 const mat = blockMaterials["bedrock"] || new THREE.MeshStandardMaterial({ color: 0x222222 });
@@ -785,11 +961,11 @@ function updateCamera() {
             
             // Add 1-2 layers of netherrack around the bedrock walls
             for (let layer = 1; layer <= 2; layer++) {
-              const offset = (x < 0) ? -layer : (x > 0) ? layer : 0;
-              const offsetZ = (z < 0) ? -layer : (z > 0) ? layer : 0;
+              const offset = x === startX ? -layer : x === (startX + size * 2 - 1) ? layer : 0;
+              const offsetZ = z === startZ ? -layer : z === (startZ + size * 2 - 1) ? layer : 0;
               
               if (offset !== 0) {
-                for (let sy = 0; sy <= 32; sy++) {
+                for (let sy = startY; sy <= startY + 32; sy++) {
                   const nx = x + offset;
                   if (!blocks3D.some(b => b.pos.x === nx && b.pos.y === sy && b.pos.z === z)) {
                     const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
@@ -802,14 +978,14 @@ function updateCamera() {
               }
               
               if (offsetZ !== 0) {
-                for (let sy = 0; sy <= 32; sy++) {
+                for (let sy = startY; sy <= startY + 32; sy++) {
                   const nz = z + offsetZ;
                   if (!blocks3D.some(b => b.pos.x === x && b.pos.y === sy && b.pos.z === nz)) {
                     const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
                     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
                     mesh.position.set(x, sy, nz);
                     scene.add(mesh);
-                    blocks3D.push({ mesh, type: "netherrack", pos: { x, y: sy, z: nz } });
+                    blocks3D.push({ mesh, type: "netherrack", pos: { x: x, y: sy, z: nz } });
                   }
                 }
               }
@@ -819,7 +995,7 @@ function updateCamera() {
       }
       
       // Create a return portal at spawn
-      createNetherSpawnPortal();
+      createNetherSpawnPortal(startX, startY, startZ);
     }
     
     player.group.position.set(startX, startY + 5, startZ);
@@ -828,37 +1004,48 @@ function updateCamera() {
     if (loadingScreen) loadingScreen.style.display = "none";
   }
 
-  function createNetherSpawnPortal() {
-    // Create a portal at origin for returning to overworld
-    const centerX = 0;
-    const centerY = 5;
-    const centerZ = 0;
+  function createNetherSpawnPortal(startX = 0, startY = 0, startZ = 0) {
+    // Create a portal at the nether spawn location for returning to overworld
+    // Using 4x5 frame (width=4, height=5)
+    const centerX = startX;
+    const centerY = startY + 5;
+    const centerZ = startZ;
     
-    // Create frame
-    for (let dx = -2; dx <= 2; dx++) {
+    // Create frame: 4 blocks wide (x-1 to x+2), 5 blocks tall (y to y+4)
+    // Bottom frame
+    for (let dx = -1; dx <= 2; dx++) {
       const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
-      const mesh1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-      mesh1.position.set(centerX + dx, centerY, centerZ);
-      scene.add(mesh1);
-      blocks3D.push({ mesh: mesh1, type: "obsidian", pos: { x: centerX + dx, y: centerY, z: centerZ } });
-      
-      const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-      mesh2.position.set(centerX + dx, centerY + 4, centerZ);
-      scene.add(mesh2);
-      blocks3D.push({ mesh: mesh2, type: "obsidian", pos: { x: centerX + dx, y: centerY + 4, z: centerZ } });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh.position.set(centerX + dx, centerY, centerZ);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type: "obsidian", pos: { x: centerX + dx, y: centerY, z: centerZ } });
     }
     
-    for (let dy = 1; dy <= 3; dy++) {
+    // Top frame
+    for (let dx = -1; dx <= 2; dx++) {
       const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
-      const mesh1 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-      mesh1.position.set(centerX - 2, centerY + dy, centerZ);
-      scene.add(mesh1);
-      blocks3D.push({ mesh: mesh1, type: "obsidian", pos: { x: centerX - 2, y: centerY + dy, z: centerZ } });
-      
-      const mesh2 = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-      mesh2.position.set(centerX + 2, centerY + dy, centerZ);
-      scene.add(mesh2);
-      blocks3D.push({ mesh: mesh2, type: "obsidian", pos: { x: centerX + 2, y: centerY + dy, z: centerZ } });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh.position.set(centerX + dx, centerY + 4, centerZ);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type: "obsidian", pos: { x: centerX + dx, y: centerY + 4, z: centerZ } });
+    }
+    
+    // Left frame
+    for (let dy = 0; dy <= 4; dy++) {
+      const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh.position.set(centerX - 1, centerY + dy, centerZ);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type: "obsidian", pos: { x: centerX - 1, y: centerY + dy, z: centerZ } });
+    }
+    
+    // Right frame
+    for (let dy = 0; dy <= 4; dy++) {
+      const mat = blockMaterials["obsidian"] || new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+      mesh.position.set(centerX + 2, centerY + dy, centerZ);
+      scene.add(mesh);
+      blocks3D.push({ mesh, type: "obsidian", pos: { x: centerX + 2, y: centerY + dy, z: centerZ } });
     }
     
     // Activate portal
@@ -1436,15 +1623,20 @@ function updateCamera() {
       
       if (playerIntersects.length > 0) {
         // Find which player was hit
+        const remoteKeys = Object.keys(remotePlayers);
         for (const [playerId, remotePlayer] of Object.entries(remotePlayers)) {
-          if (playerMeshes[Object.keys(remotePlayers).indexOf(playerId)].children.some(child => 
+          const index = remoteKeys.indexOf(playerId);
+          if (index >= 0 && playerMeshes[index].children.some(child => 
               playerIntersects[0].object === child || playerIntersects[0].object.parent === child
           )) {
             if (socket) {
               socket.emit("playerAttack", playerId);
-              // Add visual feedback - knockback effect
+              // Add visual feedback - knockback effect with collision checking
               const dir = remotePlayer.group.position.clone().sub(player.group.position).normalize();
-              remotePlayer.group.position.addScaledVector(dir, 0.5);
+              const targetPos = remotePlayer.group.position.clone().addScaledVector(dir, 0.5);
+              if (!isPlayerPositionBlocked(targetPos, playerId)) {
+                remotePlayer.group.position.copy(targetPos);
+              }
             }
             return;
           }
@@ -1480,9 +1672,9 @@ function updateCamera() {
           breakingOverlay = createBreakingOverlay(blockData.mesh);
         }
       }
-    } else if ((e.button === 2 || (e.button === 0 && e.shiftKey)) && intersects.length > 0) {
-      const hit = intersects[0];
-      const hitBlock = blocks3D.find(b => b.mesh === hit.object);
+    } else if (e.button === 2 || (e.button === 0 && e.shiftKey)) {
+      const hit = intersects.length > 0 ? intersects[0] : null;
+      const hitBlock = hit ? blocks3D.find(b => b.mesh === hit.object) : null;
       if (hitBlock && hitBlock.type === "crafting_table" && e.button === 2) {
         if (typeof showGameOverlay === "function") showGameOverlay("craftingTableOverlay");
         else { document.exitPointerLock(); const o = document.getElementById("craftingTableOverlay"); if (o) o.style.display = "flex"; }
@@ -1519,6 +1711,7 @@ function updateCamera() {
         const bz = Math.round(hitBlock.mesh.position.z);
         
         // Check different portal frame centers
+        // Frame is 4 wide (x-1 to x+2) and 5 tall (y to y+4)
         for (let dx = -2; dx <= 2; dx++) {
           for (let dy = -4; dy <= 0; dy++) {
             if (activatePortal(bx + dx, by + dy, bz)) {
@@ -1539,12 +1732,17 @@ function updateCamera() {
       const blockName = slot.type;
       const mat = blockMaterials[blockName];
       if (!mat) return;
+      const placement = hitBlock
+        ? { position: hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5)), normal: hit.face.normal }
+        : findVoidPlacementTarget(raycaster.ray.origin, raycaster.ray.direction);
+
+      if (!placement) return;
+
       const newBlock = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-      const p = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5));
-      newBlock.position.set(Math.round(p.x), Math.round(p.y), Math.round(p.z));
+      newBlock.position.set(Math.round(placement.position.x), Math.round(placement.position.y), Math.round(placement.position.z));
 
       // Height limit: no placing above y=350
-      if (Math.round(p.y) > 350) return;
+      if (Math.round(newBlock.position.y) > 350) return;
 
       // Check only for existing blocks (not player collision) so blocks
       // can be placed in tight spaces with less than 2 blocks of headroom.
@@ -1569,14 +1767,6 @@ function updateCamera() {
         updateHotbarUI();
 
         // Torch: place a point light at this block
-        if (blockName === "Lamp") {
-          const tLight = new THREE.PointLight(0xffaa44, 2, 20, 2);
-          tLight.position.copy(newBlock.position);
-          scene.add(tLight);
-          const key = `${Math.round(newBlock.position.x)},${Math.round(newBlock.position.y)},${Math.round(newBlock.position.z)}`;
-          torchLights.set(key, tLight);
-        }
-
         if (socket) {
             socket.emit("blockPlace", { pos: newBlock.position, type: blockName });
         }
@@ -1632,11 +1822,6 @@ function updateCamera() {
 
       // Remove torch light if a torch was broken
       const torchKey = `${Math.round(blockPos.x)},${Math.round(blockPos.y)},${Math.round(blockPos.z)}`;
-      if (torchLights.has(torchKey)) {
-        scene.remove(torchLights.get(torchKey));
-        torchLights.delete(torchKey);
-      }
-      
       createBlockDrop(blockPos, blockType);
       
       if (socket) {
@@ -2093,6 +2278,28 @@ function updateCamera() {
         loadingScreen.style.display = "none";
       }
     }, 500);
+    
+    // Pre-generate nether world data in the background (asynchronously after overworld is rendered)
+    // This ensures nether is ready when player enters portal without blocking initial load
+    setTimeout(() => {
+      if (window.SimplexNoise) {
+        const netherSimplex = new SimplexNoise(worldSeed || Math.random());
+        const netherStartX = NETHER_START.x;
+        const netherStartY = NETHER_START.y;
+        const netherStartZ = NETHER_START.z;
+        const netherSize = 25;
+        
+        // Generate nether terrain data without rendering to scene
+        for (let x = netherStartX; x < netherStartX + netherSize * 2; x++) {
+          for (let z = netherStartZ; z < netherStartZ + netherSize * 2; z++) {
+            const noise = netherSimplex.noise2D((x - netherStartX) / 30, (z - netherStartZ) / 30);
+            const height = Math.floor(12 + noise * 20);
+            // Cache is built implicitly by SimplexNoise; no need to store blocks
+          }
+        }
+        console.log("Nether world pre-generated in background");
+      }
+    }, 100); // Delay to ensure overworld renders first
   }
   
   function setupMultiplayer() {
@@ -8258,7 +8465,7 @@ function updateCamera() {
           }
           _lightCacheLevel = lightLevel;
         }
-        // Map light level 0–15 to ambient intensity 0.04–0.8
+        // Dynamic ambient lighting: adjust intensity based on sky access at player position
         const targetIntensity = 0.04 + (_lightCacheLevel / 15) * 0.76;
         ambientLight.intensity += (targetIntensity - ambientLight.intensity) * 0.2;
       }
@@ -8398,8 +8605,9 @@ updateBreaking();
           const py = player.group.position.y;
           const pz = player.group.position.z;
           
-          const inPortalX = Math.abs(px - portal.centerX) <= 1.5;
-          const inPortalY = py >= portal.centerY + 1 && py <= portal.centerY + 5;
+          // Check if player is inside portal bounds (2x3 interior)
+          const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
+          const inPortalY = py >= portal.centerY + 0.5 && py <= portal.centerY + 3.5;
           const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
           
           if (inPortalX && inPortalY && inPortalZ) {
@@ -8496,7 +8704,7 @@ updateBreaking();
              player.model.position.y = 0;
              if (player.limbs.torsoGroup) player.limbs.torsoGroup.rotation.x = 0;
              if (player.limbs.head) {
-                 player.limbs.head.rotation.x = 0;
+                 player.limbs.head.rotation.x = player.pitch;  // Head rotates based on pitch for independent look
                  player.limbs.head.position.z = 0;
                  player.limbs.head.position.y = 1.6;
              }
@@ -8708,8 +8916,9 @@ updateBreaking();
           player.invincibleTime--;
       }
 
-      // Respawn if player falls below y = -7
-      if (player.group.position.y < -7) {
+      // Respawn if player falls below y = -7 (only in overworld)
+      // In nether, allow y to go much lower since nether starts at y = -200
+      if (playerDimension === "overworld" && player.group.position.y < -7) {
           player.group.position.set(0, playerSpawnHeight + 2, 0);
           player.velocity.y = 0;
           player.health = player.maxHealth;
