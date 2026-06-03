@@ -76,6 +76,7 @@ export async function initGame(THREE, gameRendererIntegration){
   let recipePattern = Array(9).fill(null); // Default to 3x3
   let currentRecipeType = "3x3"; // Track whether editing 2x2 or 3x3
   let playerSpawnHeight = 2;
+  let currentWorldSeed = null; // Stored when generateWorld is called, used for regen/nether
 
   function rebuildBlockSet() {
     blockPositionSet.clear();
@@ -608,42 +609,47 @@ function updateCamera() {
   let portalTextures = {}; // Store animated portal textures
   let playerDimension = "overworld"; // Track which dimension player is in
 
-  // Function to detect if blocks form a valid 4x5 obsidian frame (with optional missing corners)
+  // Function to detect if blocks form a valid 4x5 obsidian frame (hollow, X-axis orientation)
   function isValidPortalFrame(centerX, centerY, centerZ) {
-    // Check for a 4x5 obsidian frame (width=4, height=5)
-    // Frame positions: x from centerX-1 to centerX+2 (4 blocks wide), y from centerY to centerY+4 (5 blocks tall)
-    // Interior: x from centerX to centerX+1 (2 blocks), y from centerY+1 to centerY+3 (3 blocks)
+    // 4 wide (bottom): x from centerX-1 to centerX+2, 5 tall (sides): y from centerY to centerY+4
+    // Count unique obsidian frame blocks (excluding interior)
     let obsidianCount = 0;
-    
-    // Bottom frame (y = centerY) - 4 blocks
-    for (let dx = -1; dx <= 2; dx++) {
-      const block = findBlockAt(centerX + dx, centerY, centerZ);
+    const seen = new Set();
+    const check = (x, y, z) => {
+      const key = `${x},${y},${z}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const block = findBlockAt(x, y, z);
       if (block && block.type === "obsidian") obsidianCount++;
-    }
-    
-    // Top frame (y = centerY + 4) - 4 blocks
-    for (let dx = -1; dx <= 2; dx++) {
-      const block = findBlockAt(centerX + dx, centerY + 4, centerZ);
+    };
+    // Bottom row (y = centerY)
+    for (let dx = -1; dx <= 2; dx++) check(centerX + dx, centerY, centerZ);
+    // Top row (y = centerY+4)
+    for (let dx = -1; dx <= 2; dx++) check(centerX + dx, centerY + 4, centerZ);
+    // Left column (x = centerX-1)
+    for (let dy = 1; dy <= 3; dy++) check(centerX - 1, centerY + dy, centerZ);
+    // Right column (x = centerX+2)
+    for (let dy = 1; dy <= 3; dy++) check(centerX + 2, centerY + dy, centerZ);
+    // Need at least 10 of 14 unique frame blocks
+    return obsidianCount >= 10;
+  }
+
+  // Same check for Z-axis oriented portal (frame in the ZY plane)
+  function isValidPortalFrameZ(centerX, centerY, centerZ) {
+    let obsidianCount = 0;
+    const seen = new Set();
+    const check = (x, y, z) => {
+      const key = `${x},${y},${z}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const block = findBlockAt(x, y, z);
       if (block && block.type === "obsidian") obsidianCount++;
-    }
-    
-    // Left frame (x = centerX - 1) - 5 blocks total (including corners)
-    for (let dy = 0; dy <= 4; dy++) {
-      const block = findBlockAt(centerX - 1, centerY + dy, centerZ);
-      if (block && block.type === "obsidian") obsidianCount++;
-    }
-    
-    // Right frame (x = centerX + 2) - 5 blocks total (including corners)
-    for (let dy = 0; dy <= 4; dy++) {
-      const block = findBlockAt(centerX + 2, centerY + dy, centerZ);
-      if (block && block.type === "obsidian") obsidianCount++;
-    }
-    
-    // We've counted corner blocks twice, so subtract them (4 corners)
-    // Actually, let's just check if we have enough blocks: need at least 14 (4+4+5+5-4 corners)
-    // But we counted 4+4+5+5=18, so subtract 4 for corners = 14 expected
-    // Allow some corners to be missing: need at least 12 obsidian blocks
-    return obsidianCount >= 12;
+    };
+    for (let dz = -1; dz <= 2; dz++) check(centerX, centerY, centerZ + dz);
+    for (let dz = -1; dz <= 2; dz++) check(centerX, centerY + 4, centerZ + dz);
+    for (let dy = 1; dy <= 3; dy++) check(centerX, centerY + dy, centerZ - 1);
+    for (let dy = 1; dy <= 3; dy++) check(centerX, centerY + dy, centerZ + 2);
+    return obsidianCount >= 10;
   }
 
   function findBlockAt(x, y, z) {
@@ -754,18 +760,24 @@ function updateCamera() {
     return interior;
   }
 
-  function activatePortal(centerX, centerY, centerZ) {
-    if (!isValidPortalFrame(centerX, centerY, centerZ)) return false;
+  // orientation: "x" = frame in XY plane (default), "z" = frame in ZY plane
+  function activatePortal(centerX, centerY, centerZ, orientation = "x") {
+    const valid = orientation === "z"
+      ? isValidPortalFrameZ(centerX, centerY, centerZ)
+      : isValidPortalFrame(centerX, centerY, centerZ);
+    if (!valid) return false;
     
-    const portalKey = `${centerX},${centerY},${centerZ}`;
+    const portalKey = `${centerX},${centerY},${centerZ},${orientation}`;
     
     // Check if portal already exists
     if (activePortals.find(p => p.key === portalKey)) return true;
     
     const interior = getPortalInteriorBlocks(centerX, centerY, centerZ);
     
-    // Create portal mesh with animated texture - 2x3 interior
-    const portalGeometry = new THREE.BoxGeometry(2, 3, 0.1);
+    // Portal mesh: oriented along X (default) or Z axis
+    const portalGeometry = orientation === "z"
+      ? new THREE.BoxGeometry(0.1, 3, 2)
+      : new THREE.BoxGeometry(2, 3, 0.1);
     const portalMaterial = new THREE.MeshStandardMaterial({
       color: 0x7400ff,
       emissive: 0x7400ff,
@@ -776,11 +788,17 @@ function updateCamera() {
     });
     
     const portalMesh = new THREE.Mesh(portalGeometry, portalMaterial);
-    portalMesh.position.set(centerX + 0.5, centerY + 2, centerZ);
+    if (orientation === "z") {
+      portalMesh.position.set(centerX, centerY + 2, centerZ + 0.5);
+    } else {
+      portalMesh.position.set(centerX + 0.5, centerY + 2, centerZ);
+    }
     scene.add(portalMesh);
     
     // Add glow effect
-    const glowGeometry = new THREE.BoxGeometry(2.2, 3.2, 0.2);
+    const glowGeometry = orientation === "z"
+      ? new THREE.BoxGeometry(0.2, 3.2, 2.2)
+      : new THREE.BoxGeometry(2.2, 3.2, 0.2);
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: 0x7400ff,
       transparent: true,
@@ -794,6 +812,7 @@ function updateCamera() {
     activePortals.push({
       key: portalKey,
       centerX, centerY, centerZ,
+      orientation,
       mesh: portalMesh,
       glowMesh: glowMesh,
       activationTime: Date.now(),
@@ -812,12 +831,20 @@ function updateCamera() {
       const py = player.group.position.y;
       const pz = player.group.position.z;
       
-      // Check if player is inside portal bounds (2x3 interior)
-      const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
+      // Check if player is inside portal bounds (2x3 interior) — handles both orientations
       const inPortalY = py >= portal.centerY + 0.5 && py <= portal.centerY + 3.5;
-      const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.2;
+      let inPortal = false;
+      if (portal.orientation === "z") {
+        const inPortalX2 = Math.abs(px - portal.centerX) <= 0.5;
+        const inPortalZ2 = pz >= portal.centerZ - 0.2 && pz <= portal.centerZ + 1.2;
+        inPortal = inPortalX2 && inPortalY && inPortalZ2;
+      } else {
+        const inPortalX = px >= portal.centerX - 0.2 && px <= portal.centerX + 1.2;
+        const inPortalZ = Math.abs(pz - portal.centerZ) <= 0.5;
+        inPortal = inPortalX && inPortalY && inPortalZ;
+      }
       
-      if (inPortalX && inPortalY && inPortalZ) {
+      if (inPortal) {
         teleportToNether();
         return true;
       }
@@ -829,8 +856,9 @@ function updateCamera() {
     playerDimension = "nether";
     player.dimension = "nether";
     
-    // Set player position to nether spawn at -200, -200, -200 with offset
-    const netherSpawnY = NETHER_START.y + 35; // Spawn on top of terrain
+    // Spawn above the nether terrain floor at -200,-200,-200
+    // Nether floor is at NETHER_START.y, minimum terrain height is 12, so surface ~NETHER_START.y+13
+    const netherSpawnY = NETHER_START.y + 14;
     player.group.position.set(NETHER_START.x, netherSpawnY, NETHER_START.z);
     player.velocity.y = 0;
     
@@ -872,7 +900,7 @@ function updateCamera() {
     const overworldY = y;
     const overworldZ = z / 8;
     
-    generateWorld(worldSeed, true).then(() => {
+    generateWorld(currentWorldSeed, true).then(() => {
       player.group.position.set(Math.round(overworldX), Math.round(overworldY), Math.round(overworldZ));
     });
     
@@ -904,7 +932,7 @@ function updateCamera() {
     
     let simplex = null;
     if (window.SimplexNoise) {
-      simplex = new SimplexNoise(worldSeed || Math.random());
+      simplex = new SimplexNoise(currentWorldSeed || Math.random());
       const size = 25;
       
       for (let x = startX; x < startX + size * 2; x++) {
@@ -931,8 +959,9 @@ function updateCamera() {
             blocks3D.push({ mesh, type, pos: { x: localX, y, z: localZ } });
           }
           
-          // Create netherrack ceiling (roof at y=32)
-          for (let cy = startY + height + 1; cy <= startY + 32; cy++) {
+          // Create netherrack ceiling — fixed at startY+28 to startY+32, leaving open cave space
+          const ceilStart = Math.max(startY + height + 1, startY + 28);
+          for (let cy = ceilStart; cy <= startY + 32; cy++) {
             const mat = blockMaterials["netherrack"] || new THREE.MeshStandardMaterial({ color: 0x8B4513 });
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
             mesh.position.set(localX, cy, localZ);
@@ -998,7 +1027,8 @@ function updateCamera() {
       createNetherSpawnPortal(startX, startY, startZ);
     }
     
-    player.group.position.set(startX, startY + 5, startZ);
+    // Place player above terrain surface (minimum terrain height is 12, use 14 for safety)
+    player.group.position.set(startX, startY + 14, startZ);
     occlusionDirty = true;
     
     if (loadingScreen) loadingScreen.style.display = "none";
@@ -1006,9 +1036,9 @@ function updateCamera() {
 
   function createNetherSpawnPortal(startX = 0, startY = 0, startZ = 0) {
     // Create a portal at the nether spawn location for returning to overworld
-    // Using 4x5 frame (width=4, height=5)
+    // Using 4x5 frame (width=4, height=5) — placed above player spawn (startY+17 > spawn at startY+14)
     const centerX = startX;
-    const centerY = startY + 5;
+    const centerY = startY + 17; // 3 blocks above player spawn so player doesn't spawn inside frame
     const centerZ = startZ;
     
     // Create frame: 4 blocks wide (x-1 to x+2), 5 blocks tall (y to y+4)
@@ -1710,18 +1740,30 @@ function updateCamera() {
         const by = Math.round(hitBlock.mesh.position.y);
         const bz = Math.round(hitBlock.mesh.position.z);
         
-        // Check different portal frame centers
-        // Frame is 4 wide (x-1 to x+2) and 5 tall (y to y+4)
-        for (let dx = -2; dx <= 2; dx++) {
-          for (let dy = -4; dy <= 0; dy++) {
-            if (activatePortal(bx + dx, by + dy, bz)) {
-              // Consume one flint and steel
-              slot.count--;
-              if (slot.count <= 0) slot.type = null;
-              updateHotbarUI();
-              return;
+        // Check different portal frame centers — try X-axis orientation first, then Z-axis
+        let portalFound = false;
+        outer: for (let dx = -3; dx <= 3 && !portalFound; dx++) {
+          for (let dy = -4; dy <= 0 && !portalFound; dy++) {
+            if (activatePortal(bx + dx, by + dy, bz, "x")) {
+              portalFound = true;
             }
           }
+        }
+        if (!portalFound) {
+          for (let dz = -3; dz <= 3 && !portalFound; dz++) {
+            for (let dy = -4; dy <= 0 && !portalFound; dy++) {
+              if (activatePortal(bx, by + dy, bz + dz, "z")) {
+                portalFound = true;
+              }
+            }
+          }
+        }
+        if (portalFound) {
+          // Consume one flint and steel
+          slot.count--;
+          if (slot.count <= 0) slot.type = null;
+          updateHotbarUI();
+          return;
         }
         addChatMessage("No valid portal frame found.");
         return;
@@ -1977,6 +2019,7 @@ function updateCamera() {
   }
 
   async function generateWorld(seed, hideLoadingScreen = false) {
+    currentWorldSeed = seed;
     console.log("Generating world with seed:", seed);
     
     // Show loading screen (unless hideLoadingScreen is true, for portal teleports)
@@ -2279,27 +2322,38 @@ function updateCamera() {
       }
     }, 500);
     
-    // Pre-generate nether world data in the background (asynchronously after overworld is rendered)
-    // This ensures nether is ready when player enters portal without blocking initial load
+    // Pre-generate actual nether block data alongside the world so portal entry is instant
+    window.precomputedNetherBlocks = null;
+    const _netherSeed = seed;
     setTimeout(() => {
       if (window.SimplexNoise) {
-        const netherSimplex = new SimplexNoise(worldSeed || Math.random());
-        const netherStartX = NETHER_START.x;
-        const netherStartY = NETHER_START.y;
-        const netherStartZ = NETHER_START.z;
-        const netherSize = 25;
-        
-        // Generate nether terrain data without rendering to scene
-        for (let x = netherStartX; x < netherStartX + netherSize * 2; x++) {
-          for (let z = netherStartZ; z < netherStartZ + netherSize * 2; z++) {
-            const noise = netherSimplex.noise2D((x - netherStartX) / 30, (z - netherStartZ) / 30);
+        const netherSimplex = new SimplexNoise(_netherSeed || Math.random());
+        const sx = NETHER_START.x;
+        const sy = NETHER_START.y;
+        const sz = NETHER_START.z;
+        const size = 25;
+        const data = [];
+        for (let x = sx; x < sx + size * 2; x++) {
+          for (let z = sz; z < sz + size * 2; z++) {
+            const noise = netherSimplex.noise2D((x - sx) / 30, (z - sz) / 30);
             const height = Math.floor(12 + noise * 20);
-            // Cache is built implicitly by SimplexNoise; no need to store blocks
+            for (let y = sy; y <= sy + height; y++) {
+              let type = "netherrack";
+              if (y === sy) type = "bedrock";
+              else if (Math.random() > 0.88) type = "sigma_ore";
+              else if (Math.random() > 0.95) type = "stone";
+              data.push({ x, y, z, type });
+            }
+            const ceilStart = Math.max(sy + height + 1, sy + 28);
+            for (let cy = ceilStart; cy <= sy + 32; cy++) {
+              data.push({ x, y: cy, z, type: "netherrack" });
+            }
           }
         }
-        console.log("Nether world pre-generated in background");
+        window.precomputedNetherBlocks = data;
+        console.log("Nether world pre-generated:", data.length, "blocks at -200,-200,-200");
       }
-    }, 100); // Delay to ensure overworld renders first
+    }, 200); // Small delay so overworld renders first
   }
   
   function setupMultiplayer() {
@@ -2633,7 +2687,9 @@ function updateCamera() {
         }
     });
 
+    socket.off("chatMessage");
     socket.on("chatMessage", (data) => {
+        if (data.username === player.username) return;
         addChatMessage(`${data.username}: ${data.message}`);
     });
 
@@ -8916,13 +8972,19 @@ updateBreaking();
           player.invincibleTime--;
       }
 
-      // Respawn if player falls below y = -7 (only in overworld)
-      // In nether, allow y to go much lower since nether starts at y = -200
-      if (playerDimension === "overworld" && player.group.position.y < -7) {
+      // Override: the nether zone occupies y = -100 to -300 — always allow players there
+      const inNetherZone = player.group.position.y >= -300 && player.group.position.y <= -100;
+      // Respawn if player falls below y = -7 (overworld only; skip if inside the nether y-zone)
+      if (playerDimension === "overworld" && player.group.position.y < -7 && !inNetherZone) {
           player.group.position.set(0, playerSpawnHeight + 2, 0);
           player.velocity.y = 0;
           player.health = player.maxHealth;
           renderHealth();
+      }
+      // In nether: if player falls below the nether floor, respawn at nether spawn
+      if (playerDimension === "nether" && player.group.position.y < NETHER_START.y - 10) {
+          player.group.position.set(NETHER_START.x, NETHER_START.y + 14, NETHER_START.z);
+          player.velocity.y = 0;
       }
 
       renderHealth();
