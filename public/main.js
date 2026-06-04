@@ -247,6 +247,75 @@ export async function initGame(THREE, gameRendererIntegration){
     return geometry;
   }
   
+  // ── FACE-CULL GEOMETRY ─────────────────────────────────────────────────
+  // Simple 6-neighbor check with no BFS — much faster than createBlockGeometry.
+  // Returns null when all faces exposed (keep BoxGeometry) or all hidden (skip).
+  function createSimpleFaceCulledGeometry(bx, by, bz) {
+    const eR = !blockPositionSet.has(`${bx+1},${by},${bz}`);
+    const eL = !blockPositionSet.has(`${bx-1},${by},${bz}`);
+    const eT = !blockPositionSet.has(`${bx},${by+1},${bz}`);
+    const eB = !blockPositionSet.has(`${bx},${by-1},${bz}`);
+    const eF = !blockPositionSet.has(`${bx},${by},${bz+1}`);
+    const eK = !blockPositionSet.has(`${bx},${by},${bz-1}`);
+    if (!eR && !eL && !eT && !eB && !eF && !eK) return null; // fully enclosed
+    if (eR && eL && eT && eB && eF && eK) return null;        // all exposed — keep BoxGeometry
+
+    const geo = new THREE.BufferGeometry();
+    const verts = [], norms = [], uvs = [], idxs = [];
+    const s = 0.5;
+
+    function addFace(v1, v2, v3, v4, show, nx, ny, nz) {
+      if (!show) return;
+      const si = verts.length / 3;
+      verts.push(...v1, ...v2, ...v3, ...v4);
+      idxs.push(si, si+1, si+2, si, si+2, si+3);
+      for (let i = 0; i < 4; i++) norms.push(nx, ny, nz);
+      uvs.push(0,0, 1,0, 1,1, 0,1);
+    }
+
+    addFace([s,-s,-s],[s,s,-s],[s,s,s],[s,-s,s],     eR, 1,0,0);
+    addFace([-s,-s,s],[-s,s,s],[-s,s,-s],[-s,-s,-s], eL,-1,0,0);
+    addFace([-s,s,-s],[s,s,-s],[s,s,s],[-s,s,s],     eT, 0,1,0);
+    addFace([-s,-s,s],[s,-s,s],[s,-s,-s],[-s,-s,-s], eB, 0,-1,0);
+    addFace([-s,-s,s],[s,-s,s],[s,s,s],[-s,s,s],     eF, 0,0,1);
+    addFace([s,-s,-s],[-s,-s,-s],[-s,s,-s],[s,s,-s], eK, 0,0,-1);
+
+    if (idxs.length === 0) return null;
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+    geo.setAttribute('normal',   new THREE.BufferAttribute(new Float32Array(norms), 3));
+    geo.setAttribute('uv',       new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(idxs), 1));
+    return geo;
+  }
+
+  // Batched geometry rebuild: replaces full BoxGeometry with face-culled meshes.
+  // Processes BATCH blocks per animation frame so gameplay stays smooth.
+  let _geoRebuildId = null;
+  function scheduleGeometryRebuild() {
+    if (_geoRebuildId !== null) { cancelAnimationFrame(_geoRebuildId); _geoRebuildId = null; }
+    rebuildBlockSet();      // Populate blockPositionSet immediately
+    airAccessCache.clear(); // Invalidate stale BFS cache
+
+    const snap = blocks3D.slice();
+    let idx = 0;
+    const BATCH = 400;
+
+    function step() {
+      const end = Math.min(idx + BATCH, snap.length);
+      for (; idx < end; idx++) {
+        const b = snap[idx];
+        if (!b || !b.mesh) continue;
+        const bx = Math.round(b.mesh.position.x);
+        const by = Math.round(b.mesh.position.y);
+        const bz = Math.round(b.mesh.position.z);
+        const ng = createSimpleFaceCulledGeometry(bx, by, bz);
+        if (ng !== null) { b.mesh.geometry.dispose(); b.mesh.geometry = ng; }
+      }
+      _geoRebuildId = idx < snap.length ? requestAnimationFrame(step) : null;
+    }
+    _geoRebuildId = requestAnimationFrame(step);
+  }
+
   let breakingBlock = null;
   let breakingProgress = 0;
   let breakingOverlay = null;
@@ -508,7 +577,13 @@ export async function initGame(THREE, gameRendererIntegration){
   }
   createSeedButton();
 
-  // Skin is applied via applySkin() called from loadBlocks() below.
+  // Load skin from localStorage or fall back to the default skin in playerSkin.js
+  setTimeout(() => {
+    if (typeof window.loadPlayerSkin === 'function') {
+      const skin = window.loadPlayerSkin();
+      if (skin) applySkin(skin);
+    }
+  }, 150);
 
   scene.add(player.group);
 
@@ -1010,6 +1085,9 @@ function updateCamera() {
       // Return portal at spawn
       createNetherSpawnPortal(startX, startY, startZ);
     }
+
+    // Apply face culling to all nether blocks (batched so it doesn't stall gameplay)
+    scheduleGeometryRebuild();
 
     // Spawn player above floor terrain, offset from the return portal position
     player.group.position.set(startX + 8, startY + 16, startZ + 8);
@@ -1775,11 +1853,7 @@ function updateCamera() {
       const bpx = Math.round(newBlock.position.x);
       const bpy = Math.round(newBlock.position.y);
       const bpz = Math.round(newBlock.position.z);
-      const blockAlreadyThere = blocks3D.some(b =>
-        Math.round(b.mesh.position.x) === bpx &&
-        Math.round(b.mesh.position.y) === bpy &&
-        Math.round(b.mesh.position.z) === bpz
-      );
+      const blockAlreadyThere = blockPositionSet.has(`${bpx},${bpy},${bpz}`);
 
       // Check player hitbox - prevent placing blocks where player is standing
       const blockInPlayerHitbox = !playerHitboxManager.canPlaceBlockAt(bpx, bpy, bpz);
@@ -4809,11 +4883,14 @@ function updateCamera() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const skinData = event.target.result;
-        await fetch("/update-skin", {
+        // Persist to localStorage via playerSkin.js helper
+        if (typeof window.savePlayerSkin === 'function') window.savePlayerSkin(skinData);
+        // Also sync to server for multiplayer skin sharing
+        fetch("/update-skin", {
           method: "POST",
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ skin: skinData })
-        });
+        }).catch(() => {});
         applySkin(skinData);
         alert("Skin uploaded and applied!");
       };
