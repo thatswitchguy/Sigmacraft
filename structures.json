@@ -8,7 +8,7 @@
     },
     "rarity": 1,
     "spawnHeight": {
-      "min": 60,
+      "min": 7,
       "max": 80
     },
     "rules": {

@@ -45,7 +45,7 @@
   },
   {
     "id": "strong_dirt_1775861596404",
-    "name": "Strong Dirt",
+    "name": "Chiselled Dirt",
     "type": "3x3",
     "pattern": [
       "stone",
@@ -430,6 +430,60 @@
       null
     ],
     "output": "iron_shovel",
+    "outputCount": 1
+  },
+  {
+    "id": "wooden_sword_1781237612638",
+    "name": "Wooden Sword",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "wooden_planks",
+      null,
+      null,
+      "wooden_planks",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "wooden_sword",
+    "outputCount": 1
+  },
+  {
+    "id": "stone_sword_1781237637938",
+    "name": "Stone Sword",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "cobblestone",
+      null,
+      null,
+      "cobblestone",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "stone_sword",
+    "outputCount": 1
+  },
+  {
+    "id": "iron_sword_1781237706554",
+    "name": "Iron Sword",
+    "type": "3x3",
+    "pattern": [
+      null,
+      "iron",
+      null,
+      null,
+      "iron",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "iron_sword",
     "outputCount": 1
   }
 ]
