@@ -485,5 +485,23 @@
     ],
     "output": "iron_sword",
     "outputCount": 1
+  },
+  {
+    "id": "bread_1781368535572",
+    "name": "Bread",
+    "type": "3x3",
+    "pattern": [
+      null,
+      null,
+      null,
+      "wheat",
+      "wheat",
+      "wheat",
+      null,
+      null,
+      null
+    ],
+    "output": "bread",
+    "outputCount": 2
   }
 ]

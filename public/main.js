@@ -341,7 +341,9 @@ export async function initGame(THREE, gameRendererIntegration){
     health: 20,
     maxHealth: 20,
     peakY: null,
-    invincibleTime: 0
+    invincibleTime: 0,
+    hunger: 10,
+    maxHunger: 10
   };
 
   let uiState = 'playing'; // 'playing', 'paused', 'chat', 'overlay'
@@ -1221,6 +1223,93 @@ function updateCamera() {
     heartsImg.src = '/textures/hearts.png';
   })();
 
+  // Hunger system variables
+  let hungerIconLoaded = false;
+  let hungerIconFull = null;
+  let hungerIconGrey = null;
+  let hungerIconHalf = null;
+  let lastHungerRunTime = 0;
+  let breadEatingStartTime = 0;
+  let isBreadEating = false;
+
+  (function initHungerIcon() {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const frames = 8;
+        const fw = Math.max(1, Math.round(img.width / frames));
+        const fh = img.height;
+
+        hungerIconFull = document.createElement('canvas');
+        hungerIconFull.width = fw; hungerIconFull.height = fh;
+        const hf = hungerIconFull.getContext('2d');
+        hf.drawImage(img, 0, 0, fw, fh, 0, 0, fw, fh);
+
+        hungerIconGrey = document.createElement('canvas');
+        hungerIconGrey.width = fw; hungerIconGrey.height = fh;
+        const hg = hungerIconGrey.getContext('2d');
+        hg.drawImage(hungerIconFull, 0, 0);
+        hg.globalCompositeOperation = 'source-in';
+        hg.fillStyle = '#555555';
+        hg.fillRect(0, 0, fw, fh);
+        hg.globalCompositeOperation = 'source-over';
+
+        hungerIconHalf = document.createElement('canvas');
+        hungerIconHalf.width = fw; hungerIconHalf.height = fh;
+        const hh = hungerIconHalf.getContext('2d');
+        hh.drawImage(hungerIconFull, 0, 0);
+        hh.save();
+        hh.beginPath();
+        hh.rect(Math.ceil(fw / 2), 0, Math.floor(fw / 2), fh);
+        hh.clip();
+        hh.drawImage(hungerIconGrey, 0, 0);
+        hh.restore();
+
+        hungerIconLoaded = true;
+        renderHunger();
+      } catch (e) {
+        console.error('Hunger icon load failed', e);
+      }
+    };
+    img.src = '/textures/hunger.png';
+  })();
+
+  function renderHunger() {
+    const canvas = document.getElementById('hungerCanvas');
+    if (!canvas) return;
+    const h = player.hunger;
+    const ICON = 14;
+    const totalW = 10 * ICON + 9;
+    const totalH = ICON + 2;
+    if (canvas.width !== totalW || canvas.height !== totalH) {
+      canvas.width = totalW;
+      canvas.height = totalH;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < 10; i++) {
+      const x = i * (ICON + 1);
+      const y = 1;
+      const threshold = i + 1;
+      if (hungerIconLoaded && hungerIconFull) {
+        const sw = hungerIconFull.width;
+        const sh = hungerIconFull.height;
+        if (h >= threshold) {
+          ctx.drawImage(hungerIconFull, 0, 0, sw, sh, x, y, ICON, ICON);
+        } else if (h >= threshold - 0.5) {
+          ctx.drawImage(hungerIconHalf, 0, 0, sw, sh, x, y, ICON, ICON);
+        } else {
+          ctx.drawImage(hungerIconGrey, 0, 0, sw, sh, x, y, ICON, ICON);
+        }
+      } else {
+        ctx.fillStyle = h >= threshold ? '#c96e2b' : h >= threshold - 0.5 ? '#8b4010' : '#555555';
+        ctx.fillRect(x + 2, y + 2, ICON - 4, ICON - 4);
+      }
+    }
+  }
+
   // Health rendering function
   function renderHealth() {
     const canvas = document.getElementById('healthCanvas');
@@ -1923,6 +2012,13 @@ function updateCamera() {
       }
       
       if (!slot || !slot.type || slot.count <= 0) return;
+
+      // Bread eating: hold right-click for 1 second to eat
+      if (slot.type === "bread" && e.button === 2) {
+        isBreadEating = true;
+        breadEatingStartTime = performance.now();
+        return;
+      }
       
       const blockName = slot.type;
       const mat = blockMaterials[blockName];
@@ -1970,6 +2066,7 @@ function updateCamera() {
   });
 
   window.addEventListener("mouseup", e => {
+    if (e.button === 2) { isBreadEating = false; }
     if (e.button === 0) {
       isMouseDown = false;
       // Mining stops when mouse is released, but animation continues until block breaks
@@ -2009,6 +2106,9 @@ function updateCamera() {
       breakingBlock = null;
       breakingProgress = 0;
       removeBreakingOverlay();
+      // Drain hunger on mine
+      player.hunger = Math.max(0, player.hunger - 0.2);
+      renderHunger();
 
       obj.visible = false;
       scene.remove(obj);
@@ -8797,13 +8897,27 @@ updateBreaking();
       updateBlockDrops(delta);
       updateGrowingSeeds();
 
+      // Bread eating: complete after 1 second of holding right-click
+      if (isBreadEating && now - breadEatingStartTime >= 1000) {
+          isBreadEating = false;
+          const eatSlot = player.inventory[player.selectedSlot];
+          if (eatSlot && eatSlot.type === "bread" && eatSlot.count > 0) {
+              eatSlot.count--;
+              if (eatSlot.count <= 0) eatSlot.type = null;
+              player.hunger = Math.min(player.maxHunger, player.hunger + 5);
+              renderHunger();
+              updateHotbarUI();
+          } else {
+              isBreadEating = false;
+          }
+      }
+
       // Healing system - heal 0.5 hearts (1 damage point) every second
       if (now - lastHealTime >= 1000) {
-          if (player.health < player.maxHealth && player.onGround) {
+          if (player.health < player.maxHealth && player.onGround && player.hunger > 3) {
               if (socket) socket.emit("playerHeal", 1); // only send when multiplayer
               const prev = player.health;
               player.health = Math.min(player.maxHealth, player.health + 1);
-              console.log('Player healed', 1, 'health', prev, '->', player.health);
               renderHealth();
           }
           lastHealTime = now;
@@ -9033,7 +9147,16 @@ updateBreaking();
           return true;
       }
 
+      // Cannot sprint when too hungry
+      if (player.hunger <= 3) player.isRunning = false;
+
       if (moveDir.lengthSq() > 0) {
+          // Drain hunger while running
+          if (player.isRunning && now - lastHungerRunTime >= 500) {
+              player.hunger = Math.max(0, player.hunger - 0.2);
+              renderHunger();
+              lastHungerRunTime = now;
+          }
           // Reduce movement speed while sneaking, increase while running
           const speedBase = player.isRunning ? SPEED * 1.3 : SPEED;
           const speedMul = player.isSneaking ? 0.3 : 1.0;
@@ -9117,6 +9240,9 @@ updateBreaking();
           player.velocity.y = JUMP;
           player.onGround = false;
           player.peakY = player.group.position.y; // Record peak at jump start
+          // Drain hunger on jump
+          player.hunger = Math.max(0, player.hunger - 0.2);
+          renderHunger();
       }
       
       // Reduce invincibility time
@@ -9140,6 +9266,7 @@ updateBreaking();
       }
 
       renderHealth();
+      renderHunger();
       
       // Check if player is dead and show death screen
       if (player.health <= 0) {

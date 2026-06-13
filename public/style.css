@@ -741,7 +741,17 @@ select, input[type="color"], button, input {
   transform: none;
   z-index: 101;
   background: transparent;
-  image-rendering: auto; /* allow smoothing for scaled hearts */
+  image-rendering: auto;
+  pointer-events: none;
+}
+
+#hotbar #hungerCanvas {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 6px;
+  z-index: 101;
+  background: transparent;
+  image-rendering: pixelated;
   pointer-events: none;
 }
 
