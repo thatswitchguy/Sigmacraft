@@ -8882,20 +8882,32 @@ function updateCamera() {
           // Line-of-sight occlusion: ray-march from player eye to block center;
           // if a solid block intercepts the ray first, this block is not visible.
           if (distSq > 4) {
+              // DDA voxel traversal — visits every voxel the ray crosses, no gaps
               const ex = playerPos.x, ey = playerPos.y + 1.7, ez = playerPos.z;
-              const rdx = bx - ex, rdy = by - ey, rdz = bz - ez;
-              const rdist = Math.sqrt(rdx * rdx + rdy * rdy + rdz * rdz);
-              const rnx = rdx / rdist, rny = rdy / rdist, rnz = rdz / rdist;
+              const dx = bx - ex, dy = by - ey, dz = bz - ez;
+              const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
+              const rdist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+              const sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1, sz = dz >= 0 ? 1 : -1;
+              let vx = Math.round(ex), vy = Math.round(ey), vz = Math.round(ez);
+              const tDX = adx > 0 ? rdist / adx : Infinity;
+              const tDY = ady > 0 ? rdist / ady : Infinity;
+              const tDZ = adz > 0 ? rdist / adz : Infinity;
+              let tMX = adx > 0 ? ((vx + sx * 0.5) - ex) / dx * rdist : Infinity;
+              let tMY = ady > 0 ? ((vy + sy * 0.5) - ey) / dy * rdist : Infinity;
+              let tMZ = adz > 0 ? ((vz + sz * 0.5) - ez) / dz * rdist : Infinity;
               let occluded = false;
-              for (let s = 1.2; s < rdist - 0.5; s += 0.85) {
-                  const ix = Math.round(ex + rnx * s);
-                  const iy = Math.round(ey + rny * s);
-                  const iz = Math.round(ez + rnz * s);
-                  if (ix === bx && iy === by && iz === bz) break;
-                  const rkey = `${ix},${iy},${iz}`;
+              for (let step = 0; step < 64; step++) {
+                  if (vx === bx && vy === by && vz === bz) break;
+                  const rkey = `${vx},${vy},${vz}`;
                   if (blockPositionSet.has(rkey) && !transparentBlockSet.has(rkey)) {
-                      occluded = true;
-                      break;
+                      occluded = true; break;
+                  }
+                  if (tMX < tMY) {
+                      if (tMX < tMZ) { vx += sx; tMX += tDX; }
+                      else            { vz += sz; tMZ += tDZ; }
+                  } else {
+                      if (tMY < tMZ) { vy += sy; tMY += tDY; }
+                      else            { vz += sz; tMZ += tDZ; }
                   }
               }
               b.mesh.visible = !occluded;
