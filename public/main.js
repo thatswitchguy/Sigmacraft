@@ -1279,7 +1279,7 @@ function updateCamera() {
     const canvas = document.getElementById('hungerCanvas');
     if (!canvas) return;
     const h = player.hunger;
-    const ICON_H = 22;
+    const ICON_H = 26;
     // Preserve the natural aspect ratio of the sprite frame
     const ICON_W = hungerIconLoaded && hungerIconFull
       ? Math.round(hungerIconFull.width / hungerIconFull.height * ICON_H)
@@ -1297,7 +1297,7 @@ function updateCamera() {
     for (let i = 0; i < 10; i++) {
       const x = i * (ICON_W + GAP);
       const y = 1;
-      const threshold = i + 1;
+      const threshold = 10 - i; // drain left-to-right
       if (hungerIconLoaded && hungerIconFull) {
         const sw = hungerIconFull.width;
         const sh = hungerIconFull.height;
