@@ -8879,42 +8879,7 @@ function updateCamera() {
               return;
           }
 
-          // Line-of-sight occlusion: ray-march from player eye to block center;
-          // if a solid block intercepts the ray first, this block is not visible.
-          if (distSq > 4) {
-              // DDA voxel traversal — visits every voxel the ray crosses, no gaps
-              const ex = playerPos.x, ey = playerPos.y + 1.7, ez = playerPos.z;
-              const dx = bx - ex, dy = by - ey, dz = bz - ez;
-              const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
-              const rdist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-              const sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1, sz = dz >= 0 ? 1 : -1;
-              let vx = Math.round(ex), vy = Math.round(ey), vz = Math.round(ez);
-              const tDX = adx > 0 ? rdist / adx : Infinity;
-              const tDY = ady > 0 ? rdist / ady : Infinity;
-              const tDZ = adz > 0 ? rdist / adz : Infinity;
-              let tMX = adx > 0 ? ((vx + sx * 0.5) - ex) / dx * rdist : Infinity;
-              let tMY = ady > 0 ? ((vy + sy * 0.5) - ey) / dy * rdist : Infinity;
-              let tMZ = adz > 0 ? ((vz + sz * 0.5) - ez) / dz * rdist : Infinity;
-              let occluded = false;
-              for (let step = 0; step < 64; step++) {
-                  // Stop 1 voxel short so neighbours never occlude each other
-                  if (Math.abs(vx-bx) + Math.abs(vy-by) + Math.abs(vz-bz) <= 1) break;
-                  const rkey = `${vx},${vy},${vz}`;
-                  if (blockPositionSet.has(rkey) && !transparentBlockSet.has(rkey)) {
-                      occluded = true; break;
-                  }
-                  if (tMX < tMY) {
-                      if (tMX < tMZ) { vx += sx; tMX += tDX; }
-                      else            { vz += sz; tMZ += tDZ; }
-                  } else {
-                      if (tMY < tMZ) { vy += sy; tMY += tDY; }
-                      else            { vz += sz; tMZ += tDZ; }
-                  }
-              }
-              b.mesh.visible = !occluded;
-          } else {
-              b.mesh.visible = true;
-          }
+          b.mesh.visible = true;
           
           // LOD optimization: Reduce shadow precision for distant blocks
           if (distSq > (renderDist * 0.75) * (renderDist * 0.75)) {
