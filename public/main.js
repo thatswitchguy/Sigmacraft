@@ -8874,7 +8874,34 @@ function updateCamera() {
           const p = b.mesh.position;
           tempBox.min.set(p.x - 0.5, p.y - 0.5, p.z - 0.5);
           tempBox.max.set(p.x + 0.5, p.y + 0.5, p.z + 0.5);
-          b.mesh.visible = viewFrustum.intersectsBox(tempBox);
+          if (!viewFrustum.intersectsBox(tempBox)) {
+              b.mesh.visible = false;
+              return;
+          }
+
+          // Line-of-sight occlusion: ray-march from player eye to block center;
+          // if a solid block intercepts the ray first, this block is not visible.
+          if (distSq > 4) {
+              const ex = playerPos.x, ey = playerPos.y + 1.7, ez = playerPos.z;
+              const rdx = bx - ex, rdy = by - ey, rdz = bz - ez;
+              const rdist = Math.sqrt(rdx * rdx + rdy * rdy + rdz * rdz);
+              const rnx = rdx / rdist, rny = rdy / rdist, rnz = rdz / rdist;
+              let occluded = false;
+              for (let s = 1.2; s < rdist - 0.5; s += 0.85) {
+                  const ix = Math.round(ex + rnx * s);
+                  const iy = Math.round(ey + rny * s);
+                  const iz = Math.round(ez + rnz * s);
+                  if (ix === bx && iy === by && iz === bz) break;
+                  const rkey = `${ix},${iy},${iz}`;
+                  if (blockPositionSet.has(rkey) && !transparentBlockSet.has(rkey)) {
+                      occluded = true;
+                      break;
+                  }
+              }
+              b.mesh.visible = !occluded;
+          } else {
+              b.mesh.visible = true;
+          }
           
           // LOD optimization: Reduce shadow precision for distant blocks
           if (distSq > (renderDist * 0.75) * (renderDist * 0.75)) {
