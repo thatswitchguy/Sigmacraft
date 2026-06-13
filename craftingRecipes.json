@@ -503,5 +503,23 @@
     ],
     "output": "bread",
     "outputCount": 2
+  },
+  {
+    "id": "wooden_hoe_1781371099823",
+    "name": "Wooden Hoe",
+    "type": "3x3",
+    "pattern": [
+      "wooden_planks",
+      "wooden_planks",
+      null,
+      null,
+      "stick",
+      null,
+      null,
+      "stick",
+      null
+    ],
+    "output": "wooden_hoe",
+    "outputCount": 1
   }
 ]

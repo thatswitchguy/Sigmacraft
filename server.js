@@ -511,6 +511,7 @@ app.post("/delete-structure", (req, res) => {
 });
 
 const CRAFTING_FILE = path.join(process.cwd(), "craftingRecipes.json");
+const FURNACE_RECIPES_FILE = path.join(process.cwd(), "furnaceRecipes.json");
 
 function loadTools() {
     try { return JSON.parse(fs.readFileSync(TOOL_FILE)); } catch(e) { return {}; }
@@ -613,6 +614,23 @@ app.post("/delete-recipe", (req, res) => {
     const data = loadRecipes().filter(r => r.id !== id);
     fs.writeFileSync(CRAFTING_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
+});
+
+function loadFurnaceRecipes() {
+    try { return JSON.parse(fs.readFileSync(FURNACE_RECIPES_FILE)); } catch(e) { return {}; }
+}
+
+app.get("/furnace-recipes", (req, res) => res.json(loadFurnaceRecipes()));
+
+app.post("/save-furnace-recipes", (req, res) => {
+    try {
+        const recipes = req.body;
+        if (typeof recipes !== "object" || Array.isArray(recipes)) return res.status(400).json({ success: false });
+        fs.writeFileSync(FURNACE_RECIPES_FILE, JSON.stringify(recipes, null, 2));
+        res.json({ success: true });
+    } catch(e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

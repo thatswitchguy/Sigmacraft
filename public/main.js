@@ -6269,13 +6269,20 @@ function updateCamera() {
     recipes: {} // { inputType: outputType }
   };
 
-  // Persist recipes across reloads.
-  try {
-    const saved = JSON.parse(localStorage.getItem("furnaceRecipes") || "null");
-    if (saved && typeof saved === "object") furnaceDevSettings.recipes = saved;
-  } catch(_) {}
+  // Persist recipes in furnaceRecipes.json via server.
+  fetch("/furnace-recipes").then(r => r.json()).then(data => {
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      furnaceDevSettings.recipes = data;
+      renderFurnaceRecipesList();
+    }
+  }).catch(() => {});
+
   function saveFurnaceRecipes() {
-    try { localStorage.setItem("furnaceRecipes", JSON.stringify(furnaceDevSettings.recipes)); } catch(_) {}
+    fetch("/save-furnace-recipes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(furnaceDevSettings.recipes)
+    }).catch(() => {});
   }
 
   // Build the option list of every block / tool / item the user can pick from.
@@ -8368,6 +8375,25 @@ function updateCamera() {
     }
   }
 
+  // Returns the display name for any block/tool/item id
+  function getFurnaceItemName(type) {
+    if (!type) return "";
+    return blockTypes[type]?.name || toolTypes[type]?.name || itemsData[type]?.name || type;
+  }
+
+  // Creates an icon canvas for any block, tool, or item id
+  function createAnyIcon(type) {
+    if (!type) return null;
+    return createBlockIcon(type) || createToolIcon(type) || createItemIcon(type);
+  }
+
+  // Attaches tooltip events to a furnace slot element
+  function attachFurnaceTooltip(el, type) {
+    el.onmouseenter = (e) => { if (type) showTooltip(e, getFurnaceItemName(type)); };
+    el.onmousemove  = (e) => { if (type) updateTooltipPos(e); };
+    el.onmouseleave = () => hideTooltip();
+  }
+
   function renderFurnaceSlots() {
     renderFurnaceSlot("furnaceSlotBottom", furnaceSlotFuel);
     renderFurnaceSlot("furnaceSlotTop", furnaceSlotInput);
@@ -8379,7 +8405,7 @@ function updateCamera() {
     if (!slot) return;
     slot.innerHTML = "";
     if (slotData && slotData.type && slotData.count > 0) {
-      const icon = createBlockIcon(slotData.type) || createToolIcon(slotData.type);
+      const icon = createAnyIcon(slotData.type);
       if (icon) {
         icon.style.width = "100%";
         icon.style.height = "100%";
@@ -8394,9 +8420,10 @@ function updateCamera() {
       }
     }
 
-    // Setup click handler
+    // Setup click + tooltip
     const slotType = elementId === "furnaceSlotBottom" ? "fuel" : "input";
     slot.onclick = (e) => handleFurnaceSlotClick(e, slotType);
+    attachFurnaceTooltip(slot, slotData?.type);
   }
 
   function renderFurnaceOutput() {
@@ -8404,7 +8431,7 @@ function updateCamera() {
     if (!output) return;
     output.innerHTML = "";
     if (furnaceSlotOutput && furnaceSlotOutput.type) {
-      const icon = createBlockIcon(furnaceSlotOutput.type) || createToolIcon(furnaceSlotOutput.type);
+      const icon = createAnyIcon(furnaceSlotOutput.type);
       if (icon) output.appendChild(icon);
       if (furnaceSlotOutput.count > 1) {
         const count = document.createElement("div");
@@ -8412,6 +8439,10 @@ function updateCamera() {
         count.textContent = furnaceSlotOutput.count;
         output.appendChild(count);
       }
+      attachFurnaceTooltip(output, furnaceSlotOutput.type);
+    } else {
+      output.onmouseenter = null;
+      output.onmouseleave = null;
     }
     output.onclick = () => {
       if (furnaceSlotOutput.type && furnaceSlotOutput.count > 0) {
@@ -8454,7 +8485,7 @@ function updateCamera() {
         
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
-        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        const icon = createAnyIcon(player.draggedItem.type);
         if (icon) dragEl.appendChild(icon);
         if (player.draggedItem.count > 1) {
           const countEl = document.createElement("div");
@@ -8540,7 +8571,7 @@ function updateCamera() {
       slot.className = "slot";
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        const icon = createAnyIcon(item.type);
         if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
@@ -8548,6 +8579,7 @@ function updateCamera() {
           count.textContent = item.count;
           slot.appendChild(count);
         }
+        attachFurnaceTooltip(slot, item.type);
       }
       slot.onclick = (e) => handleFurnaceInventoryClick(e, i);
       grid.appendChild(slot);
@@ -8564,7 +8596,7 @@ function updateCamera() {
       if (i === player.selectedSlot) slot.classList.add("selected");
       const item = player.inventory[i];
       if (item && item.type) {
-        const icon = createBlockIcon(item.type) || createToolIcon(item.type);
+        const icon = createAnyIcon(item.type);
         if (icon) slot.appendChild(icon);
         if (item.count > 1) {
           const count = document.createElement("div");
@@ -8572,6 +8604,7 @@ function updateCamera() {
           count.textContent = item.count;
           slot.appendChild(count);
         }
+        attachFurnaceTooltip(slot, item.type);
       }
       slot.onclick = (e) => handleFurnaceInventoryClick(e, i);
       hotbar.appendChild(slot);
@@ -8585,7 +8618,7 @@ function updateCamera() {
         player.inventory[idx] = { type: null, count: 0 };
         const dragEl = document.createElement("div");
         dragEl.id = "dragged-item";
-        const icon = createBlockIcon(player.draggedItem.type) || createToolIcon(player.draggedItem.type);
+        const icon = createAnyIcon(player.draggedItem.type);
         if (icon) dragEl.appendChild(icon);
         if (player.draggedItem.count > 1) {
           const countEl = document.createElement("div");
