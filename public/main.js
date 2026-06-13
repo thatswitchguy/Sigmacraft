@@ -2112,7 +2112,7 @@ function updateCamera() {
       breakingProgress = 0;
       removeBreakingOverlay();
       // Drain hunger on mine
-      player.hunger = Math.max(0, player.hunger - 0.2);
+      player.hunger = Math.max(0, player.hunger - 0.02);
       renderHunger();
 
       obj.visible = false;
@@ -9158,7 +9158,7 @@ updateBreaking();
       if (moveDir.lengthSq() > 0) {
           // Drain hunger while running
           if (player.isRunning && now - lastHungerRunTime >= 500) {
-              player.hunger = Math.max(0, player.hunger - 0.2);
+              player.hunger = Math.max(0, player.hunger - 0.02);
               renderHunger();
               lastHungerRunTime = now;
           }
@@ -9246,7 +9246,7 @@ updateBreaking();
           player.onGround = false;
           player.peakY = player.group.position.y; // Record peak at jump start
           // Drain hunger on jump
-          player.hunger = Math.max(0, player.hunger - 0.2);
+          player.hunger = Math.max(0, player.hunger - 0.02);
           renderHunger();
       }
       
