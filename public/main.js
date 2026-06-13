@@ -366,19 +366,17 @@ export async function initGame(THREE, gameRendererIntegration){
   // without affecting the shared skin material used by the third-person arms,
   // head, and remote players.
   const fpHandGroup = new THREE.Group();
-  const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3), skinMat.clone());
-  fpHand.position.set(0.5, -0.4, -0.6);
-  fpHand.rotation.x = -0.4;
+  const fpHand = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.65, 0.28), skinMat.clone());
+  fpHand.position.set(0.62, -0.6, -0.7);
+  fpHand.rotation.set(0.55, -0.05, 0.12);
   fpHandGroup.add(fpHand);
   
   // First person item: different geometry for blocks vs tools/items
-  // Block item (normal 3D cube) - BIGGER
-  const fpBlockItemGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
-  // Tool/Item (flat) - BIGGER
-  const fpToolItemGeometry = new THREE.PlaneGeometry(0.6, 0.6);
+  const fpBlockItemGeometry = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+  const fpToolItemGeometry = new THREE.PlaneGeometry(0.7, 0.7);
   const fpItem = new THREE.Mesh(fpBlockItemGeometry, new THREE.MeshStandardMaterial({color: 0xffffff}));
-  fpItem.position.set(0.6, -0.3, -0.9);
-  fpItem.rotation.set(0, 0, 0); // Top of block faces towards player
+  fpItem.position.set(0.55, -0.28, -0.88);
+  fpItem.rotation.set(0, 0, 0);
   fpItem.visible = false;
   fpHandGroup.add(fpItem);
   
@@ -5147,13 +5145,15 @@ function updateCamera() {
         if (isBlock) {
           player.fp.item.geometry = player.fp.blockGeometry;
           player.tpItem.geometry = player.tp.blockGeometry;
-          // Blocks show all sides - rotated to display nicely
-          player.fp.item.rotation.set(0.5, 0.7, 0.3);
+          // Block held in hand — isometric tilt to show top + two side faces
+          player.fp.item.rotation.set(0.4, 0.75, 0.2);
+          player.fp.item.position.set(0.48, -0.22, -0.88);
         } else if (isTool) {
           player.fp.item.geometry = player.fp.toolGeometry;
           player.tpItem.geometry = player.tp.toolGeometry;
-          // Tools are straight up
-          player.fp.item.rotation.set(0, 0, 0);
+          // Tool gripped diagonally — handle at lower-right, tip toward upper-left
+          player.fp.item.rotation.set(-0.15, 0.05, 0.72);
+          player.fp.item.position.set(0.5, -0.22, -0.88);
         }
         
         player.fp.item.visible = player.cameraMode === 0;
