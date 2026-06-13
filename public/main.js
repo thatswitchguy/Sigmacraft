@@ -320,6 +320,7 @@ export async function initGame(THREE, gameRendererIntegration){
   let breakingProgress = 0;
   let breakingOverlay = null;
   const blockDrops = [];
+  const growingSeedsTimers = new Map();
 
 
   const player = { 
@@ -1511,6 +1512,10 @@ function updateCamera() {
   }
 
   function createBlockDrop(position, blockType) {
+    // Leaves have a small chance to drop seeds
+    if ((blockType === "leaves" || blockType === "pointy_leaves") && Math.random() < 0.1) {
+      blockType = "seeds";
+    }
     // Use custom drop mapping if defined, otherwise drop the block itself
     const mapped = Object.prototype.hasOwnProperty.call(blockDrops_mapping, blockType)
       ? blockDrops_mapping[blockType] : blockType;
@@ -1581,6 +1586,44 @@ function updateCamera() {
       }
     }
     return foundY === -Infinity ? -100 : foundY + 0.5;
+  }
+
+  function updateGrowingSeeds() {
+    const now = Date.now();
+    const GROW_TIME = 120000;
+    for (const [key, startTime] of growingSeedsTimers) {
+      if (now - startTime >= GROW_TIME) {
+        growingSeedsTimers.delete(key);
+        const parts = key.split(",");
+        const gx = Number(parts[0]);
+        const gy = Number(parts[1]);
+        const gz = Number(parts[2]);
+        const blockIdx = blocks3D.findIndex(b =>
+          Math.round(b.mesh.position.x) === gx &&
+          Math.round(b.mesh.position.y) === gy &&
+          Math.round(b.mesh.position.z) === gz &&
+          b.type === "growing_seeds"
+        );
+        if (blockIdx !== -1) {
+          const oldBlock = blocks3D[blockIdx];
+          scene.remove(oldBlock.mesh);
+          blocks3D.splice(blockIdx, 1);
+          occlusionDirty = true;
+          const grownMat = blockMaterials["grown_seeds"];
+          if (grownMat) {
+            const grownMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), Array.isArray(grownMat) ? grownMat.map(m => m.clone()) : grownMat.clone());
+            grownMesh.position.set(gx, gy, gz);
+            scene.add(grownMesh);
+            blocks3D.push({ mesh: grownMesh, type: "grown_seeds", pos: { x: gx, y: gy, z: gz } });
+            occlusionDirty = true;
+            if (socket) {
+              socket.emit("blockBreak", { pos: { x: gx, y: gy, z: gz } });
+              socket.emit("blockPlace", { pos: { x: gx, y: gy, z: gz }, type: "grown_seeds" });
+            }
+          }
+        }
+      }
+    }
   }
 
   function updateBlockDrops(delta) {
@@ -1830,12 +1873,64 @@ function updateCamera() {
         addChatMessage("No valid portal frame found.");
         return;
       }
+
+      // Hoe on grass/dirt → farmland
+      if (slot && slot.type && toolTypes[slot.type]?.values?.includes("is-hoe") && hitBlock && (hitBlock.type === "grass" || hitBlock.type === "dirt") && e.button === 2) {
+        const hx = Math.round(hitBlock.mesh.position.x);
+        const hy = Math.round(hitBlock.mesh.position.y);
+        const hz = Math.round(hitBlock.mesh.position.z);
+        const farmMat = blockMaterials["farmland"];
+        if (farmMat) {
+          scene.remove(hitBlock.mesh);
+          const bidx = blocks3D.findIndex(b => b.mesh === hitBlock.mesh);
+          if (bidx !== -1) { blocks3D.splice(bidx, 1); occlusionDirty = true; }
+          const farmMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), Array.isArray(farmMat) ? farmMat.map(m => m.clone()) : farmMat.clone());
+          farmMesh.position.set(hx, hy, hz);
+          scene.add(farmMesh);
+          blocks3D.push({ mesh: farmMesh, type: "farmland", pos: { x: hx, y: hy, z: hz } });
+          occlusionDirty = true;
+          if (socket) {
+            socket.emit("blockBreak", { pos: { x: hx, y: hy, z: hz } });
+            socket.emit("blockPlace", { pos: { x: hx, y: hy, z: hz }, type: "farmland" });
+          }
+        }
+        return;
+      }
+
+      // Seeds on farmland → place growing_seeds on top
+      if (slot && slot.type === "seeds" && hitBlock && hitBlock.type === "farmland" && e.button === 2) {
+        const fx = Math.round(hitBlock.mesh.position.x);
+        const fy = Math.round(hitBlock.mesh.position.y) + 1;
+        const fz = Math.round(hitBlock.mesh.position.z);
+        if (!blockPositionSet.has(`${fx},${fy},${fz}`)) {
+          const growMat = blockMaterials["growing_seeds"];
+          if (growMat) {
+            const growMesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), Array.isArray(growMat) ? growMat.map(m => m.clone()) : growMat.clone());
+            growMesh.position.set(fx, fy, fz);
+            scene.add(growMesh);
+            blocks3D.push({ mesh: growMesh, type: "growing_seeds", pos: { x: fx, y: fy, z: fz } });
+            occlusionDirty = true;
+            slot.count--;
+            if (slot.count <= 0) slot.type = null;
+            updateHotbarUI();
+            growingSeedsTimers.set(`${fx},${fy},${fz}`, Date.now());
+            if (socket) {
+              socket.emit("blockPlace", { pos: { x: fx, y: fy, z: fz }, type: "growing_seeds" });
+            }
+          }
+        }
+        return;
+      }
       
       if (!slot || !slot.type || slot.count <= 0) return;
       
       const blockName = slot.type;
       const mat = blockMaterials[blockName];
       if (!mat) return;
+      // growing_seeds and grown_seeds can only be placed on farmland
+      if (blockName === "growing_seeds" || blockName === "grown_seeds") {
+        if (!hitBlock || hitBlock.type !== "farmland") return;
+      }
       const placement = hitBlock
         ? { position: hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5)), normal: hit.face.normal }
         : findVoidPlacementTarget(raycaster.ray.origin, raycaster.ray.direction);
@@ -8700,6 +8795,7 @@ function updateCamera() {
 
 updateBreaking();
       updateBlockDrops(delta);
+      updateGrowingSeeds();
 
       // Healing system - heal 0.5 hearts (1 damage point) every second
       if (now - lastHealTime >= 1000) {

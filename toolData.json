@@ -4216,6 +4216,7 @@
       "#8B4513",
       "#8B4513"
     ],
-    "breakMultipliers": {}
+    "breakMultipliers": {},
+    "values": ["is-hoe"]
   }
 }
