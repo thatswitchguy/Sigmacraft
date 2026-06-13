@@ -8,5 +8,6 @@
   "wooden_planks": 1.5,
   "leaves": 0.2,
   "bedrock": -1,
-  "obsidian": 30
+  "obsidian": 30,
+  "grown_seeds": 0.1
 }
