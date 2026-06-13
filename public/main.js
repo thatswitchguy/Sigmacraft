@@ -1279,9 +1279,14 @@ function updateCamera() {
     const canvas = document.getElementById('hungerCanvas');
     if (!canvas) return;
     const h = player.hunger;
-    const ICON = 14;
-    const totalW = 10 * ICON + 9;
-    const totalH = ICON + 2;
+    const ICON_H = 22;
+    // Preserve the natural aspect ratio of the sprite frame
+    const ICON_W = hungerIconLoaded && hungerIconFull
+      ? Math.round(hungerIconFull.width / hungerIconFull.height * ICON_H)
+      : ICON_H;
+    const GAP = 1;
+    const totalW = 10 * ICON_W + 9 * GAP;
+    const totalH = ICON_H + 2;
     if (canvas.width !== totalW || canvas.height !== totalH) {
       canvas.width = totalW;
       canvas.height = totalH;
@@ -1290,22 +1295,22 @@ function updateCamera() {
     ctx.imageSmoothingEnabled = true;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < 10; i++) {
-      const x = i * (ICON + 1);
+      const x = i * (ICON_W + GAP);
       const y = 1;
       const threshold = i + 1;
       if (hungerIconLoaded && hungerIconFull) {
         const sw = hungerIconFull.width;
         const sh = hungerIconFull.height;
         if (h >= threshold) {
-          ctx.drawImage(hungerIconFull, 0, 0, sw, sh, x, y, ICON, ICON);
+          ctx.drawImage(hungerIconFull, 0, 0, sw, sh, x, y, ICON_W, ICON_H);
         } else if (h >= threshold - 0.5) {
-          ctx.drawImage(hungerIconHalf, 0, 0, sw, sh, x, y, ICON, ICON);
+          ctx.drawImage(hungerIconHalf, 0, 0, sw, sh, x, y, ICON_W, ICON_H);
         } else {
-          ctx.drawImage(hungerIconGrey, 0, 0, sw, sh, x, y, ICON, ICON);
+          ctx.drawImage(hungerIconGrey, 0, 0, sw, sh, x, y, ICON_W, ICON_H);
         }
       } else {
         ctx.fillStyle = h >= threshold ? '#c96e2b' : h >= threshold - 0.5 ? '#8b4010' : '#555555';
-        ctx.fillRect(x + 2, y + 2, ICON - 4, ICON - 4);
+        ctx.fillRect(x + 2, y + 2, ICON_W - 4, ICON_H - 4);
       }
     }
   }
