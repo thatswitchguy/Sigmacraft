@@ -8897,7 +8897,8 @@ function updateCamera() {
               let tMZ = adz > 0 ? ((vz + sz * 0.5) - ez) / dz * rdist : Infinity;
               let occluded = false;
               for (let step = 0; step < 64; step++) {
-                  if (vx === bx && vy === by && vz === bz) break;
+                  // Stop 1 voxel short so neighbours never occlude each other
+                  if (Math.abs(vx-bx) + Math.abs(vy-by) + Math.abs(vz-bz) <= 1) break;
                   const rkey = `${vx},${vy},${vz}`;
                   if (blockPositionSet.has(rkey) && !transparentBlockSet.has(rkey)) {
                       occluded = true; break;
