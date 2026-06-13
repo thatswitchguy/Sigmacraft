@@ -4217,8 +4217,8 @@
       "#000000"
     ],
     "breakMultipliers": {
-      "Lamp": 1,
-      "dirt": 1,
+      "Lamp": 2,
+      "dirt": 2,
       "grass": 1,
       "bedrock": 1,
       "stone": 1,
@@ -4238,7 +4238,7 @@
       "diamond_ore": 1,
       "netherrack": 1,
       "obsidian": 1,
-      "farmland": 1,
+      "farmland": 2,
       "grown_seeds": 5,
       "growing_seeds": 5
     },

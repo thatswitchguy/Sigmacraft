@@ -17,6 +17,7 @@ Published link » <kbd>[Here](https://sigmacraft.onrender.com)</kbd>
 - Sneaking (player movement model, not yet done)
 - Trees
 - Health system
+- Hunger system
 
 ## Controls
 
@@ -30,6 +31,7 @@ Published link » <kbd>[Here](https://sigmacraft.onrender.com)</kbd>
 - Q - Drop Item
 - Shift + Q - Drop Stack
 - E - Inventory
+- Hold right click with food - Eat
 - Click once on item slot in Inventory - Pick up/hold
 - Click down again on item slot - Put down/drop
 - Shift+Click down on item slot while holding a stack of items more than 2 - Place one from stack
