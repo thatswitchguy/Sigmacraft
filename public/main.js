@@ -1281,7 +1281,7 @@ function updateCamera() {
     if (!canvas) return;
     const h = player.hunger;
     const ICON_H = 22;
-    const ICON_W = ICON_H; // square icons — sprite frames include whitespace so use fixed size
+    const ICON_W = 22; // square icons — sprite frames include whitespace so use fixed size
     const GAP = 0;
     const totalW = 10 * ICON_W;
     const totalH = ICON_H + 2;
