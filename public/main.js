@@ -1258,12 +1258,13 @@ function updateCamera() {
         hungerIconHalf = document.createElement('canvas');
         hungerIconHalf.width = fw; hungerIconHalf.height = fh;
         const hh = hungerIconHalf.getContext('2d');
-        hh.drawImage(hungerIconFull, 0, 0);
+        // Left half = grey (drained), right half = colored (remaining) — matches left-to-right drain
+        hh.drawImage(hungerIconGrey, 0, 0);
         hh.save();
         hh.beginPath();
         hh.rect(Math.ceil(fw / 2), 0, Math.floor(fw / 2), fh);
         hh.clip();
-        hh.drawImage(hungerIconGrey, 0, 0);
+        hh.drawImage(hungerIconFull, 0, 0);
         hh.restore();
 
         hungerIconLoaded = true;
@@ -1284,8 +1285,8 @@ function updateCamera() {
     const ICON_W = hungerIconLoaded && hungerIconFull
       ? Math.round(hungerIconFull.width / hungerIconFull.height * ICON_H)
       : ICON_H;
-    const GAP = 1;
-    const totalW = 10 * ICON_W + 9 * GAP;
+    const GAP = 0;
+    const totalW = 10 * ICON_W;
     const totalH = ICON_H + 2;
     if (canvas.width !== totalW || canvas.height !== totalH) {
       canvas.width = totalW;
@@ -2112,7 +2113,7 @@ function updateCamera() {
       breakingProgress = 0;
       removeBreakingOverlay();
       // Drain hunger on mine
-      player.hunger = Math.max(0, player.hunger - 0.02);
+      player.hunger = Math.max(0, player.hunger - 0.01);
       renderHunger();
 
       obj.visible = false;
@@ -9196,7 +9197,7 @@ updateBreaking();
       if (moveDir.lengthSq() > 0) {
           // Drain hunger while running
           if (player.isRunning && now - lastHungerRunTime >= 500) {
-              player.hunger = Math.max(0, player.hunger - 0.02);
+              player.hunger = Math.max(0, player.hunger - 0.01);
               renderHunger();
               lastHungerRunTime = now;
           }
@@ -9284,7 +9285,7 @@ updateBreaking();
           player.onGround = false;
           player.peakY = player.group.position.y; // Record peak at jump start
           // Drain hunger on jump
-          player.hunger = Math.max(0, player.hunger - 0.02);
+          player.hunger = Math.max(0, player.hunger - 0.01);
           renderHunger();
       }
       
