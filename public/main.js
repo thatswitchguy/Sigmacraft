@@ -1280,11 +1280,8 @@ function updateCamera() {
     const canvas = document.getElementById('hungerCanvas');
     if (!canvas) return;
     const h = player.hunger;
-    const ICON_H = 26;
-    // Preserve the natural aspect ratio of the sprite frame
-    const ICON_W = hungerIconLoaded && hungerIconFull
-      ? Math.round(hungerIconFull.width / hungerIconFull.height * ICON_H)
-      : ICON_H;
+    const ICON_H = 22;
+    const ICON_W = ICON_H; // square icons — sprite frames include whitespace so use fixed size
     const GAP = 0;
     const totalW = 10 * ICON_W;
     const totalH = ICON_H + 2;
@@ -8385,7 +8382,10 @@ function updateCamera() {
   // Creates an icon canvas for any block, tool, or item id
   function createAnyIcon(type) {
     if (!type) return null;
-    return createBlockIcon(type) || createToolIcon(type) || createItemIcon(type);
+    if (blockTypes[type])  return createBlockIcon(type);
+    if (toolTypes[type])   return createToolIcon(type);
+    if (itemsData[type])   return createItemIcon(type);
+    return createBlockIcon(type) || null;
   }
 
   // Attaches tooltip events to a furnace slot element
