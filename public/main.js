@@ -1280,9 +1280,9 @@ function updateCamera() {
     const canvas = document.getElementById('hungerCanvas');
     if (!canvas) return;
     const h = player.hunger;
-    const ICON_H = 22;
-    const ICON_W = 22; // square icons — sprite frames include whitespace so use fixed size
-    const GAP = 0;
+    const ICON_H = 23;
+    const ICON_W = 21; // square icons — sprite frames include whitespace so use fixed size
+    const GAP = -1;
     const totalW = 10 * ICON_W;
     const totalH = ICON_H + 2;
     if (canvas.width !== totalW || canvas.height !== totalH) {
@@ -1293,7 +1293,7 @@ function updateCamera() {
     ctx.imageSmoothingEnabled = true;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < 10; i++) {
-      const x = i * (ICON_W + GAP);
+      const x = i * (ICON_W - 4);
       const y = 1;
       const threshold = 10 - i; // drain left-to-right
       if (hungerIconLoaded && hungerIconFull) {
@@ -9285,7 +9285,7 @@ updateBreaking();
           player.onGround = false;
           player.peakY = player.group.position.y; // Record peak at jump start
           // Drain hunger on jump
-          player.hunger = Math.max(0, player.hunger - 0.01);
+          player.hunger = Math.max(0, player.hunger - 0.003);
           renderHunger();
       }
       
