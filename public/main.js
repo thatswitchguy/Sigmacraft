@@ -8942,7 +8942,7 @@ updateBreaking();
       updateGrowingSeeds();
 
       // Bread eating: complete after 1 second of holding right-click
-      if (isBreadEating && now - breadEatingStartTime >= 1000) {
+      if (isBreadEating && now - breadEatingStartTime >= 10) {
           isBreadEating = false;
           const eatSlot = player.inventory[player.selectedSlot];
           if (eatSlot && eatSlot.type === "bread" && eatSlot.count > 0) {
